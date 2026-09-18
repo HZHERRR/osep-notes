@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy osep-prep docs with minimal edits and inline referenced scripts."""
+"""Build cleaned Chinese textbook pages (no repo paths, no '源码' labels)."""
 from __future__ import annotations
 
 import re
@@ -8,12 +8,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PREP = Path("/Users/barok/Desktop/Project/Certification/OSEP/osep-prep")
-OUT = ROOT / "docs" / "modules"
+OUT = ROOT / "docs" / "zh" / "modules"
 PREP_DOCS = PREP / "docs"
-PREP_SCRIPTS = PREP / "scripts"
 
-HEADER = """::: warning 仅供授权实验与备考学习
-本文是个人备考教材。源码只用于 OSEP 官方实验/考试环境，或你拥有书面授权的目标。禁止对未授权系统使用。
+HEADER = """::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
 """
@@ -23,24 +22,11 @@ DOC_LINK_RE = re.compile(r"`?docs/([0-9]{2}-[a-z0-9-]+)\.md`?")
 H2_RE = re.compile(r"(?=^## )", re.M)
 
 LANG = {
-    ".ps1": "powershell",
-    ".cs": "csharp",
-    ".c": "c",
-    ".cpp": "cpp",
-    ".py": "python",
-    ".sh": "bash",
-    ".vba": "vb",
-    ".hta": "html",
-    ".js": "javascript",
-    ".aspx": "html",
-    ".php": "php",
-    ".jsp": "xml",
-    ".sql": "sql",
-    ".xsl": "xml",
-    ".ics": "text",
-    ".md": "markdown",
-    ".conf": "nginx",
-    ".xml": "xml",
+    ".ps1": "powershell", ".cs": "csharp", ".c": "c", ".cpp": "cpp",
+    ".py": "python", ".sh": "bash", ".vba": "vb", ".hta": "html",
+    ".js": "javascript", ".aspx": "html", ".php": "php", ".jsp": "xml",
+    ".sql": "sql", ".xsl": "xml", ".ics": "text", ".md": "markdown",
+    ".conf": "nginx", ".xml": "xml",
 }
 
 
@@ -58,20 +44,41 @@ def lang_for(path: Path) -> str:
 def rewrite_doc_links(text: str) -> str:
     def repl(m: re.Match) -> str:
         name = m.group(1)
-        raw = m.group(0)
-        if raw.startswith("`"):
-            return f"[`docs/{name}.md`](/modules/{name})"
-        return f"[docs/{name}.md](/modules/{name})"
+        return f"[{name}](/zh/modules/{name})"
 
     return DOC_LINK_RE.sub(repl, text)
+
+
+def scrub(text: str) -> str:
+    text = text.replace("osep-prep/", "").replace("osep-prep", "")
+    text = re.sub(r"/Users/barok[^\s)`\]]*", "", text)
+    text = re.sub(
+        r"\[emmanuelsolis[^\]]*\]\([^)]+\)",
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(r"https?://www\.emmanuelsolis\.com[^\s)]*", "", text)
+    text = re.sub(r"`reference/osep-cheatsheet\.md`", "", text)
+    text = re.sub(r"reference/osep-cheatsheet\.md", "", text)
+    text = re.sub(r"（本地副本：[^\)]*）", "", text)
+    text = re.sub(r"cheat sheet 依据：[^\n]*\n", "", text)
+    text = re.sub(r"> cheat sheet 依据：[^\n]*\n", "", text)
+    text = re.sub(r"来源：`[^`]*`（用户整理的 OSEP 场景表）。\n", "", text)
+    text = re.sub(r"`scripts/([^`]+)`", lambda m: f"`{Path(m.group(1)).name}`", text)
+    text = re.sub(
+        r"(?<![`\w])scripts/([A-Za-z0-9_./-]+\.[A-Za-z0-9]+)",
+        lambda m: Path(m.group(1)).name,
+        text,
+    )
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text
 
 
 def resolve_script(rel: str) -> Path | None:
     rel = rel.strip().lstrip("./")
     p = PREP / rel
-    if p.is_file():
-        return p
-    return None
+    return p if p.is_file() else None
 
 
 def expand_mentions(text: str) -> list[str]:
@@ -83,7 +90,6 @@ def expand_mentions(text: str) -> list[str]:
             continue
         seen.add(rel)
         found.append(rel)
-        # shorthand: `foo-x86.vba` / `-x64.vba`
         if "-x86." in rel:
             alt = rel.replace("-x86.", "-x64.")
             if alt not in seen:
@@ -100,13 +106,10 @@ def expand_mentions(text: str) -> list[str]:
 def render_script(rel: str) -> str:
     path = resolve_script(rel)
     if not path:
-        return f"\n> 源码未找到：`{rel}`\n"
+        return ""
     body = path.read_text(encoding="utf-8", errors="replace")
-    slug = rel.replace("/", "-").replace(".", "-")
-    return (
-        f'\n#### 源码 `{rel}` {{#{slug}}}\n\n'
-        + fence(lang_for(path), body)
-    )
+    slug = path.name.replace(".", "-")
+    return f"\n#### `{path.name}` {{#{slug}}}\n\n" + fence(lang_for(path), body)
 
 
 def inject_section(section: str, already: set[str]) -> str:
@@ -119,16 +122,12 @@ def inject_section(section: str, already: set[str]) -> str:
         already.add(rel)
         blocks.append(render_script(rel))
     insert = "\n" + "".join(blocks)
-    # Prefer right after the 用到的脚本 table / heading
     marker = "**用到的脚本**"
     idx = section.find(marker)
     if idx == -1:
         idx = section.find("### 用到的脚本")
-    if idx == -1:
-        idx = section.find("## 用到的脚本")
     if idx != -1:
         rest = section[idx:]
-        # end of table: blank line after last | row, then non-table
         m = re.search(r"(?:\n\|[^\n]*)+\n", rest)
         if m:
             cut = idx + m.end()
@@ -141,23 +140,16 @@ def transform_doc(src: Path) -> str:
     raw = rewrite_doc_links(raw)
     parts = H2_RE.split(raw)
     already: set[str] = set()
-    # 文首保持原文；源码插在各 H2 节（场景）的「用到的脚本」表后
     out = [parts[0]]
     for part in parts[1:]:
         out.append(inject_section(part, already))
     body = "".join(out)
-    leftover = [r for r in expand_mentions(raw) if resolve_script(r) and r not in already]
+    leftover = [r for r in expand_mentions(src.read_text(encoding="utf-8")) if resolve_script(r) and r not in already]
     if leftover:
-        body += "\n## 其余引用脚本源码\n"
+        body += "\n## 本页其余实验文件\n"
         for rel in leftover:
             body += render_script(rel)
-    return HEADER + body
-
-
-def copy_plain(src: Path, dest: Path, title_prefix: str | None = None) -> None:
-    text = src.read_text(encoding="utf-8")
-    text = rewrite_doc_links(text)
-    dest.write_text(HEADER + text, encoding="utf-8")
+    return HEADER + scrub(body)
 
 
 def main() -> None:
@@ -170,10 +162,11 @@ def main() -> None:
         dest.write_text(transform_doc(md), encoding="utf-8")
         print(f"wrote {dest.relative_to(ROOT)} ({dest.stat().st_size} bytes)")
 
-    copy_plain(PREP / "scenarios.md", ROOT / "docs" / "scenarios.md")
-    copy_plain(PREP / "CONVENTIONS.md", ROOT / "docs" / "conventions.md")
-    copy_plain(PREP / "README.md", ROOT / "docs" / "prep-readme.md")
-    copy_plain(PREP_SCRIPTS / "INDEX.md", ROOT / "docs" / "scripts-index.md")
+    # scenarios → zh
+    sc = (PREP / "scenarios.md").read_text(encoding="utf-8")
+    sc = rewrite_doc_links(sc)
+    sc = scrub(sc)
+    (ROOT / "docs" / "zh" / "scenarios.md").write_text(HEADER + sc, encoding="utf-8")
     print("done")
 
 

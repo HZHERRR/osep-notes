@@ -1,12 +1,8 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 07 — Credentials
-
-If PPL or Credential Guard is on, skip LSASS and take SAM/LSA Secrets/GPP/config files.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
+# 07 · 凭据获取：LSASS / LSA / SAM 与替代来源（场景 46）
 
 > 对齐：（关键词：`Mimikatz` `LSA Protection Bypass` `MiniDump` `Invoke-Mimikatz` `Cracking Hashes`）
 > 场景依据：`scenarios.md` 场景 46。
@@ -27,9 +23,9 @@ LSA Secrets、SAM 或应用配置中取得另一种有用身份。因此本模�
 
 ---
 
-## Scenario 46：凭据工具被拦，且 LSASS 本身受到保护
+## 场景 46：凭据工具被拦，且 LSASS 本身受到保护
 
-### Scenario回顾
+### 场景回顾
 
 - 已取得**较高本地权限**（管理员或 SYSTEM），但 LSASS 访问失败（读取被拒 / 工具被杀 / 注入失败）。
 - 目标：从机器上取得**另一种可用身份**（本地或域用户明文/哈希/票据/DPAPI 材料）。
@@ -43,13 +39,13 @@ LSA Secrets、SAM 或应用配置中取得另一种有用身份。因此本模�
   参考 M06 / M12 提权与横向路线，不要浪费时间硬碰 LSASS。
 - 假设杀软/EDR 可能在进程创建、`OpenProcess`、`.dll` 落地、AMSI 各层拦截（场景 19 行为检测思路同样适用）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 
 - 静态工具：`mimikatz.exe`（x64/x86）、`procdump.exe`、`sekurlsa` 对应驱动（一般不落地）。
 - 内存形态：`Invoke-Mimikatz.ps1`（PowerSploit）与一段反射加载入口——见
   `m07-invoke-mimikatz-reflect.ps1`（含 comsvcs MiniDump 备选，不依赖下载器）。
 - 来源清单脚本：`m07-credential-sources.ps1`（按来源分类 + 所需权限 + 一键收集）。
-- 离线解析环境：装有 mimikatz / secretsdump / hashcat 的attacker box（把 dump 或 hive 拷回分析）。
+- 离线解析环境：装有 mimikatz / secretsdump / hashcat 的攻击机（把 dump 或 hive 拷回分析）。
 - 目标侧速查命令（不落地任何东西就能先看环境）：
 
 ```powershell
@@ -79,7 +75,7 @@ tasklist /FI "IMAGENAME eq lsass.exe"
   （需先把函数载入内存，见脚本反射形态）。
 - B. 官方 dump + 离线分析（留痕最小、最稳）：
   `rundll32 C:\Windows\System32\comsvcs.dll, MiniDump <LSASS_PID> C:\Windows\Temp\ls.dmp full`
-  或 `procdump -ma <LSASS_PID> ls.dmp`；拷回attacker box用 mimikatz `sekurlsa::minidump ls.dmp` 离线解析。
+  或 `procdump -ma <LSASS_PID> ls.dmp`；拷回攻击机用 mimikatz `sekurlsa::minidump ls.dmp` 离线解析。
 - C. .NET 程序集加载（规避落地 EXE 与部分进程创建检测）：把 mimikatz 作为程序集用
   `Assembly.Load` + 反射入口执行（配合 `m07-invoke-mimikatz-reflect.ps1` 的 `-Mode Assembly` 占位）。
 - D. 命令行混淆/编码调用（防 AMSI 静态特征），注意场景 18：先编码/加密再投递。
@@ -103,7 +99,7 @@ tasklist /FI "IMAGENAME eq lsass.exe"
 | GPP | 域组策略首选项密码 | 读 SYSVOL（域用户即可） | `SYSVOL\...\Policies\*\MACHINE\Preferences\Groups\Groups.xml` 的 `cPassword` |
 | 计划任务 | 任务动作里引用的凭据/脚本 | 管理员读注册表 | `schtasks /query /fo LIST /v` + `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache` |
 
-**第 3 步 · 离线破解（可回attacker box做）**
+**第 3 步 · 离线破解（可回攻击机做）**
 
 ```bash
 # NTLM（SAM/LSA Secrets/sekurlsa 产物）
@@ -122,12 +118,12 @@ hashcat -m 2100 dcc2.txt wordlist.txt
 - `m07-credential-sources.ps1` —— 替代来源一键收集（来源分类 + 所需权限）。
 - 均为"按需取用"而不是自动打全场：先看输出决定下一步。
 
-### Verify
+### 验证
 
 - 判型结果与现象一致：PPL 开启时预期 `OpenProcess`/dump 被拒；无保护时 dump 能产生非空文件。
-- SAM/LSA Secrets：在attacker box `secretsdump -sam sam.hive -system sys.hive LOCAL`（或对 hive 跑 mimikatz
+- SAM/LSA Secrets：在攻击机 `secretsdump -sam sam.hive -system sys.hive LOCAL`（或对 hive 跑 mimikatz
   `lsadump::sam /system:sys.hive`）能列出哈希；挑一个 NTLM 用它做一次横向认证（M15）即闭环。
-- LSA Secrets 找到的账户密码：`net use \\TARGET\IPC$ /user:DOMAIN\USER PASS` 或 WinRM 登录Verify。
+- LSA Secrets 找到的账户密码：`net use \\TARGET\IPC$ /user:DOMAIN\USER PASS` 或 WinRM 登录验证。
 - DPAPI/配置文件/GPP：取到的明文能直接认证；GPP 密码用 `gpp-decrypt` 先解 `cPassword`。
 
 ### 失败分支与备选
@@ -139,7 +135,7 @@ hashcat -m 2100 dcc2.txt wordlist.txt
 3. **工具落地被杀 / 进程创建被拦**：改用 comsvcs `MiniDump` 或 .NET 反射形态，避免在目标上写 mimikatz.exe。
 4. **SAM 没本地账户 / LSA Secrets 无可复用密码**：回到配置文件/计划任务/GPP 搜索；域环境优先看 GPP 与
    计划任务里残留的域凭据。
-5. **拿到的哈希是空密码或已失效**：Verify步骤必须"实际认证一次"；不要在无法认证的哈希上继续破解浪费时间。
+5. **拿到的哈希是空密码或已失效**：验证步骤必须"实际认证一次"；不要在无法认证的哈希上继续破解浪费时间。
 
 ### 考试注意 OPSEC
 
@@ -147,7 +143,7 @@ hashcat -m 2100 dcc2.txt wordlist.txt
   EDR 警报。先判型（30 秒），不合适就切替代来源。
 - `reg save` / 大文件拷贝留痕明显：dump 与 hive 用系统目录或已有白名单目录，尽快拷走并清理。
 - mimikatz 与 `Invoke-Mimikatz` 是强静态特征：内存加载形态优先；必要时先编码/加密再投递（场景 18）。
-- 用拿到的身份**实际认证一次**来Verify，但认证失败会锁账户的策略下（如多次尝试域账户密码）要谨慎——
+- 用拿到的身份**实际认证一次**来验证，但认证失败会锁账户的策略下（如多次尝试域账户密码）要谨慎——
   优先用哈希做 pass-the-hash（不触发密码策略），而不是盲目猜测明文。
 - 记录每个来源的权限要求，避免用 SYSTEM 之外上下文白跑（本模块脚本已标注所需权限）。
 
@@ -411,7 +407,7 @@ Write-Output "[*] 解析出的身份用 M15（WinRM 明文/哈希）或 M12（PT
 |---|---|
 | `Mimikatz` | 无 PPL 时的内存执行/离线 minidump 解析（第 1 步） |
 | `LSA Protection Bypass` | 只评估不假定：`RunAsPPL` 判型，PPL 开启默认走替代来源 |
-| `MiniDump` | `rundll32 comsvcs.dll,MiniDump` / procdump + attacker box离线解析 |
+| `MiniDump` | `rundll32 comsvcs.dll,MiniDump` / procdump + 攻击机离线解析 |
 | `Invoke-Mimikatz` | 反射加载形态脚本 `m07-invoke-mimikatz-reflect.ps1` |
 | `Cracking Hashes` | `hashcat -m 1000/2100/5600`（NTLM / DCC2 / NetNTLMv2） |
 

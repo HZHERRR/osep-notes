@@ -1,27 +1,23 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 16 — Calendar invites
+# 16 · ICS 日历邀请触发认证（场景 13）
 
-An invite is not an authentication. Log first, then capture or relay.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> 一句话：知道收件人地址、目标会处理会议邀请、但没有宏执行机会 → 发一个**引用外部资源**的 `.ics` 邀请，诱使日历客户端在解析/渲染/提醒时主动访问我方资源并发起认证；attacker box侧用 Responder 捕获哈希，或用 ntlmrelayx 直接中继到别的 SMB 目标。
+> 一句话：知道收件人地址、目标会处理会议邀请、但没有宏执行机会 → 发一个**引用外部资源**的 `.ics` 邀请，诱使日历客户端在解析/渲染/提醒时主动访问我方资源并发起认证；攻击机侧用 Responder 捕获哈希，或用 ntlmrelayx 直接中继到别的 SMB 目标。
 > 教材第 5 章（Initial Access / 客户端侧）；cheat sheet 关键词：`Relay Attacks`、`Capture Hashes`（见  ~L6207 与 ~L7381）。
 > **核心认知：触发条件取决于日历客户端的版本与配置——"收到邀请 / 被接受" ≠ "会发起认证"。必须先有认证日志证据，再谈后续。**
 
 ---
 
-## Scenario 13：ICS 日历邀请触发认证
+## 场景 13：ICS 日历邀请触发认证
 
 ## 1. 场景回顾
 
 > 来自 `scenarios.md`（场景 13）：目标接受日历邀请，但没有宏执行机会。你知道收件人的地址，目标会处理会议邀请。实验中的日历客户端**可能**访问邀请引用的外部资源，并发起认证。
 > 可提前准备：教材中的 ICS 邀请文件，以及对应的**认证接收和后续处理命令笔记**。
 
-一句话考点：`.ics` 邀请是"触发客户端主动连回attacker box"的载体；`LOCATION`/`DESCRIPTION`/`URL`/`ATTACH` 字段里放 UNC 路径或 URL，客户端处理邀请时可能发起 SMB（`\\LHOST\...`）或 HTTP(S) 请求。认证成功与否、以什么协议回连，全部由客户端行为决定，**不可预设**。
+一句话考点：`.ics` 邀请是"触发客户端主动连回攻击机"的载体；`LOCATION`/`DESCRIPTION`/`URL`/`ATTACH` 字段里放 UNC 路径或 URL，客户端处理邀请时可能发起 SMB（`\\LHOST\...`）或 HTTP(S) 请求。认证成功与否、以什么协议回连，全部由客户端行为决定，**不可预设**。
 
 ---
 
@@ -32,11 +28,11 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 | 已知目标邮箱地址 | 场景直接给 `USER@DOMAIN` | 无法投递，换入口 |
 | 目标会打开/接受日历邀请 | 客户端至少会解析邀请内容 | 见失败分支 1 |
 | 客户端会解析外部引用 | Outlook / OWA / Thunderbird / 苹果日历等对 LOCATION/URL/附件的自动处理行为不同 | 见失败分支 2、3 |
-| 目标可回连attacker box | 认证 = 目标主动连 `LHOST`，出网方向必须可达 | 在目标侧找一个能回连的位置再谈 |
+| 目标可回连攻击机 | 认证 = 目标主动连 `LHOST`，出网方向必须可达 | 在目标侧找一个能回连的位置再谈 |
 | 目标身份有横向价值 | 域用户；哈希可破解/中继 | 哈希只能破解则价值有限，见 §8 |
 | 客户端跑在 Windows | SMB 引用才能触发 NTLM(NLTMv2) 认证 | 非 Windows 客户端通常只抓 HTTP，无认证哈希 |
 
-考试环境默认：attacker box Kali、目标 Windows + AD（域用户）、Outlook/OWA 一类客户端处理邀请。
+考试环境默认：攻击机 Kali、目标 Windows + AD（域用户）、Outlook/OWA 一类客户端处理邀请。
 
 ---
 
@@ -51,13 +47,13 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 
 **实际触发情况高度分散**：Outlook 默认"阻止自动下载图片/外部内容"；不同版本对 LOCATION 里的 UNC 是否解析、是否发 SMB 探测行为不一。因此不要押注单一字段——把**同一份邀请里放多个引用**（SMB + HTTPS token 各一个），让日志告诉你客户端到底碰了哪个。
 
-> 设计原则：SMB 引用是拿认证哈希的主力；HTTP(S) 引用只用来**证明客户端确实在抓取外部内容**（Verify"触发链路通不通"），两者互为探针。
+> 设计原则：SMB 引用是拿认证哈希的主力；HTTP(S) 引用只用来**证明客户端确实在抓取外部内容**（验证"触发链路通不通"），两者互为探针。
 
 ---
 
-## 4. 准备（attacker box侧）
+## 4. 准备（攻击机侧）
 
-基础设施（目录、端口约定）见 [00-environment-and-infra](/modules/00-environment-and-infra)，这里只列场景 13 专属的准备。
+基础设施（目录、端口约定）见 [00-environment-and-infra](/zh/modules/00-environment-and-infra)，这里只列场景 13 专属的准备。
 
 ```bash
 mkdir -p ~/osep/{logs,payloads/infra,loot}
@@ -252,13 +248,13 @@ esac
 | 文件 | 作用 | 何时用 |
 |---|---|---|
 | `m16-ics-invite.ics` | 引用外部资源的邀请模板（LOCATION=UNC、URL/ATTACH=https token、DESCRIPTION 双引用） | 替换占位符后作为邮件附件/inline 投递 |
-| `m16-auth-capture.sh` | Responder 捕获 / ntlmrelayx 中继一键脚本（含端口占用检查、日志落盘、hashcat 提示） | 每次投递前在attacker box启动 |
+| `m16-auth-capture.sh` | Responder 捕获 / ntlmrelayx 中继一键脚本（含端口占用检查、日志落盘、hashcat 提示） | 每次投递前在攻击机启动 |
 
-相关参考：cheat sheet `Relay Attacks`（~L6207）、`Capture Hashes`（~L7381）；哈希后续利用可参考 [07-credentials-lsass](/modules/07-credentials-lsass) 与 [12-ad-attacks](/modules/12-ad-attacks)。
+相关参考：cheat sheet `Relay Attacks`（~L6207）、`Capture Hashes`（~L7381）；哈希后续利用可参考 [07-credentials-lsass](/zh/modules/07-credentials-lsass) 与 [12-ad-attacks](/zh/modules/12-ad-attacks)。
 
 ---
 
-## 7. Verify（收到邀请 ≠ 会认证）
+## 7. 验证（收到邀请 ≠ 会认证）
 
 **唯一可信的"已认证"证据是认证协议日志**，不是"投递成功"或"对方抓了 HTTP 内容"。
 
@@ -270,7 +266,7 @@ esac
 | 只有 SMTP 投递回执，无任何回连 | ❌ 未触发，走失败分支 |
 | 收到认证但用户是无关账户/来源不是目标 | ⚠️ 过滤或重新投递，见失败分支 4 |
 
-Verify节奏建议：投递后**留足观察窗口**（客户端"下次打开/提醒触发"时间不定），同时并行准备别的入口，不要干等。
+验证节奏建议：投递后**留足观察窗口**（客户端"下次打开/提醒触发"时间不定），同时并行准备别的入口，不要干等。
 
 ---
 
@@ -290,7 +286,7 @@ Verify节奏建议：投递后**留足观察窗口**（客户端"下次打开/�
 要点：
 - Net-NTLMv2（hashcat `-m 5600`）只能破解或中继；**不要尝试 PTH**。
 - 中继目标选择：同域、SMB signing 未强制；`crackmapexec smb 网段 --gen-relay-list` 可批量找。
-- 破解词表与规则、PTH 用法见 [07-credentials-lsass](/modules/07-credentials-lsass)。
+- 破解词表与规则、PTH 用法见 [07-credentials-lsass](/zh/modules/07-credentials-lsass)。
 
 ---
 
@@ -311,7 +307,7 @@ Verify节奏建议：投递后**留足观察窗口**（客户端"下次打开/�
 - **发信动作会留痕**：只向明确的目标账户投递，不要群发；邮件主题/内容用合理的业务话术，避免把攻击意图写在正文。
 - **日志纪律**：Responder/中继/HTTP 日志全部落盘到 `~/osep/logs/`，哈希进 `~/osep/loot/`——报告要能复现"什么时间、什么请求、拿到了什么"。
 - **时间成本**：触发条件不确定，属于"低成功概率入口"。**先并行准备/完成其它能稳定拿分的入口**，此场景设定 20–30 分钟观察上限，超时即换。
-- **不要预设成功**：Verify小节里"收到邀请 ≠ 会认证"要写进笔记，报告里如实描述触发Verify过程。
+- **不要预设成功**：验证小节里"收到邀请 ≠ 会认证"要写进笔记，报告里如实描述触发验证过程。
 
 ---
 
@@ -319,7 +315,7 @@ Verify节奏建议：投递后**留足观察窗口**（客户端"下次打开/�
 
 | 文档 | 关联点 |
 |---|---|
-| [00-environment-and-infra](/modules/00-environment-and-infra) | 投递/监听基础设施、日志目录规范 |
-| [07-credentials-lsass](/modules/07-credentials-lsass) | 拿到哈希后的破解 / PTH 用法 |
-| [12-ad-attacks](/modules/12-ad-attacks) | 哈希/票据的横向利用与中继目标选择 |
-| [01-word-vba-office](/modules/01-word-vba-office) | 同属邮件/客户端入口（宏执行路径，本场景被排除） |
+| [00-environment-and-infra](/zh/modules/00-environment-and-infra) | 投递/监听基础设施、日志目录规范 |
+| [07-credentials-lsass](/zh/modules/07-credentials-lsass) | 拿到哈希后的破解 / PTH 用法 |
+| [12-ad-attacks](/zh/modules/12-ad-attacks) | 哈希/票据的横向利用与中继目标选择 |
+| [01-word-vba-office](/zh/modules/01-word-vba-office) | 同属邮件/客户端入口（宏执行路径，本场景被排除） |

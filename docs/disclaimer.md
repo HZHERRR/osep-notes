@@ -1,16 +1,18 @@
-# 使用边界
+# Scope
 
-## 允许
+::: warning Authorized use only
+These notes are for the official OSEP labs and exam, or for systems you have written authorization to test. Using them against systems you do not own or are not allowed to test is illegal.
+:::
 
-- OSEP 官方实验网与考试靶场（遵守 OffSec 协议）
-- 你自己的隔离实验室
-- 已取得书面授权的渗透测试
+## Allowed
 
-## 禁止
+- OffSec’s official lab and exam networks, under their agreement
+- Your own isolated lab
+- A penetration test with a written rules-of-engagement
 
-- 对未授权系统使用其中的脚本
-- 把 OffSec 教材 PDF、Challenge 原题当作本站内容再分发
+## Not allowed
 
-## 源码从哪来
+- Any unauthorized host, even “just to try a command”
+- Redistributing OffSec course PDFs or exam/challenge walkthroughs as if they were this site
 
-`docs/modules/` 里的正文来自 `osep-prep/docs`，并把该节引用的 `osep-prep/scripts` 全文嵌在「用到的脚本」表后。
+Change one variable at a time. Confirm delivery logs before you blame AV. Placeholders: `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS`.

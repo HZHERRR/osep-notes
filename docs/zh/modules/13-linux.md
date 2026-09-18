@@ -1,16 +1,12 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 13 — Linux（场景 36–40、48）
-
-Wrappers, LD_PRELOAD, sudo/GTFOBins, artifact swap, SSH ControlMaster.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
+# 13 · Linux 攻击面（场景 36–40、48）
 
 > 对应场景表：36 Linux 上传站会执行 ELF 但还要通过业务检查 · 37 Linux 目标有杀毒软件 · 38 Linux 程序从可控位置加载共享库 · 39 sudo 只允许一个编辑器/解释器 · 40 能覆盖制品但不能直接登录下载制品的机器 · 48 没有 SSH 密码但存在已认证的复用连接。
 > 技术对齐： 的 `Payloads (XOR Payload Encoder / Simple Loader / Shared Library LD PRELOAD / Shared Library LD LIBRARY Path)`、`Abusing SUIDs`、`SSH Hijacking with ControlMaster / SSH Agent Forwarding`、`Artifactory (JFrog)` 各节。
-> 统一占位符：`LHOST`（attacker box IP）`LPORT`（监听端口）`TARGET`（目标地址）`USER` `PASS` `DOMAIN` `PAYLOAD`。所有命令默认在 x86_64 Linux 上执行。
+> 统一占位符：`LHOST`（攻击机 IP）`LPORT`（监听端口）`TARGET`（目标地址）`USER` `PASS` `DOMAIN` `PAYLOAD`。所有命令默认在 x86_64 Linux 上执行。
 
 ## 总览
 
@@ -27,25 +23,25 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 
 ---
 
-## Scenario 36 · Linux 上传站会执行 ELF，但程序还要通过业务检查
+## 场景 36 · Linux 上传站会执行 ELF，但程序还要通过业务检查
 
-### Scenario回顾
+### 场景回顾
 实验环境里有一个“上传即执行”的站点（接收 ELF 并运行它）。直接传一个反连 shell ELF 会失败：站点有一个**业务检查**环节——用包装脚本运行我们上传的程序，要求它（a）打印符合预期的业务输出/横幅，（b）保持存活一段固定时间（生命周期检查），或（c）最终以 0 退出。纯 shell ELF 要么立刻退出（会话随之消失），要么不打印任何业务输出而被判 FAIL 并终止。
 
 ### 前提与假设
 - 站点以我们的用户身份执行上传文件（不是 setuid 到 root）。
 - 我们能从场景描述或可读的包装脚本推断“业务输出”的样子（例如必须打印 `Usage: run ...` 或循环心跳）。
 - 允许出站 TCP 回连到 `LHOST:LPORT`（沿用前面场景已打通的出网条件）。
-- attacker box上有 gcc 与 python3，用于编译 loader、生成编码文件。
+- 攻击机上有 gcc 与 python3，用于编译 loader、生成编码文件。
 - 上传目录可写，能同时上传 loader 与数据文件；若不可写（只执行、执行后即删），改用“内嵌 payload”模式（见失败分支）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 1. 准备第二阶段 ELF（反连 agent 或 `/bin/sh` 反连），例如先做一个最小反连程序或编译好的 stage2。
 2. 用 `m13-xor-encoder.py` 把 stage2 编码成 `stage2.enc`（磁盘上是密文，不触发签名/内容检查）。
 3. 编译 loader 的业务模式版本：
    - 无内嵌：`gcc -o loader loader.c`（loader 与 `stage2.enc` 同目录）。
    - 内嵌：先 `m13-xor-encoder.py --c-array` 生成字节数组，再编译进 loader。
-4. attacker box起监听：`nc -lvnp LPORT` 或 C2 监听。
+4. 攻击机起监听：`nc -lvnp LPORT` 或 C2 监听。
 
 ### 执行步骤
 1. 构造“合法外壳”：loader 主进程先打印业务横幅并进入循环（心跳），与站点预期一致。
@@ -53,15 +49,15 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 3. 触发执行（站点按钮/接口，或我们找到的触发方式）。
 4. 观察站点页面输出：业务检查通过（横幅符合预期、进程存活）。
 5. loader 解码 `stage2.enc` 并在**子进程**中以内存方式拉起 stage2（mmap→mprotect，不落盘）。
-6. attacker box收到回连后，loader 主进程优雅退出（exit 0），不留下可疑长驻进程。
+6. 攻击机收到回连后，loader 主进程优雅退出（exit 0），不留下可疑长驻进程。
 
 ### 用到的脚本
 - `m13-xor-encoder.py`：XOR 编码 stage2（文件模式 / C 数组模式）。
 - `m13-simple-loader.c`：读取/内嵌编码 payload，内存解码执行；含业务输出模式与心跳生命周期逻辑。
 
-### Verify
+### 验证
 - 站点显示业务检查 PASS（输出横幅正确、进程在检查窗口内存活）。
-- attacker box监听出现会话：`id`、`whoami` 结果与预期一致。
+- 攻击机监听出现会话：`id`、`whoami` 结果与预期一致。
 - 检查窗口结束后 loader 正常退出；磁盘上没有明文 payload。
 
 ### 失败分支与备选
@@ -491,9 +487,9 @@ int main(int argc, char **argv)
 }
 ````
 
-## Scenario 37 · Linux 目标也有杀毒软件，常见 ELF 被检测
+## 场景 37 · Linux 目标也有杀毒软件，常见 ELF 被检测
 
-### Scenario回顾
+### 场景回顾
 Linux 主机上有 AV（典型是 ClamAV 的 on-access/on-scan 守护，考试里也可能是对磁盘文件做签名的扫描器）。直接生成的常见 ELF——例如 msfvenom 的 `linux/x64/shell_reverse_tcp`、网上现成的反连程序——一落地或一执行就被检出/删除。**Windows 的手段（patch AMSI/ETW、进程空心化、托管反射）在这里无效**，需要按 Linux 的检测模型重做。
 
 ### 前提与假设
@@ -501,8 +497,8 @@ Linux 主机上有 AV（典型是 ClamAV 的 on-access/on-scan 守护，考试�
 - 我们能决定 payload 的形态与存放方式（磁盘 or 纯内存）。
 - 不需要绕过登录/权限，只需要让我们的 ELF 活下来并回连。
 
-### 准备（attacker box侧）
-1. attacker box本地做“红队自测”：`clamscan stage2`、`file stage2`、`strings stage2 | grep -iE 'socket|/bin/sh'`——先确认会被签名的特征。
+### 准备（攻击机侧）
+1. 攻击机本地做“红队自测”：`clamscan stage2`、`file stage2`、`strings stage2 | grep -iE 'socket|/bin/sh'`——先确认会被签名的特征。
 2. 用 `m13-xor-encoder.py` 把 stage2 XOR 编码成 `.enc`（磁盘形态不再含明文签名特征）。
 3. 编译 `m13-simple-loader.c`（内存解码模式）：`mmap(PROT_READ|PROT_WRITE)` → 解码 → `mprotect(PROT_READ|PROT_EXEC)` → 跳转执行；全程不写明文到磁盘。
 4. （可选）用 `memfd_create()` 变体把数据藏进匿名 fd，连 `.enc` 都不放。
@@ -517,7 +513,7 @@ Linux 主机上有 AV（典型是 ClamAV 的 on-access/on-scan 守护，考试�
 - `m13-xor-encoder.py`（改变磁盘签名面）。
 - `m13-simple-loader.c`（内存解码，避免明文落盘）。
 
-### Verify
+### 验证
 - 落地前后对 loader/`.enc` 跑 `clamscan`：loader 干净或轻微；`.enc` 不含原始签名。
 - 执行后监听出现会话；`/proc/<pid>/maps` 或 `ls -l /tmp` 中无明文 stage2 文件。
 - 若环境有 on-access 扫描，注意投放瞬间日志无告警。
@@ -536,9 +532,9 @@ Linux 主机上有 AV（典型是 ClamAV 的 on-access/on-scan 守护，考试�
 
 ---
 
-## Scenario 38 · Linux 程序从可控位置加载共享库
+## 场景 38 · Linux 程序从可控位置加载共享库
 
-### Scenario回顾
+### 场景回顾
 目标上有一个会以更高权限运行的程序（服务/定时任务/被触发脚本），它依赖的某个共享库缺失或可从“我们能写入的位置”被解析到。思路不是打二进制，而是**让动态链接器在加载时执行我们的 .so 构造函数**。两条主线：`LD_PRELOAD`（无论程序缺不缺库，强制先加载我们的库）与 `LD_LIBRARY_PATH`（程序确实缺某个库，我们在搜索路径前置的目录放一个**同名且导出相同符号**的库）。两者机制不同：库名匹配、符号导出、加载顺序、以及 setuid 程序的“secure-execution”限制都要排查。
 
 ### 前提与假设
@@ -546,33 +542,33 @@ Linux 主机上有 AV（典型是 ClamAV 的 on-access/on-scan 守护，考试�
 - 有代码执行权（能上传 .so 到目标，例如通过上传站/写权限目录），但**没有目标用户密码**——目标是借程序的高权限跑我们的代码。
 - 若目标是 setuid/setgid 程序：glibc 出于安全会忽略 `LD_PRELOAD` 与 `LD_LIBRARY_PATH`（AT_SECURE），需先确认（`getauxval`/`ldd` 现象），否则该场景的入口其实是“该程序缺库且其 RPATH/RUNPATH 指向可写目录”。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 1. 摸清目标与缺失库：
    - `ldd TARGET_BIN`（看 missing/not found 行）
    - `readelf -d TARGET_BIN | grep -E 'RPATH|RUNPATH|NEEDED'`
    - `sudo -l` / `ps aux` / `systemctl list-units` 找它何时以何身份跑。
 2. 决定走哪条线（见下）。
-3. attacker box编译 .so（见脚本头注释的编译命令），上传到目标。
+3. 攻击机编译 .so（见脚本头注释的编译命令），上传到目标。
 
 ### 执行步骤
 **A. LD_PRELOAD 线（`m13-shared-library-ldpreload.c`）**
 1. 程序本身能正常运行（库都齐）→ 用 `LD_PRELOAD` 注入：
    - `LD_PRELOAD=/path/to/lib.so TARGET_BIN [args...]`
 2. 我们的库用 `__attribute__((constructor))` 在加载瞬间执行提权/反连代码，随后**保持程序原有行为**（不覆盖其正常函数，避免业务崩掉）。
-3. 若程序是 setuid 程序，先Verify `LD_PRELOAD` 是否被忽略：`LD_PRELOAD=... TARGET_BIN` 后无效果 → 转 B 或另找入口（本条限制是特性不是 bug）。
+3. 若程序是 setuid 程序，先验证 `LD_PRELOAD` 是否被忽略：`LD_PRELOAD=... TARGET_BIN` 后无效果 → 转 B 或另找入口（本条限制是特性不是 bug）。
 
 **B. LD_LIBRARY_PATH 线（`m13-shared-library-ldlibrarypath.c`）**
 1. 程序缺库（`ldd` 显示 `not found`，如 `libcrypto.so.1.1`）→ 库名必须与缺失库**完全一致**。
 2. 在可控目录放同名 .so，用 `LD_LIBRARY_PATH=/可控目录` 前置搜索：`LD_LIBRARY_PATH=/tmp/x TARGET_BIN`。
 3. .so 必须导出该库被程序用到的符号（缺哪个补哪个：先用 `nm -D 原库` 抄导出表做桩，或用 cheat sheet 提供的“先 dlopen 真库再转发”模式），同时 `__attribute__((constructor))` 先跑我们的代码。
-4. 用 `ldd` Verify解析到的路径变成我们的 .so：`LD_LIBRARY_PATH=/可控目录 ldd TARGET_BIN`。
+4. 用 `ldd` 验证解析到的路径变成我们的 .so：`LD_LIBRARY_PATH=/可控目录 ldd TARGET_BIN`。
 5. 触发程序运行（服务重启/任务/等待 cron），确认我们的代码以目标身份执行。
 
 ### 用到的脚本
 - `m13-shared-library-ldpreload.c`：LD_PRELOAD 注入（不依赖缺失库）。
 - `m13-shared-library-ldlibrarypath.c`：同名替换缺失库（必须核对库名与符号导出）。
 
-### Verify
+### 验证
 - `ldd` 输出中目标库路径指向我们的文件（LD_LIBRARY_PATH 线）。
 - 监听器收到以目标用户身份的回连，或 `id` 显示提权成功。
 - 目标程序本身仍能完成其正常业务（不闪退、无报错刷屏）。
@@ -812,9 +808,9 @@ pid_t getpid(void)
 }
 ````
 
-## Scenario 39 · sudo 只允许一个编辑器或解释器
+## 场景 39 · sudo 只允许一个编辑器或解释器
 
-### Scenario回顾
+### 场景回顾
 `sudo -l` 显示当前用户只被放行一个程序（如 `/usr/bin/vim`、`/usr/bin/find`、`/usr/bin/lua`，且常常是 `NOPASSWD`），该程序以 root 运行。没有其它本地提权路径。目标是**借用这个“受信任程序”本身逃逸出 shell**（GTFOBins 思路），并处理 sudoers 对参数的限制。
 
 ### 前提与假设
@@ -822,7 +818,7 @@ pid_t getpid(void)
 - sudoers 可能限制参数模式（如 `vim /home/user/*`、`find /var/log`），也可能不限。
 - 我们能交互执行该命令（有终端或能通过 webshell/脚本触发）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 1. 先枚举：`sudo -l`、`sudo -ll`（看参数模式）、`id`。
 2. 确认放行程序在 GTFOBins 的 escape 路线（vim/find/lua 的 shell 逃逸见下）。
 3. 本地监听 `nc -lvnp LPORT`（若走反连）或准备交互命令收集输出。
@@ -839,7 +835,7 @@ pid_t getpid(void)
 ### 用到的脚本
 - `m13-sudo-gtfobins.sh`：解析 `sudo -l` 放行条目，给出并执行对应的 vim/find/lua 逃逸；带参数限制时的读取/外带模式。
 
-### Verify
+### 验证
 - `sudo -l` 条目存在且无密码提示（NOPASSWD）或我们已知 `PASS`。
 - 逃逸命令返回 root shell：`id` 显示 `uid=0(root)`。
 - 受限场景下能读到目标文件（`/etc/shadow`、flag）或建立反连。
@@ -1178,9 +1174,9 @@ case "$ACTION" in
 esac
 ````
 
-## Scenario 40 · 你能覆盖制品，但不能直接登录下载制品的机器
+## 场景 40 · 你能覆盖制品，但不能直接登录下载制品的机器
 
-### Scenario回顾
+### 场景回顾
 实验里有一台制品仓库/分发服务（对齐 cheat sheet 的 **Artifactory (JFrog)** 类场景）：我们获得了对制品存储的写能力（能**覆盖/替换**某个会被下游机器下载并执行的制品），但**无法直接 SSH/登录那些下载制品的消费机器**。目标是：让消费端在下次拉取/执行该制品时跑我们的代码（反连/植入），并尽量保持制品“看起来正常”（文件名、架构、业务行为不变）以免被发现。
 
 ### 前提与假设
@@ -1188,7 +1184,7 @@ esac
 - 知道或能观察到消费端下载哪个制品、以什么方式使用它（直接执行二进制？解压 jar？跑脚本？），以及触发频率/触发方式。
 - 出站回连条件沿用前面场景；`LHOST:LPORT` 可被消费端到达。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 1. 确认制品仓库进程与布局（Artifactory 常规路径 `/opt/jfrog/artifactory/`）：
    - `ps aux | grep artifactory`
    - 备份/凭据线索：`/opt/jfrog/artifactory/var/backup/access`（含加密凭据/DB 备份），或数据目录 `.../var/data/access/derby`（必要时可拷出离线看，见 cheat sheet）。
@@ -1196,10 +1192,10 @@ esac
 3. 构造替换物：
    - 保留原业务行为（若场景要求消费端正常使用不报错），叠加我们的代码；或直接做成“先反连、再执行原逻辑”的包装。
    - 可用 `m13-xor-encoder.py`+`m13-simple-loader.c` 生成内存加载版，让落地的“制品”不含明文 payload。
-4. attacker box起监听。
+4. 攻击机起监听。
 
 ### 执行步骤
-1. 在制品存储中找到目标文件，先**备份原文件**（`.bak`，同目录或拷回attacker box，便于恢复与比对）。
+1. 在制品存储中找到目标文件，先**备份原文件**（`.bak`，同目录或拷回攻击机，便于恢复与比对）。
 2. 用 `m13-artifactory-replace.sh` 完成替换：备份→放入替换制品→（必要时）改回属主/权限与元数据→记录原校验和。
 3. 触发/等待消费端拉取：重启/刷新消费端任务、或按仓库配置的拉取周期等待。
 4. 监听确认回连；会话内确认身份/环境，收集目标信息。
@@ -1209,7 +1205,7 @@ esac
 - `m13-artifactory-replace.sh`：制品定位、备份、替换、权限修复、校验和核对、恢复。
 - （辅）`m13-xor-encoder.py` / `m13-simple-loader.c`：把替换物做成“外衣+内存载荷”。
 
-### Verify
+### 验证
 - 替换后 `file`/`readelf`/`sha256sum` 符合预期（架构一致；必要时业务输出与原件一致）。
 - 消费端下次拉取后监听收到回连。
 - 仓库侧无报错（消费端能正常解析该制品，没因格式破坏而失败）。
@@ -1219,7 +1215,7 @@ esac
 2. **消费端校验制品签名/校验和**：若不可绕过，改走“替换其依赖/次级文件”或“改仓库配置指向我们控制的另一个制品路径”，而不是硬换主文件。
 3. **架构不符导致消费端无法运行**：用消费端同架构重编（`-m64`/`-m32`/arm）；先 `file` 原制品确认。
 4. **消费端只在特定触发时才拉取（考试里时间窗口短）**：先做能主动触发的动作（若允许：触发消费端的构建/部署任务、或在该机器可达的服务上制造一次拉取），并保证我们的替换物在第一次拉取就有效。
-5. **替换物破坏业务被运维发现**：包装模式（先跑原逻辑）优先；恢复脚本要在场，Verify完即还原并清日志。
+5. **替换物破坏业务被运维发现**：包装模式（先跑原逻辑）优先；恢复脚本要在场，验证完即还原并清日志。
 
 ### 考试注意 OPSEC
 - 替换前必备份；原校验和记下来，恢复时比对。
@@ -1519,9 +1515,9 @@ case "$CMD" in
 esac
 ````
 
-## Scenario 48 · 没有 SSH 密码，但存在已认证的复用连接
+## 场景 48 · 没有 SSH 密码，但存在已认证的复用连接
 
-### Scenario回顾
+### 场景回顾
 我们已经拿到一台 Linux 主机上某用户的 shell（例如 web 服务用户或通过前面场景获得），但**不知道其它用户/内网主机的 SSH 密码**，也没有现成私钥。然而目标环境里存在**已认证的 SSH 复用连接**：一是 `ControlMaster`（多路复用）留下的 socket，二是被转发进来的 `ssh-agent`。利用它们可以“借用”已有认证上下文直接登入其它主机，**全程不需要密码/私钥文件**。
 
 ### 前提与假设
@@ -1530,7 +1526,7 @@ esac
 - Agent：主连接使用了 `ForwardAgent yes` 或本地 `ssh-agent` 里已加载密钥；agent socket（`/tmp/ssh-XXXX/agent.NNNN`）对我们可读。
 - 目标主机允许该用户经这些复用通道访问（正是场景想证明的横向面）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 1. 枚举可复用资产：
    - ControlMaster socket：`find ~/.ssh -name 'control*' -o -path '*controlmaster*' 2>/dev/null`、`ls -la ~/.ssh/`、`ps aux | grep 'ssh -M'`、`lsof -U 2>/dev/null | grep -i control`（同用户可见）。
    - Agent：`ls /tmp/ssh-*/agent.* 2>/dev/null`、`echo $SSH_AUTH_SOCK`、`ssh-add -l`。
@@ -1551,7 +1547,7 @@ esac
 ### 用到的脚本
 - `m13-ssh-controlmaster-hijack.sh`：自动发现 ControlMaster socket 与可用 agent socket，逐一尝试复用登入，输出成功的目标与身份。
 
-### Verify
+### 验证
 - 复用命令返回目标主机身份：`id`/`hostname` 与主连接用户一致且无需密码。
 - agent 借用能登入 `ssh-add -l` 所列身份对应的主机。
 - 全过程无密码提示、无“Permission denied (publickey)”报错。

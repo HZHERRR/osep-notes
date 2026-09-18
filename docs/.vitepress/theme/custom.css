@@ -1,10 +1,193 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap");
+
 :root {
-  --vp-c-brand-1: #c45c26;
-  --vp-c-brand-2: #a34a1c;
-  --vp-c-brand-3: #7a3514;
-  --vp-c-brand-soft: rgba(196, 92, 38, 0.14);
+  --vp-font-family-base: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --vp-font-family-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --lime: #c6f31e;
+  --lime-dim: #9bc20a;
+  --ink: #f4f4f0;
+  --muted: #9a9a92;
+  --line: rgba(255, 255, 255, 0.08);
+  --panel: #0c0c0c;
+
+  --vp-c-brand-1: var(--lime);
+  --vp-c-brand-2: #d8ff4a;
+  --vp-c-brand-3: #8aaa00;
+  --vp-c-brand-soft: rgba(198, 243, 30, 0.12);
+}
+
+html,
+html.dark {
+  color-scheme: dark;
+  --vp-c-bg: #050505;
+  --vp-c-bg-alt: #080808;
+  --vp-c-bg-elv: #0e0e0e;
+  --vp-c-bg-soft: #111111;
+  --vp-c-text-1: var(--ink);
+  --vp-c-text-2: #c4c4bc;
+  --vp-c-text-3: var(--muted);
+  --vp-c-divider: var(--line);
+  --vp-c-gutter: #050505;
+  --vp-c-border: var(--line);
+  --vp-sidebar-bg-color: #070707;
+  --vp-nav-bg-color: rgba(5, 5, 5, 0.86);
+  --vp-code-bg: #0a0a0a;
+  --vp-code-block-bg: #0a0a0a;
+  --vp-c-tip-1: var(--lime);
+  --vp-c-warning-1: var(--lime);
+  --vp-c-warning-soft: rgba(198, 243, 30, 0.08);
+  --vp-button-brand-bg: var(--lime);
+  --vp-button-brand-hover-bg: #d8ff4a;
+  --vp-button-brand-text: #111;
+  --vp-button-brand-hover-text: #111;
+}
+
+html.dark .VPNavBar {
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(16px);
+}
+
+.VPNavBarTitle .title {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.VPNavBarTitle .title::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 10px;
+  background: var(--lime);
+  border-radius: 1px;
+  transform: translateY(-1px);
+}
+
+.VPSidebar {
+  border-right: 1px solid var(--line);
+}
+
+.VPSidebarItem.level-0 .text {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted) !important;
+  font-weight: 600;
+}
+
+.VPDoc .vp-doc h1 {
+  font-size: 2.35rem;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.VPDoc .vp-doc h2 {
+  border-top: 1px solid var(--line);
+  margin-top: 3rem;
+  padding-top: 1.6rem;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+
+.VPDoc .vp-doc h3 {
+  font-size: 1.05rem;
+  color: #ecece6;
+}
+
+.VPDoc .vp-doc p,
+.VPDoc .vp-doc li {
+  color: #c9c9c1;
+}
+
+.vp-doc div.custom-block.warning {
+  border: 1px solid rgba(198, 243, 30, 0.28);
+  background: rgba(198, 243, 30, 0.05);
+  border-radius: 0;
+  color: #e8e8e0;
+}
+
+.vp-doc div.custom-block.warning .custom-block-title {
+  color: var(--lime);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
 }
 
 .vp-doc table {
-  font-size: 0.92em;
+  font-size: 0.88rem;
+  display: table;
+  width: 100%;
+}
+
+.vp-doc tr:nth-child(2n) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vp-doc th {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  background: #0b0b0b;
+}
+
+.vp-doc div[class*="language-"] {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--lime);
+  border-radius: 0;
+  background: #080808 !important;
+}
+
+.vp-doc :not(pre) > code {
+  background: rgba(198, 243, 30, 0.08);
+  color: var(--lime);
+  border-radius: 2px;
+  font-size: 0.86em;
+}
+
+.VPFooter {
+  border-top: 1px solid var(--line);
+  background: #050505;
+}
+
+.VPLocalNav,
+.VPDocFooter {
+  border-color: var(--line) !important;
+}
+
+.ht-grid {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse at 50% 0%, #000 20%, transparent 72%);
+}
+
+.Layout {
+  position: relative;
+}
+
+.VPContent {
+  position: relative;
+  z-index: 1;
+}
+
+.VPLocalSearchBox .shell {
+  background: #0c0c0c !important;
+  border: 1px solid var(--line) !important;
+}
+
+@media (min-width: 960px) {
+  .VPDoc .content-container {
+    max-width: 820px;
+  }
 }

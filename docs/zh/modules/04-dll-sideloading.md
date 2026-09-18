@@ -1,12 +1,8 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 04 — DLL sideloading
-
-Replace a private DLL next to a host EXE. Keep the export table. Confirm with ProcMon before you pack a ZIP.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
+# 04 · DLL 旁加载（DLL Sideloading）
 
 > 归属模块：`M04` · 场景 11–12 · 依据：教材第 6 章（§6.1–6.2）
 > 关联 cheat sheet 关键词：`New Admin with C` / `DLL` / `Shellcode Inject`
@@ -636,16 +632,16 @@ if __name__ == "__main__":
 
 ## 2. 场景 11：用户会打开 ZIP 中的程序，但宏和脚本入口不可用
 
-### Scenario回顾
+### 场景回顾
 投递 ZIP，用户解压并运行里面的（签名）程序；该程序会加载同目录下一个 DLL。宏、脚本、HTML 等入口全部不可用，唯一执行面就是这个 DLL 旁加载。我们要交一个“能跑、宿主不崩、带载荷”的目录包。
 
 ### 前提与假设
 - 已知宿主程序名与**确切版本**（导出表随版本变化，版本错=闪退）。
-- 宿主确实用裸名/相对路径加载同目录 DLL（可在本地 VM 用 ProcMon 先Verify一次）。
-- target器允许运行该程序（它是“允许启动”的白名单程序，AppLocker/杀软不拦宿主；但**我们的未签名 DLL** 可能被查 → OPSEC 节）。
-- 用户以普通用户运行：载荷默认拿到用户权限；若宿主带 `requireAdministrator` manifest 或由计划任务以 SYSTEM 拉起，载荷自动提升（分情况见Verify节）。
+- 宿主确实用裸名/相对路径加载同目录 DLL（可在本地 VM 用 ProcMon 先验证一次）。
+- 目标机器允许运行该程序（它是“允许启动”的白名单程序，AppLocker/杀软不拦宿主；但**我们的未签名 DLL** 可能被查 → OPSEC 节）。
+- 用户以普通用户运行：载荷默认拿到用户权限；若宿主带 `requireAdministrator` manifest 或由计划任务以 SYSTEM 拉起，载荷自动提升（分情况见验证节）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 1. **锁定宿主与版本、架构**（在靶机/复刻 VM 上做一次）：
    - 架构：`file RunHost.exe`（PE32=x86 / PE32+=x64），Windows 下 `dumpbin /headers RunHost.exe | findstr machine`。
    - 版本：文件属性→详细信息，或 `dumpbin /headers` 里的版本资源。**记录版本号**，包内只放这个版本。
@@ -670,7 +666,7 @@ if __name__ == "__main__":
      | sed 's/.*/& = original.&/' >> forward.def
    ```
 4. **编译 Proxy**（两个工具链任选其一；`.def` 提供全部导出，源码只给 `DllMain`/载荷）：
-   - MinGW（Kali/attacker box直接编）：
+   - MinGW（Kali/攻击机直接编）：
      ```bash
      # x64
      x86_64-w64-mingw32-gcc -shared -O2 -o legit.dll m04-proxy-dll-newadmin.c forward.def \
@@ -689,14 +685,14 @@ if __name__ == "__main__":
    ├─ original.dll     ← 原版 legit.dll 改名（转发目标）
    └─ readme.txt / 数据文件  ← 诱饵，让目录像正常安装
    ```
-6. **打包与校验**（自动做架构一致性检查）：`m04-build-sideload-package.py`（见下）。把 ZIP 放到attacker box HTTP 服务，开好监听：
+6. **打包与校验**（自动做架构一致性检查）：`m04-build-sideload-package.py`（见下）。把 ZIP 放到攻击机 HTTP 服务，开好监听：
    - 反连模式：`nc -lvnp LPORT`
-   - 加管理员模式：不需要监听，事后 `net localgroup administrators` Verify。
+   - 加管理员模式：不需要监听，事后 `net localgroup administrators` 验证。
 
 ### 执行步骤
 1. 投递 ZIP（邮件/网站下载），话术引导用户“解压并运行 `RunHost.exe`”。
 2. 用户双击 → 宿主正常启动（窗口出现=Proxy 转发成功的第一步）→ 载荷线程触发。
-   - 反连模式：载荷在 `DllMain` 里 `CreateThread` 起反连线程（**不在 DllMain 里阻塞**，见场景 12），数秒内attacker box收到 shell。
+   - 反连模式：载荷在 `DllMain` 里 `CreateThread` 起反连线程（**不在 DllMain 里阻塞**，见场景 12），数秒内攻击机收到 shell。
    - 加管理员模式：`DllMain` 里直接 `NetUserAdd` + `NetLocalGroupAddMembers`。
 3. 维持宿主存活：载荷是后台线程，宿主继续跑（必要时先让载荷 `Sleep(3000)` 再连，等宿主 UI 出来，更像正常程序）。
 4. 收到 shell 后按流程枚举/提权（默认用户权限时），注意 `whoami` 先确认上下文。
@@ -706,14 +702,14 @@ if __name__ == "__main__":
 - `m04-build-sideload-package.py`（打包 + 架构校验）
 - `m04-proxy-dll-sideload.c`（排障时做“无载荷对照”，见场景 12）
 
-### Verify
+### 验证
 - 反连：监听端收到连接，`whoami` 可执行；宿主窗口仍在（`tasklist | findstr RunHost`）。
 - 加管理员：`net localgroup administrators` 出现新用户；宿主进程存活。
 - 无载荷对照（`m04-proxy-dll-sideload.c`）在**复刻 VM**上能跑通 = Proxy 转发正确，后面换实弹版只排查载荷本身。
 - 权限断言：开管理员命令行执行同一程序对比 `whoami` 完整性级别；宿主若带 manifest 提升，载荷会是 High Integrity（→ 直接可做管理员操作）。
 
 ### 失败分支与备选
-1. **宿主版本对不上 / 导出清单不全** → 宿主缺导入即闪退。处理：拿到目标上**同版本**原 DLL 重新 `objdump -p` 生成 `.def`；在复刻 VM 用同版本Verify后再投。
+1. **宿主版本对不上 / 导出清单不全** → 宿主缺导入即闪退。处理：拿到目标上**同版本**原 DLL 重新 `objdump -p` 生成 `.def`；在复刻 VM 用同版本验证后再投。
 2. **该 DLL 实际从 System32 加载（绝对路径/KnownDLLs）** → 旁加载点不成立。备选：ProcMon 重抓，换一个“宿主目录里能被裸名加载”的 DLL；没有就退回别的入口（本包只覆盖 DLL 线）。
 3. **架构不匹配**（Proxy 编成 x64、宿主是 x86）→ 用对应 `i686-`/`x86_64-` 前缀重编，`file` 复核。
 4. **杀软/Defender 拦截“无签名 DLL 旁加载”**（`EnableSideloading` 防御）→ 先本地查 `Get-MpComputerStatus`/策略；备选：给 Proxy 签测试证书、改载荷触发时机（延迟+诱饵流量）、换载荷形态（只转发不做持久化，shell 落地后用内存手段）。
@@ -724,18 +720,18 @@ if __name__ == "__main__":
 - 反连延迟 2–5 秒再起线程，避免“双击即外连”的行为特征；不要在 DllMain 里干重活（加载器锁内阻塞=必崩）。
 - 测试多次会留下指纹：同一 VM 反复放同一 DLL 容易被行为引擎聚合；换名字/换延迟再测。
 - 结束后清理：`del legit.dll original.dll` + 删 ZIP（宿主若还开着可后删）；避免留下 `Administrators` 组里名字可疑的新用户（考后删除）。
-- Defender 的旁加载拦截策略（Microsoft Defender Attack Surface Reduction 规则 “Block executable files from running unless they meet a prevalence, age, or trusted list criteria”）可能点名这类模式，先小范围Verify再批量投。
+- Defender 的旁加载拦截策略（Microsoft Defender Attack Surface Reduction 规则 “Block executable files from running unless they meet a prevalence, age, or trusted list criteria”）可能点名这类模式，先小范围验证再批量投。
 
 ## 3. 场景 12：DLL 已被加载，但程序立即闪退
 
-### Scenario回顾
+### 场景回顾
 旁加载点本身有效、目标也执行了程序，但程序**一启动就退出**，后续执行拿不到。根因通常不在“载荷是否被查杀”，而在 **Proxy DLL 与宿主之间的契约破坏**：导入解析失败 / DllMain 崩溃 / 调用约定不匹配。
 
 ### 前提与假设
 - 已确认宿主确实加载了我们的 DLL（ProcMon/`Load Image` 命中，或 Error Reporting 指向我们的模块）。
-- 假设“宿主+原 DLL”单独跑是正常的（先在干净 VM Verify原版）。
+- 假设“宿主+原 DLL”单独跑是正常的（先在干净 VM 验证原版）。
 
-### 准备（attacker box侧）
+### 准备（攻击机侧）
 1. 事件视图定位崩溃来源（靶机/复刻 VM）：
    - 事件查看器 → Windows 日志 → 应用程序 → 找 Error/`Application Error` 1000，看 **faulting module name**：
      - 是我们的 `legit.dll` → 我们代码/DllMain 的问题；
@@ -765,17 +761,17 @@ if __name__ == "__main__":
 - `m04-proxy-dll-cpp.cpp`（.def / 调用约定注释 + 少量函数手写转发的写法示例）
 - 工具链：`dumpbin /exports|/imports|/headers`、`objdump -p`、ProcMon、事件查看器。
 
-### Verify
+### 验证
 - 宿主进程在任务管理器/`tasklist` 中持续存活超过 30 秒且窗口可用。
 - 事件查看器无新的 `legit.dll` faulting 记录。
-- 载荷侧Verify照场景 11（反连收到 / 管理员组出现新用户）。
-- 交叉Verify：x64 与 x86 各编一次各测一次，确认打包脚本的架构断言与实际一致。
+- 载荷侧验证照场景 11（反连收到 / 管理员组出现新用户）。
+- 交叉验证：x64 与 x86 各编一次各测一次，确认打包脚本的架构断言与实际一致。
 
 ### 失败分支与备选
 1. **导出转发不全、缺某个只在特定代码路径才调用的函数** → 宿主平时正常、点某按钮才崩。备选：无脑全量转发原 DLL（objdump 全表进 `.def`），不要手工挑函数。
 2. **原 DLL 导出了数据（变量）而非纯函数** → 导出转发对“数据导出”无效（转发只适用于函数）。备选：该 DLL 不适合做 Proxy，换候选旁加载点；或手写实现并处理该数据符号（少见，先用 ProcMon 确认真实命中）。
 3. **只按序号导出（无名字）** → `.def` 里写 `Foo = original.Foo @N` 保序号；宿主按序号导入时我们的导出序号必须一致。
-4. **载荷在 DllMain 里一跑就崩、挪线程后仍崩** → 载荷自身问题（如 shellcode 长度/位数写错）：先用无害动作（写文件/弹窗）Verify执行路径，再换真实载荷；SEH 包住让宿主不陪葬。
+4. **载荷在 DllMain 里一跑就崩、挪线程后仍崩** → 载荷自身问题（如 shellcode 长度/位数写错）：先用无害动作（写文件/弹窗）验证执行路径，再换真实载荷；SEH 包住让宿主不陪葬。
 5. **“闪退”其实是杀软把进程杀了** → faulting module 是 `MsMpEng.exe`/行为引擎：回场景 11 失败分支 4，别在 Proxy 转发上浪费时间。
 
 ### 考试注意 OPSEC

