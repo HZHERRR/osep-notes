@@ -1,31 +1,24 @@
 ---
 layout: home
 hero:
-  name: OSEP Notes
-  text: 授权实验用的方法论笔记
-  tagline: 命令、源码骨架、失败分支。仅限授权实验、官方考试环境与个人学习。
+  name: OSEP 私人教材
+  text: 56 个场景的完整讲义与脚本
+  tagline: 本站不公开。内容来自 osep-prep 原文，各节附带对应 scripts 源码。
   actions:
     - theme: brand
-      text: 现象定位
-      link: /lab/exam-lookup
+      text: 从环境开始
+      link: /modules/00-environment-and-infra
     - theme: alt
-      text: 载荷与监听
-      link: /lab/payloads
-features:
-  - title: 先判断，再动手
-    details: 被拦时先分清是投递失败、静态特征、行为检测、位数不匹配，还是出网路径不一致。
-  - title: 可复制的源码
-    details: VBA / HTA / C# / PowerShell / ASPX 骨架和 Impacket、Ligolo、msfvenom 命令。自己替换 LHOST 后在 lab 里编译。
-  - title: 学习用途
-    details: 每页标注授权范围。不托管编译好的 exe/dll。禁止对未授权系统使用。
+      text: 场景清单
+      link: /scenarios
 ---
 
-## 阅读顺序
+## 怎么读
 
-1. [使用边界](/disclaimer)
-2. [现象定位](/lab/exam-lookup) — 看到什么限制，打开哪一页
-3. [载荷与监听](/lab/payloads) — msfvenom / 反向 shell / 下载器
-4. [实验环境](/lab/environment)
-5. 按主题复制源码：[Office 宏](/topics/office-macros) 起
+按模块顺序看：[00 环境](/modules/00-environment-and-infra) → 入口（01–04、16）→ 执行限制（05）→ 提权与凭据（06–07）→ 出网与隧道（08–09）→ Web / SQL / AD / Linux / WinRM。
 
-与 OffSec / OSEP 考试**没有官方关系**。技术点来自公开资料与个人实验整理。
+每个场景正文保持原样。在「用到的脚本」表后面可以直接复制该节引用的源码。
+
+考试当天用 [97 定位表](/modules/97-exam-day-lookup) 和 [99 清单](/modules/99-pre-exam-checklist)。
+
+与 OffSec **没有官方关系**。不要把本仓库或生成的站点公开。
