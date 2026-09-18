@@ -1,13 +1,11 @@
-# OSEP 私人教材
+# OSEP 备考教材
 
-**本仓库必须保持 private。** 不要改成 public，不要开公开的 GitHub Pages。
+VitePress 站点：https://hzherrr.github.io/osep-notes/
 
-内容由 `osep-prep/docs` 原文生成，各场景「用到的脚本」后嵌了对应 `scripts/` 源码。
+内容由 `osep-prep/docs` 原文生成，各场景「用到的脚本」后嵌了对应 `scripts/` 源码。仅供授权实验、官方考试环境与个人学习。
 
 ```bash
-python3 tools/build_textbook.py   # 从 osep-prep 重新生成 docs/modules
+python3 tools/build_textbook.py
 npm install
-npm run docs:dev                  # 仅本机 http://localhost:5173/
+npm run docs:dev
 ```
-
-`osep-prep` 有更新时，先跑 `build_textbook.py` 再提交。

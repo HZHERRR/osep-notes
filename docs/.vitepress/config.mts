@@ -5,8 +5,8 @@ const base =
   (process.env.GITHUB_ACTIONS ? '/osep-notes/' : '/')
 
 export default defineConfig({
-  title: 'OSEP 私人教材',
-  description: '个人备考教材（不公开）。仅限授权实验与官方考试环境。',
+  title: 'OSEP 备考教材',
+  description: 'OSEP 备考教材：场景讲义与脚本。仅限授权实验与官方考试环境。',
   lang: 'zh-CN',
   base,
   cleanUrls: true,
@@ -67,7 +67,7 @@ export default defineConfig({
     sidebarMenuLabel: '目录',
     darkModeSwitchLabel: '主题',
     footer: {
-      message: '私人教材。仅限授权实验、官方考试环境与个人学习。禁止公开转载。',
+      message: '仅限授权实验、官方考试环境与个人学习。禁止对未授权系统使用。',
     },
   },
 })

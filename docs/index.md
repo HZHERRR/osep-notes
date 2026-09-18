@@ -1,9 +1,9 @@
 ---
 layout: home
 hero:
-  name: OSEP 私人教材
-  text: 56 个场景的完整讲义与脚本
-  tagline: 本站不公开。内容来自 osep-prep 原文，各节附带对应 scripts 源码。
+  name: OSEP 备考教材
+  text: 56 个场景的讲义与脚本
+  tagline: 正文来自 osep-prep 原文，各节附带对应 scripts 源码。仅限授权实验与官方考试环境。
   actions:
     - theme: brand
       text: 从环境开始
@@ -21,4 +21,4 @@ hero:
 
 考试当天用 [97 定位表](/modules/97-exam-day-lookup) 和 [99 清单](/modules/99-pre-exam-checklist)。
 
-与 OffSec **没有官方关系**。不要把本仓库或生成的站点公开。
+与 OffSec **没有官方关系**。禁止对未授权系统使用这些材料。
