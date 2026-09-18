@@ -6,7 +6,7 @@ const base =
 
 export default defineConfig({
   title: 'OSEP Notes',
-  description: '授权实验用的进攻性安全方法论笔记。不含可执行 payload，不含考试或实验靶场答案。',
+  description: '授权实验与 OSEP 备考用的命令 / 源码速查。仅限学习与授权测试。',
   lang: 'zh-CN',
   base,
   cleanUrls: true,
@@ -15,7 +15,8 @@ export default defineConfig({
     logo: undefined,
     nav: [
       { text: '开始', link: '/disclaimer' },
-      { text: '方法', link: '/lab/environment' },
+      { text: '速查', link: '/lab/exam-lookup' },
+      { text: '载荷', link: '/lab/payloads' },
       { text: '主题', link: '/topics/office-macros' },
       { text: '参考', link: '/references' },
     ],
@@ -31,6 +32,8 @@ export default defineConfig({
         text: '实验方法',
         items: [
           { text: '实验环境', link: '/lab/environment' },
+          { text: '现象定位', link: '/lab/exam-lookup' },
+          { text: '载荷与监听', link: '/lab/payloads' },
           { text: '失败排查', link: '/lab/decision-tree' },
           { text: '记录模板', link: '/lab/notes-template' },
           { text: '练习清单', link: '/lab/prep-checklist' },
@@ -70,7 +73,7 @@ export default defineConfig({
     sidebarMenuLabel: '目录',
     darkModeSwitchLabel: '主题',
     footer: {
-      message: '仅供授权测试、自建实验与个人学习。与 OffSec 无关。本站不托管可执行 payload。',
+      message: '仅供授权测试、自建实验与备考学习。与 OffSec 无关。禁止对未授权系统使用。',
       copyright: '内容为个人笔记，公开工具命令来自各项目官方文档。',
     },
   },

