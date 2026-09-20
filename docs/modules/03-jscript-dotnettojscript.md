@@ -78,7 +78,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | `m03-supersharpshooter-loader.js` | Split loader for SuperSharpShooter output (read `payload.js` then run) | `STAGE2_JS` path |
 | `m03-simple-dropper.js` | Pure download/save (transport layer for script-entry scenarios) | `URL`, `DROP_PATH`, `RUN_AFTER_DOWNLOAD` |
 
-#### `m03-dotnettojscript-payload.cs` {#m03-dotnettojscript-payload-cs}
+#### `m03-dotnettojscript-payload.cs`
 
 ````csharp
 /*
@@ -170,7 +170,7 @@ public class Payload
 }
 ````
 
-#### `m03-wsh-amsi-probe.js` {#m03-wsh-amsi-probe-js}
+#### `m03-wsh-amsi-probe.js`
 
 ````javascript
 /*
@@ -249,7 +249,7 @@ WScript.Echo("  [2] if PASS         -> Block may be file body / network, not dyn
 WScript.Quit(0);
 ````
 
-#### `m03-simple-dropper.js` {#m03-simple-dropper-js}
+#### `m03-simple-dropper.js`
 
 ````javascript
 /*
@@ -317,7 +317,7 @@ if (RUN_AFTER_DOWNLOAD === 1) {
 WScript.Quit(0);
 ````
 
-#### `m03-dotnettojscript-loader.js` {#m03-dotnettojscript-loader-js}
+#### `m03-dotnettojscript-loader.js`
 
 ````javascript
 /*
@@ -380,7 +380,7 @@ WScript.Echo("[*] Host info above confirms whether artifact platform (--ver / co
 WScript.Quit(0);
 ````
 
-#### `m03-supersharpshooter-loader.js` {#m03-supersharpshooter-loader-js}
+#### `m03-supersharpshooter-loader.js`
 
 ````javascript
 /*

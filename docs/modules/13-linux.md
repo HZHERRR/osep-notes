@@ -77,7 +77,7 @@ The lab has an “upload-and-execute” site (it accepts an ELF and runs it). Up
 
 ---
 
-#### `m13-xor-encoder.py` {#m13-xor-encoder-py}
+#### `m13-xor-encoder.py`
 
 ````python
 #!/usr/bin/env python3
@@ -187,7 +187,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m13-simple-loader.c` {#m13-simple-loader-c}
+#### `m13-simple-loader.c`
 
 ````c
 /* Purpose: Custom Linux ELF/shellcode loader — read XOR-encrypted payload, mmap memory → decode →
@@ -595,7 +595,7 @@ A higher-privilege program on the target (service / cron / triggered script) res
 
 ---
 
-#### `m13-shared-library-ldpreload.c` {#m13-shared-library-ldpreload-c}
+#### `m13-shared-library-ldpreload.c`
 
 ````c
 /* Purpose: Shared-library payload for LD_PRELOAD — on load (constructor), run the payload in a
@@ -695,7 +695,7 @@ uid_t geteuid(void)
 #endif
 ````
 
-#### `m13-shared-library-ldlibrarypath.c` {#m13-shared-library-ldlibrarypath-c}
+#### `m13-shared-library-ldlibrarypath.c`
 
 ````c
 /* Purpose: Shared library for LD_LIBRARY_PATH hijack — filename must match the missing library
@@ -868,7 +868,7 @@ pid_t getpid(void)
 
 ---
 
-#### `m13-sudo-gtfobins.sh` {#m13-sudo-gtfobins-sh}
+#### `m13-sudo-gtfobins.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -1241,7 +1241,7 @@ The lab has an artifact repository / distribution service (aligned with the chea
 
 ---
 
-#### `m13-artifactory-replace.sh` {#m13-artifactory-replace-sh}
+#### `m13-artifactory-replace.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -1583,7 +1583,7 @@ You already have a shell as some user on a Linux host (e.g. a web service user, 
 
 ---
 
-#### `m13-ssh-controlmaster-hijack.sh` {#m13-ssh-controlmaster-hijack-sh}
+#### `m13-ssh-controlmaster-hijack.sh`
 
 ````bash
 #!/usr/bin/env bash

@@ -4,11 +4,11 @@
 
 # 11 · MSSQL：认证触发、凭据捕获/中继与 Linked Server
 
-> **覆盖场景：**44、45
+> **覆盖场景：** 44、45
 >
-> **教材依据：**场景 44 → C4；场景 45 → C2、C6
+> **教材依据：** 场景 44 → C4；场景 45 → C2、C6
 >
-> **前置依赖：**一个可登录的 SQL Server 实例（SQL 认证或 Windows 认证均可）；攻击机（Kali）可被目标实例反向访问（445/SMB 出方向不被拦）；PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat 按场景准备
+> **前置依赖：** 一个可登录的 SQL Server 实例（SQL 认证或 Windows 认证均可）；攻击机（Kali）可被目标实例反向访问（445/SMB 出方向不被拦）；PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat 按场景准备
 
 ---
 
@@ -147,7 +147,7 @@
 | `m11-sqlrecon-templates.ps1` | SQLRecon 对照模板（/m:info /m:xpcmd 等） | `/h:TARGET /a:WinToken` |
 | `m11-linked-server-queries.sql` | 需要跨实例枚举时的查询集（本场景可用于确认"另一个实例"） | 见文件头 |
 
-#### `m11-powerupsql-templates.ps1` {#m11-powerupsql-templates-ps1}
+#### `m11-powerupsql-templates.ps1`
 
 ````powershell
 <#
@@ -249,7 +249,7 @@ Write-Output ""
 Write-Output "[*] 用到的行改占位符即可复制进考试笔记；先跑只读侦察，动作类命令逐条确认。"
 ````
 
-#### `m11-responder-relay-sql.sh` {#m11-responder-relay-sql-sh}
+#### `m11-responder-relay-sql.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -390,7 +390,7 @@ fi
 print_loot
 ````
 
-#### `m11-sqlrecon-templates.ps1` {#m11-sqlrecon-templates-ps1}
+#### `m11-sqlrecon-templates.ps1`
 
 ````powershell
 <#
@@ -497,7 +497,7 @@ if ($Target) {
 }
 ````
 
-#### `m11-linked-server-queries.sql` {#m11-linked-server-queries-sql}
+#### `m11-linked-server-queries.sql`
 
 ````sql
 -- ============================================================================

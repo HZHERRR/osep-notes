@@ -555,6 +555,12 @@ html:not(.dark) .VPNavBar {
   background: var(--tac-border);
 }
 
+/* Markdown often places a thematic break immediately before an h2. The h2
+   already owns the section rule, so suppress the duplicate line. */
+.vp-doc hr:has(+ h2) {
+  display: none;
+}
+
 /* --- Tactical Callouts & Admonitions --- */
 
 .vp-doc blockquote {
@@ -722,7 +728,7 @@ html:not(.dark) .vp-doc div[class*='language-'] {
 
 .vp-doc div[class*='language-'] pre {
   max-width: 100%;
-  padding: 1.25rem 1.4rem 1.35rem !important;
+  padding: 1.05rem 0.9rem 1.2rem !important;
   margin: 0 !important;
   overflow-x: auto !important;
   background: transparent !important;
@@ -733,8 +739,10 @@ html:not(.dark) .vp-doc div[class*='language-'] {
 }
 
 .vp-doc div[class*='language-'] code {
+  display: block;
+  padding: 0 !important;
   font-family: inherit;
-  color: #f1f5f9;
+  color: var(--tac-code-ink);
   white-space: pre !important;
   word-break: normal;
   overflow-wrap: normal;
@@ -820,6 +828,13 @@ html:not(.dark) .vp-doc thead {
 .vp-doc th:first-child {
   font-variant-numeric: tabular-nums;
   font-family: var(--tac-mono);
+}
+
+/* Keep file names and commands intact. Wide tables scroll inside their own
+   wrapper instead of breaking an inline-code pill into clipped fragments. */
+.vp-doc td code,
+.vp-doc th code {
+  white-space: nowrap;
 }
 
 /* --- Right Aside (TOC Outline) --- */
@@ -1092,6 +1107,12 @@ html:not(.dark) .vp-doc thead {
   .VPHome .container,
   .VPHome .vp-doc.container {
     padding: 0 1rem !important;
+  }
+
+  /* VitePress exposes language and appearance again in its mobile navigation;
+     keep the top bar to the branded title, search, and menu trigger. */
+  .storm-controls {
+    display: none !important;
   }
 
   .storm-actions {

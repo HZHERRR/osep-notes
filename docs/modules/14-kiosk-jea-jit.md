@@ -75,7 +75,7 @@ Work through the channels in order of increasing cost, quiet before loud, and de
 
 ---
 
-#### `m14-kiosk-breakout.md` {#m14-kiosk-breakout-md}
+#### `m14-kiosk-breakout.md`
 
 ````markdown
 # Kiosk breakout path checklist (Scenario 41)
@@ -317,7 +317,7 @@ The domain has a restricted PowerShell endpoint (JEA; at logon you select the se
 
 ---
 
-#### `m14-jea-service-dll.cs` {#m14-jea-service-dll-cs}
+#### `m14-jea-service-dll.cs`
 
 ````csharp
 // Purpose: Service DLL payload of JEA scenario - executed when loaded by high-privilege context (service account/SYSTEM/InstallUtil host),
@@ -583,7 +583,7 @@ namespace M14Jea
 }
 ````
 
-#### `m14-jea-file-copy.ps1` {#m14-jea-file-copy-ps1}
+#### `m14-jea-file-copy.ps1`
 
 ````powershell
 <#
@@ -808,7 +808,7 @@ The environment applies just-in-time (JIT) admin rights: normally the privileged
 - Collecting credentials/building persistence inside the window is recorded in the JIT session audit: prioritize "getting results" (dumping hashes, exfiltrating files) inside the window, keep environment-changing actions to a minimum and put them last.
 - Do not run residual tickets right up to the second before they expire (a failed renewal or a revocation is hard to clean up on site); once you have validated that it works, move to real exploitation and get the loot out quickly.
 
-#### `m14-jit-admin-window.ps1` {#m14-jit-admin-window-ps1}
+#### `m14-jit-admin-window.ps1`
 
 ````powershell
 <#

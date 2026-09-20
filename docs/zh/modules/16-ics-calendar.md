@@ -110,7 +110,7 @@ nmap -p 445 --script smb2-security-mode TARGET
 
 ---
 
-#### `m16-ics-invite.ics` {#m16-ics-invite-ics}
+#### `m16-ics-invite.ics`
 
 ````text
 # ---- header (NOT part of the iCalendar spec) --------------------------------
@@ -150,7 +150,7 @@ END:VEVENT
 END:VCALENDAR
 ````
 
-#### `m16-auth-capture.sh` {#m16-auth-capture-sh}
+#### `m16-auth-capture.sh`
 
 ````bash
 #!/usr/bin/env bash

@@ -117,7 +117,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | `m15-winrm-auth-matrix.ps1` | Plaintext/hash/Kerberos templates + failure checklist (PowerShell Remoting path) | `-Target`, `-User`, `-Pass`/`-NtHash`, `-Domain` |
 | `m15-winrm-lateral.md` | evil-winrm / netexec cheat sheet + in-session payload notes | — |
 
-#### `m15-winrm-auth-matrix.ps1` {#m15-winrm-auth-matrix-ps1}
+#### `m15-winrm-auth-matrix.ps1`
 
 ````powershell
 <#
@@ -270,7 +270,7 @@ else {
 }
 ````
 
-#### `m15-winrm-lateral.md` {#m15-winrm-lateral-md}
+#### `m15-winrm-lateral.md`
 
 ````markdown
 # m15 · WinRM lateral cheat sheet (Kali / evil-winrm / netexec)

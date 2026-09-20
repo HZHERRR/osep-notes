@@ -21,7 +21,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 One-line model: **when the host loads a DLL by bare filename, Windows searches the host EXE’s directory first**. Replace that same-named DLL with your Proxy; the Proxy forwards every export to the renamed original (`original.dll`). The host keeps working; your code still runs.
 
-#### `m04-proxy-dll-sideload.c` {#m04-proxy-dll-sideload-c}
+#### `m04-proxy-dll-sideload.c`
 
 ````c
 /*
@@ -121,7 +121,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
  */
 ````
 
-#### `m04-proxy-dll-newadmin.c` {#m04-proxy-dll-newadmin-c}
+#### `m04-proxy-dll-newadmin.c`
 
 ````c
 /*
@@ -339,7 +339,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 }
 ````
 
-#### `m04-proxy-dll-cpp.cpp` {#m04-proxy-dll-cpp-cpp}
+#### `m04-proxy-dll-cpp.cpp`
 
 ````cpp
 // m04-proxy-dll-cpp.cpp
@@ -474,7 +474,7 @@ __declspec(dllexport) int __stdcall Bar(int a, int b)
 // ---------------------------------------------------------------------------
 ````
 
-#### `m04-build-sideload-package.py` {#m04-build-sideload-package-py}
+#### `m04-build-sideload-package.py`
 
 ````python
 #!/usr/bin/env python3

@@ -152,7 +152,7 @@ hashcat -m 2100 dcc2.txt wordlist.txt
 
 ---
 
-#### `m07-invoke-mimikatz-reflect.ps1` {#m07-invoke-mimikatz-reflect-ps1}
+#### `m07-invoke-mimikatz-reflect.ps1`
 
 ````powershell
 <#
@@ -273,7 +273,7 @@ else {
 }
 ````
 
-#### `m07-credential-sources.ps1` {#m07-credential-sources-ps1}
+#### `m07-credential-sources.ps1`
 
 ````powershell
 <#

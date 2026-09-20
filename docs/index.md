@@ -1,7 +1,7 @@
 ---
 layout: home
-title: OSEP Notes
-titleTemplate: Operator field manual
+title: OSEP-Cheat Sheet
+titleTemplate: Authorized OSEP reference
 ---
 
 <div class="storm-field">
@@ -10,13 +10,10 @@ titleTemplate: Operator field manual
 
 <div class="storm-hero-lead">
 
-<StormTitle :lines="['Field notes for', 'constrained', 'operations']" :dissolve="2" />
-
-<p class="storm-lede">A scenario-driven reference for execution, privilege, movement, and evidence in authorized OSEP environments.</p>
+<StormTitle :lines="['OSEP-Cheat Sheet']" />
 
 <p class="storm-actions">
   <a class="storm-action is-primary" href="./scenarios">Open scenario map</a>
-  <a class="storm-action" href="./modules/00-environment-and-infra">Establish the lab baseline</a>
 </p>
 
 </div>

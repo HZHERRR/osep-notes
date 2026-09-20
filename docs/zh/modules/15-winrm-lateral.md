@@ -4,9 +4,9 @@
 
 # 15 · WinRM 横移（凭据有效 · 仅 WinRM 开放）
 
-> **覆盖场景：**56
+> **覆盖场景：** 56
 >
-> **前置依赖：**已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；攻击机为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
+> **前置依赖：** 已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；攻击机为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
 
 ---
 
@@ -117,7 +117,7 @@
 | `m15-winrm-auth-matrix.ps1` | 明文/哈希/Kerberos 三模板 + 失败排查清单（PowerShell Remoting 线） | `-Target`、`-User`、`-Pass`/`-NtHash`、`-Domain` |
 | `m15-winrm-lateral.md` | evil-winrm / netexec 命令速查 + 会话内 payload 投放备忘 | — |
 
-#### `m15-winrm-auth-matrix.ps1` {#m15-winrm-auth-matrix-ps1}
+#### `m15-winrm-auth-matrix.ps1`
 
 ````powershell
 <#
@@ -269,7 +269,7 @@ else {
 }
 ````
 
-#### `m15-winrm-lateral.md` {#m15-winrm-lateral-md}
+#### `m15-winrm-lateral.md`
 
 ````markdown
 # m15 · WinRM 横移命令速查（Kali / evil-winrm / netexec 线）

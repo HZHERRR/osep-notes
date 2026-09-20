@@ -1,7 +1,7 @@
 ---
 layout: home
-title: OSEP 笔记
-titleTemplate: 实战行动手册
+title: OSEP-Cheat Sheet
+titleTemplate: OSEP 授权环境速查
 ---
 
 <div class="storm-field">
@@ -10,13 +10,10 @@ titleTemplate: 实战行动手册
 
 <div class="storm-hero-lead">
 
-<StormTitle :lines="['受限环境下的', '技术行动手册']" :dissolve="1" />
-
-<p class="storm-lede">面向授权 OSEP 环境，以场景组织执行、提权、横向移动与证据记录。</p>
+<StormTitle :lines="['OSEP-Cheat Sheet']" />
 
 <p class="storm-actions">
   <a class="storm-action is-primary" href="./scenarios">打开场景清单</a>
-  <a class="storm-action" href="./modules/00-environment-and-infra">建立实验基线</a>
 </p>
 
 </div>

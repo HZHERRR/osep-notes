@@ -61,7 +61,7 @@ evil-winrm -i ws02.corp.local -k                             # 走 Kerberos 需 
 
 ---
 
-#### `m12-kerberos-tickets-linux.sh` {#m12-kerberos-tickets-linux-sh}
+#### `m12-kerberos-tickets-linux.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -527,7 +527,7 @@ info "下一步：拿到票 -> -m convert/tgs 加工 -> -m auth 落地；跨域�
 
 **场景回顾**：初始会话是普通域用户；本机无提权点；但目录 ACL 允许读取**另一台机器**的本地管理员密码（LAPS）。目标：拿该机器本地管理员身份远程执行。
 
-**前提与假设**：目标域已部署 LAPS 且当前用户对密码属性有读权限（部署时通常会授权给域用户组读取，或你通过 ACL/GenericRead 获得）；LAPS 密码是**目标机器本地 Administrator** 的密码，不是域用户。先分辨目标用的是**传统 LAPS（AdmPwd，属性 `ms-Mcs-AdmPwd*`）**还是 **Windows LAPS（属性 `msLAPS-Password*`）**，两种查询方式不同。
+**前提与假设**：目标域已部署 LAPS 且当前用户对密码属性有读权限（部署时通常会授权给域用户组读取，或你通过 ACL/GenericRead 获得）；LAPS 密码是**目标机器本地 Administrator** 的密码，不是域用户。先分辨目标用的是 **传统 LAPS（AdmPwd，属性 `ms-Mcs-AdmPwd*`）** 还是 **Windows LAPS（属性 `msLAPS-Password*`）**，两种查询方式不同。
 
 **准备（攻击机侧）**：确认能 LDAP 查询（`ldapsearch` 或 impacket）；准备远程执行模板（目标开 445 → `wmiexec/psexec`；只开 5985 → WinRM）。**Windows 侧**查询脚本：`m12-ad-enum-windows.ps1`。
 
@@ -555,7 +555,7 @@ Windows 侧（会话机）：`m12-ad-enum-windows.ps1 -Mode LAPS -ComputerName W
 
 ---
 
-#### `m12-ad-enum-windows.ps1` {#m12-ad-enum-windows-ps1}
+#### `m12-ad-enum-windows.ps1`
 
 ````powershell
 <#
@@ -1079,7 +1079,7 @@ Write-Output "[*] Linux 侧同款枚举：m12-ad-enum-linux.sh；信任与 Extra
 
 ## 场景 50：控制了非约束委派机器，但还没有域级身份
 
-**场景回顾**：已控制一台配置**非约束委派（Trusted for Delegation）**的机器（能跑 Rubeus/触发认证）；还没有任何域管理身份。下一步取决于能否让高价值身份（DC 机器账户或域管）向该机器认证并截获其 TGT。
+**场景回顾**：已控制一台配置 **非约束委派（Trusted for Delegation）** 的机器（能跑 Rubeus/触发认证）；还没有任何域管理身份。下一步取决于能否让高价值身份（DC 机器账户或域管）向该机器认证并截获其 TGT。
 
 **前提与假设**：目标 DC/域管的 SPN 端口（445/5985 或 88 回连）可达该非约束主机；非约束主机上以 SYSTEM 运行抓票工具。DC 机器账户的 TGT 一旦到手 = 可 DCSync（DC 有复制权限）；域管的 TGT = 直接冒充。
 
@@ -1113,7 +1113,7 @@ impacket-psexec -k -no-pass CORP/Administrator@DC01.corp.local -hashes :NTHASH  
 
 ---
 
-#### `m12-delegation-attacks.ps1` {#m12-delegation-attacks-ps1}
+#### `m12-delegation-attacks.ps1`
 
 ````powershell
 <#
@@ -1668,7 +1668,7 @@ impacket-secretsdump -k -no-pass ROOTDC.corp.local
 
 ---
 
-#### `m12-ad-enum-linux.sh` {#m12-ad-enum-linux-sh}
+#### `m12-ad-enum-linux.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -2053,7 +2053,7 @@ info "下一步：LAPS 命中看场景 49；委派/RBCD 命中看场景 51/52（
 info "        信任 + SID 命中看场景 53（m12-laps-and-trust-notes.md 的 Extra SID 段）。"
 ````
 
-#### `m12-laps-and-trust-notes.md` {#m12-laps-and-trust-notes-md}
+#### `m12-laps-and-trust-notes.md`
 
 ````markdown
 # m12 · LAPS 读取、域/林信任枚举、Extra SID 与 SID filtering 命令笔记
@@ -2413,7 +2413,7 @@ impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC0
 
 ---
 
-#### `m12-adcs-esc1-esc8.sh` {#m12-adcs-esc1-esc8-sh}
+#### `m12-adcs-esc1-esc8.sh`
 
 ````bash
 #!/usr/bin/env bash

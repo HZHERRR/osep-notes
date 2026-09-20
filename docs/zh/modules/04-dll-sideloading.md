@@ -4,11 +4,11 @@
 
 # 04 · DLL 旁加载（DLL Sideloading）
 
-> **归属模块：**`M04` · 场景 11–12 · 依据：教材第 6 章（§6.1–6.2）
+> **归属模块：** `M04` · 场景 11–12 · 依据：教材第 6 章（§6.1–6.2）
 >
 > 关联 cheat sheet 关键词：`New Admin with C` / `DLL` / `Shellcode Inject`
 >
-> **前置概念：**Windows DLL 搜索顺序、PE 导入/导出表、调用约定。
+> **前置概念：** Windows DLL 搜索顺序、PE 导入/导出表、调用约定。
 
 ## 0. 速览
 
@@ -21,7 +21,7 @@
 
 一句话模型：**宿主程序用“裸文件名”加载同目录 DLL 时，Windows 先搜“宿主 EXE 所在目录”**。我们把同名 DLL 换成自己的 Proxy，Proxy 再把原 DLL 的全部导出“转发”给改名后的原文件（`original.dll`），宿主功能不坏，我们自己的代码照跑。
 
-#### `m04-proxy-dll-sideload.c` {#m04-proxy-dll-sideload-c}
+#### `m04-proxy-dll-sideload.c`
 
 ````c
 /*
@@ -108,7 +108,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
  */
 ````
 
-#### `m04-proxy-dll-newadmin.c` {#m04-proxy-dll-newadmin-c}
+#### `m04-proxy-dll-newadmin.c`
 
 ````c
 /*
@@ -319,7 +319,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 }
 ````
 
-#### `m04-proxy-dll-cpp.cpp` {#m04-proxy-dll-cpp-cpp}
+#### `m04-proxy-dll-cpp.cpp`
 
 ````cpp
 // m04-proxy-dll-cpp.cpp
@@ -433,7 +433,7 @@ __declspec(dllexport) int __stdcall Bar(int a, int b)
 // ---------------------------------------------------------------------------
 ````
 
-#### `m04-build-sideload-package.py` {#m04-build-sideload-package-py}
+#### `m04-build-sideload-package.py`
 
 ````python
 #!/usr/bin/env python3

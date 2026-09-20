@@ -9,7 +9,7 @@ const enSidebar = sidebarFor('en')
 const zhSidebar = sidebarFor('zh')
 
 export default defineConfig({
-  title: 'OSEP Notes',
+  title: 'OSEP-Cheat Sheet',
   description: 'Authorized-lab notes for OSEP. English by default.',
   base,
   cleanUrls: true,
@@ -21,10 +21,9 @@ export default defineConfig({
     outline: { level: [2, 3] },
   },
   markdown: {
-    theme: {
-      light: 'github-light',
-      dark: 'github-dark',
-    },
+    // Code plates stay dark in both site appearances, so use one matching,
+    // high-contrast token palette instead of light tokens on a dark plate.
+    theme: 'github-dark-high-contrast',
   },
   locales: {
     root: {

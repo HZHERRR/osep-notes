@@ -4,11 +4,11 @@
 
 # 01 · Word / VBA 宏入口与载荷形态
 
-> **覆盖场景：**1、2、3、4、5
+> **覆盖场景：** 1、2、3、4、5
 >
-> **教材依据：**第 4 章（宏与初始访问）、第 10 章（进程迁移与生命周期）、第 11 章（免杀与编码）
+> **教材依据：** 第 4 章（宏与初始访问）、第 10 章（进程迁移与生命周期）、第 11 章（免杀与编码）
 >
-> **前置依赖：**可投递的 `.docm`/`.doc`；目标安装 Office；攻击机有 HTTP 投递服务（`m00-delivery-server.py`）；x86/x64 两套 Runner 已编译
+> **前置依赖：** 可投递的 `.docm`/`.doc`；目标安装 Office；攻击机有 HTTP 投递服务（`m00-delivery-server.py`）；x86/x64 两套 Runner 已编译
 
 **本模块的共同原则**：
 1. **先探测，再投递**——Office 位数未知时，任何直接投递 Runner 的行为都是赌博。
@@ -66,7 +66,7 @@
 | `m01-shellcode-runner-vba-x64.vba` | 64 位 Runner | 替换 shellcode 数组 |
 | `m01-shellcode-runner-vba-archbranch.vba` | 自动判断位数并分支 | 同时内嵌两套 shellcode |
 
-#### `m00-delivery-server.py` {#m00-delivery-server-py}
+#### `m00-delivery-server.py`
 
 ````python
 #!/usr/bin/env python3
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m01-callback-ping.vba` {#m01-callback-ping-vba}
+#### `m01-callback-ping.vba`
 
 ````vb
 ' Purpose: Harmless callback macro. Confirms the macro actually ran after the
@@ -331,7 +331,7 @@ Public Sub Document_Open()
 End Sub
 ````
 
-#### `m01-detect-arch.vba` {#m01-detect-arch-vba}
+#### `m01-detect-arch.vba`
 
 ````vb
 ' 用途：识别 Office 宿主位数并回传（投递 payload 前必须先做这一步）
@@ -389,7 +389,7 @@ Sub Document_Open()
 End Sub
 ````
 
-#### `m01-shellcode-runner-vba-x86.vba` {#m01-shellcode-runner-vba-x86-vba}
+#### `m01-shellcode-runner-vba-x86.vba`
 
 ````vb
 ' 用途：x86（32 位）Office 下的进程内 shellcode Runner
@@ -455,7 +455,7 @@ End Sub
 #End If
 ````
 
-#### `m01-shellcode-runner-vba-x64.vba` {#m01-shellcode-runner-vba-x64-vba}
+#### `m01-shellcode-runner-vba-x64.vba`
 
 ````vb
 ' 用途：x64 Office 下的进程内 shellcode Runner（不创建 PowerShell/子进程）
@@ -535,7 +535,7 @@ End Sub
 #End If
 ````
 
-#### `m00-listener.sh` {#m00-listener-sh}
+#### `m00-listener.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -596,7 +596,7 @@ else
 fi
 ````
 
-#### `m01-shellcode-runner-vba-archbranch.vba` {#m01-shellcode-runner-vba-archbranch-vba}
+#### `m01-shellcode-runner-vba-archbranch.vba`
 
 ````vb
 ' 用途：用 VBA 编译期常量自动匹配 Office 位数，避免投递位数不匹配的 Runner 导致宿主崩溃
@@ -731,7 +731,7 @@ End Sub
 | `m01-embedded-dotnet-runner.vba` | VBA 内加载 .NET 程序集 | 程序集 Base64 |
 | `m01-callback-ping.vba` | 排除"宏整体被拦" | LHOST |
 
-#### `m01-embedded-dotnet-runner.vba` {#m01-embedded-dotnet-runner-vba}
+#### `m01-embedded-dotnet-runner.vba`
 
 ````vb
 ' 用途：VBA 内直接加载并执行 .NET 程序集（不依赖下载、不启动 PowerShell 子进程）
@@ -838,7 +838,7 @@ End Sub
 | `m01-stager-download-encrypted.ps1` | 加密/混淆的下载执行 stage2 | LHOST/URL |
 | `m01-reflective-runner.ps1` | 反射加载，绕过对落地脚本的扫描 | 程序集路径 |
 
-#### `m05-amsi-bypass-variants.ps1` {#m05-amsi-bypass-variants-ps1}
+#### `m05-amsi-bypass-variants.ps1`
 
 ````powershell
 <#
@@ -968,7 +968,7 @@ if ($ProbeOnly) {
 }
 ````
 
-#### `m01-stager-download-encrypted.ps1` {#m01-stager-download-encrypted-ps1}
+#### `m01-stager-download-encrypted.ps1`
 
 ````powershell
 <#
@@ -1051,7 +1051,7 @@ try {
 }
 ````
 
-#### `m01-reflective-runner.ps1` {#m01-reflective-runner-ps1}
+#### `m01-reflective-runner.ps1`
 
 ````powershell
 <#
@@ -1173,7 +1173,7 @@ try {
 | `m01-shellcode-runner-x64.cs` | 预编译 Runner 源码 | shellcode 密文 + key |
 | `m01-stager-download-encrypted.ps1` | 加密 stager | LHOST/URL |
 
-#### `m01-shellcode-runner-x64.cs` {#m01-shellcode-runner-x64-cs}
+#### `m01-shellcode-runner-x64.cs`
 
 ````csharp
 // 用途：自定义 x64 shellcode Runner（预编译使用，避免 Add-Type 动态编译落地临时文件）
@@ -1299,7 +1299,7 @@ class Runner
 | `m01-reflective-runner.ps1` | 迁移后重新加载载荷 | 程序集/字节 |
 | `m06-service-hijack.ps1` | 有管理员时的服务级持久化 | 服务名 |
 
-#### `m06-service-hijack.ps1` {#m06-service-hijack-ps1}
+#### `m06-service-hijack.ps1`
 
 ````powershell
 <#

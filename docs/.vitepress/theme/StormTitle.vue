@@ -22,7 +22,7 @@ const activeIndex = computed(() => props.dissolve)
     <div class="tactical-kicker">
       <span class="tactical-kicker-dot"></span>
       <span class="tactical-kicker-text">
-        {{ zh ? 'OFFSEC PEN-300 // 红队技术行动手册' : 'OFFSEC PEN-300 // FIELD MANUAL' }}
+        {{ zh ? 'OFFSEC PEN-300 // 授权环境速查' : 'OFFSEC PEN-300 // AUTHORIZED REFERENCE' }}
       </span>
     </div>
     <h1 class="storm-title">
@@ -77,7 +77,6 @@ const activeIndex = computed(() => props.dissolve)
   font-size: clamp(2rem, 3.8vw, 3rem);
   line-height: 1.15;
   letter-spacing: -0.025em;
-  text-transform: uppercase;
   text-wrap: balance;
   color: var(--tac-text-1);
 }

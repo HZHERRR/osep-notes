@@ -4,9 +4,9 @@
 
 # 02 · HTA 入口（邮件无 Office 宏时的第一阶段）
 
-> **覆盖场景：**6、7、8
+> **覆盖场景：** 6、7、8
 >
-> **前置依赖：**攻击机上可被目标访问的 HTTP 服务（Kali `python3 -m http.server` 即可）；一个能编译 .NET Framework 的 Windows 环境（实验网任意 Win10 或自备 Windows VM，用于产出 `m02-clm-bypass-runspace.exe`）；邮件投递链路（swaks/sendEmail，见场景 6）。
+> **前置依赖：** 攻击机上可被目标访问的 HTTP 服务（Kali `python3 -m http.server` 即可）；一个能编译 .NET Framework 的 Windows 环境（实验网任意 Win10 或自备 Windows VM，用于产出 `m02-clm-bypass-runspace.exe`）；邮件投递链路（swaks/sendEmail，见场景 6）。
 
 **本文档三个场景的关系**：场景 6 是"HTA 当第一阶段，目标有 AppLocker 无 Office"；场景 7 是"AppLocker + CLM + AMSI 全开"，需要把 HTA、InstallUtil 兼容程序集、自定义 Runspace、AMSI 处理、第二阶段 Runner **组合**起来验证；场景 8 是"同一链路下载+执行合在一起不工作，拆开才工作"的**时序/生命周期排错**——不要一上来就怪杀软。三者共用同一套文件，差别在组合方式与排错顺序。
 
@@ -59,7 +59,7 @@
 | `m02-clm-bypass-runspace.cs` | InstallUtil 兼容 runner（x86/x64 各编一份） | 替换 `LHOST` 后编译 |
 | `m02-hta-embedded-clm-bypass.hta` | 单文件兜底：内嵌 C#，目标机现编现跑 | 替换 `LHOST` |
 
-#### `m02-hta-callback.hta` {#m02-hta-callback-hta}
+#### `m02-hta-callback.hta`
 
 ````html
 <!--
@@ -107,7 +107,7 @@
 </html>
 ````
 
-#### `m02-hta-powershell-stager.hta` {#m02-hta-powershell-stager-hta}
+#### `m02-hta-powershell-stager.hta`
 
 ````html
 <!--
@@ -163,7 +163,7 @@
 </html>
 ````
 
-#### `m02-clm-bypass-runspace.cs` {#m02-clm-bypass-runspace-cs}
+#### `m02-clm-bypass-runspace.cs`
 
 ````csharp
 // 用途：InstallUtil 兼容 runner——由 InstallUtil.exe /U 触发 Uninstall()，在自定义 Runspace(FullLanguage) 内
@@ -240,7 +240,7 @@ namespace M02
 }
 ````
 
-#### `m02-hta-embedded-clm-bypass.hta` {#m02-hta-embedded-clm-bypass-hta}
+#### `m02-hta-embedded-clm-bypass.hta`
 
 ````html
 <!--
@@ -438,7 +438,7 @@ namespace M02
 | `m02-clm-bypass-dotnettojscript.cs` | 无 EXE 备选：DotNetToJScript 载荷类 | 编译为 library，配 M03 工具序列化 |
 | `m02-hta-download-exec-split.hta` | 链路失败时改用"分离两阶段"排错 | 替换 `LHOST` |
 
-#### `m02-clm-bypass-dotnettojscript.cs` {#m02-clm-bypass-dotnettojscript-cs}
+#### `m02-clm-bypass-dotnettojscript.cs`
 
 ````csharp
 // 用途：DotNetToJScript 路线的 C# 载荷骨架（CLM 绕过版）——JScript 只做加载，重活在托管侧
@@ -495,7 +495,7 @@ namespace Payload
 }
 ````
 
-#### `m02-hta-download-exec-split.hta` {#m02-hta-download-exec-split-hta}
+#### `m02-hta-download-exec-split.hta`
 
 ````html
 <!--

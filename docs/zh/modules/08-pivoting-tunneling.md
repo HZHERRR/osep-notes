@@ -127,7 +127,7 @@ Windows 形态的 DEV 跳板也能用 `m08-port-forward.ps1` 的 portproxy 做�
 
 ---
 
-#### `m08-ligolo-ng-setup.sh` {#m08-ligolo-ng-setup-sh}
+#### `m08-ligolo-ng-setup.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -257,7 +257,7 @@ case "$1" in
 esac
 ````
 
-#### `m08-chisel-socks.sh` {#m08-chisel-socks-sh}
+#### `m08-chisel-socks.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -357,7 +357,7 @@ case "$1" in
 esac
 ````
 
-#### `m08-port-forward.ps1` {#m08-port-forward-ps1}
+#### `m08-port-forward.ps1`
 
 ````powershell
 <#

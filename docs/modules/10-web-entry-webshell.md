@@ -61,7 +61,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | `m10-jsp-shell.jsp` / `m10-php-shell.php` | Fallbacks for non-IIS environments | `cmd` |
 | `m10-download-fallbacks.md` | Downloader fallback matrix | — |
 
-#### `m10-minimal-exec.aspx` {#m10-minimal-exec-aspx}
+#### `m10-minimal-exec.aspx`
 
 ````html
 <%@ Page Language="C#" AutoEventWireup="true" Debug="false" Trace="false" %>
@@ -119,7 +119,7 @@ Self-check notes (static checks when you have no IIS):
 --%>
 ````
 
-#### `m10-managed-loader.aspx` {#m10-managed-loader-aspx}
+#### `m10-managed-loader.aspx`
 
 ````html
 <%@ Page Language="C#" AutoEventWireup="true" Debug="false" Trace="false" %>
@@ -278,7 +278,7 @@ Self-check notes (static checks when you have no IIS):
 --%>
 ````
 
-#### `m10-jsp-shell.jsp` {#m10-jsp-shell-jsp}
+#### `m10-jsp-shell.jsp`
 
 ````xml
 <%--
@@ -332,7 +332,7 @@ Self-check notes (static checks when you have no Tomcat):
 --%>
 ````
 
-#### `m00-delivery-server.py` {#m00-delivery-server-py}
+#### `m00-delivery-server.py`
 
 ````python
 #!/usr/bin/env python3
@@ -487,7 +487,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m10-download-fallbacks.md` {#m10-download-fallbacks-md}
+#### `m10-download-fallbacks.md`
 
 ````markdown
 # Downloader fallback matrix (scenarios 15 / 16 / 17)
@@ -714,7 +714,7 @@ Compare with `md5sum ~/osep/payloads/PAYLOAD` on the attacker box: a hash mismat
 | `m05-amsi-bypass-variants.ps1` | AMSI handling for PowerShell downloads |
 | `m00-delivery-server.py` | Delivery and request logging |
 
-#### `m10-php-shell.php` {#m10-php-shell-php}
+#### `m10-php-shell.php`
 
 ````php
 <?php
@@ -800,7 +800,7 @@ if (function_exists('popen')) {
 echo "no command execution function available (check disable_functions)";
 ````
 
-#### `m05-amsi-bypass-variants.ps1` {#m05-amsi-bypass-variants-ps1}
+#### `m05-amsi-bypass-variants.ps1`
 
 ````powershell
 <#

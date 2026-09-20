@@ -75,7 +75,7 @@
 
 ---
 
-#### `m14-kiosk-breakout.md` {#m14-kiosk-breakout-md}
+#### `m14-kiosk-breakout.md`
 
 ````markdown
 # Kiosk 突破路径清单（场景 41）
@@ -317,7 +317,7 @@ dir %APPDATA%\Microsoft\Credentials
 
 ---
 
-#### `m14-jea-service-dll.cs` {#m14-jea-service-dll-cs}
+#### `m14-jea-service-dll.cs`
 
 ````csharp
 // 用途：JEA 场景的服务 DLL 载荷——被高权限上下文（服务账户 / SYSTEM / InstallUtil 宿主）加载时执行，
@@ -583,7 +583,7 @@ namespace M14Jea
 }
 ````
 
-#### `m14-jea-file-copy.ps1` {#m14-jea-file-copy-ps1}
+#### `m14-jea-file-copy.ps1`
 
 ````powershell
 <#
@@ -808,7 +808,7 @@ Remove-PSSession $session
 - 窗口内抓凭据/建持久化会被记入 JIT 会话审计：窗口内优先做“拿结果”（抓哈希/外传文件），持久化动作减到最少并放最后。
 - 残余票据别用到过期前一秒（续期失败/被吊销现场难收拾）；验证一次可行即转入正式利用，尽快落库。
 
-#### `m14-jit-admin-window.ps1` {#m14-jit-admin-window-ps1}
+#### `m14-jit-admin-window.ps1`
 
 ````powershell
 <#

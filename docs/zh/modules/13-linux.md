@@ -77,7 +77,7 @@
 
 ---
 
-#### `m13-xor-encoder.py` {#m13-xor-encoder-py}
+#### `m13-xor-encoder.py`
 
 ````python
 #!/usr/bin/env python3
@@ -186,7 +186,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m13-simple-loader.c` {#m13-simple-loader-c}
+#### `m13-simple-loader.c`
 
 ````c
 /* 用途：Linux 自定义 ELF/shellcode 加载器——读取 XOR 加密的载荷，mmap 申请内存 → 解码 →
@@ -589,7 +589,7 @@ Linux 主机上有 AV（典型是 ClamAV 的 on-access/on-scan 守护，考试�
 
 ---
 
-#### `m13-shared-library-ldpreload.c` {#m13-shared-library-ldpreload-c}
+#### `m13-shared-library-ldpreload.c`
 
 ````c
 /* 用途：LD_PRELOAD 场景的共享库载荷——被预加载的瞬间（constructor）在独立子进程里执行载荷，
@@ -687,7 +687,7 @@ uid_t geteuid(void)
 #endif
 ````
 
-#### `m13-shared-library-ldlibrarypath.c` {#m13-shared-library-ldlibrarypath-c}
+#### `m13-shared-library-ldlibrarypath.c`
 
 ````c
 /* 用途：LD_LIBRARY_PATH 劫持场景的共享库——文件名必须与宿主缺失的库逐字符同名（含 .so.N 后缀），
@@ -856,7 +856,7 @@ pid_t getpid(void)
 
 ---
 
-#### `m13-sudo-gtfobins.sh` {#m13-sudo-gtfobins-sh}
+#### `m13-sudo-gtfobins.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -1227,7 +1227,7 @@ esac
 
 ---
 
-#### `m13-artifactory-replace.sh` {#m13-artifactory-replace-sh}
+#### `m13-artifactory-replace.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -1569,7 +1569,7 @@ esac
 
 ---
 
-#### `m13-ssh-controlmaster-hijack.sh` {#m13-ssh-controlmaster-hijack-sh}
+#### `m13-ssh-controlmaster-hijack.sh`
 
 ````bash
 #!/usr/bin/env bash

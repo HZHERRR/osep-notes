@@ -147,7 +147,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | `m11-sqlrecon-templates.ps1` | SQLRecon counterpart templates (/m:info /m:xpcmd, etc.) | `/h:TARGET /a:WinToken` |
 | `m11-linked-server-queries.sql` | Query set for cross-instance enumeration (in this scenario, use it to confirm "the other instance") | see the file header |
 
-#### `m11-powerupsql-templates.ps1` {#m11-powerupsql-templates-ps1}
+#### `m11-powerupsql-templates.ps1`
 
 ````powershell
 <#
@@ -249,7 +249,7 @@ Write-Output ""
 Write-Output "[*] Change the placeholders on the lines you use and paste them into your exam notes; run read-only recon first and confirm action commands one by one."
 ````
 
-#### `m11-responder-relay-sql.sh` {#m11-responder-relay-sql-sh}
+#### `m11-responder-relay-sql.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -390,7 +390,7 @@ fi
 print_loot
 ````
 
-#### `m11-sqlrecon-templates.ps1` {#m11-sqlrecon-templates-ps1}
+#### `m11-sqlrecon-templates.ps1`
 
 ````powershell
 <#
@@ -497,7 +497,7 @@ if ($Target) {
 }
 ````
 
-#### `m11-linked-server-queries.sql` {#m11-linked-server-queries-sql}
+#### `m11-linked-server-queries.sql`
 
 ````sql
 -- ============================================================================

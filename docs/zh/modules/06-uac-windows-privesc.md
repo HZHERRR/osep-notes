@@ -92,7 +92,7 @@ reg delete "HKCU\Software\Classes\ms-settings" /f
 
 ---
 
-#### `m06-fodhelper-uac.ps1` {#m06-fodhelper-uac-ps1}
+#### `m06-fodhelper-uac.ps1`
 
 ````powershell
 <#
@@ -253,7 +253,7 @@ SigmaPotato.exe -cmd "powershell -nop -w hidden -enc <BASE64>"                  
 
 ---
 
-#### `m06-sigmapotato-reflect.ps1` {#m06-sigmapotato-reflect-ps1}
+#### `m06-sigmapotato-reflect.ps1`
 
 ````powershell
 <#
@@ -420,7 +420,7 @@ sc start <svc>                                   # 恢复原服务（验证能�
 
 ---
 
-#### `m06-service-binary-payload.c` {#m06-service-binary-payload-c}
+#### `m06-service-binary-payload.c`
 
 ````c
 /*
@@ -527,7 +527,7 @@ int main(void)
 }
 ````
 
-#### `m06-service-hijack.ps1` {#m06-service-hijack-ps1}
+#### `m06-service-hijack.ps1`
 
 ````powershell
 <#

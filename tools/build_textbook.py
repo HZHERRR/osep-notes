@@ -108,8 +108,10 @@ def render_script(rel: str) -> str:
     if not path:
         return ""
     body = path.read_text(encoding="utf-8", errors="replace")
-    slug = path.name.replace(".", "-")
-    return f"\n#### `{path.name}` {{#{slug}}}\n\n" + fence(lang_for(path), body)
+    # VitePress generates the same stable slug from the filename. Kramdown-style
+    # ``{#id}`` syntax is not supported here and would leak into accessibility
+    # labels as literal text.
+    return f"\n#### `{path.name}`\n\n" + fence(lang_for(path), body)
 
 
 def inject_section(section: str, already: set[str]) -> str:

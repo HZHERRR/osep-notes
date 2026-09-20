@@ -4,11 +4,11 @@
 
 # 10 · Web 入口：ASPX Web Shell 与注入后的下载/执行
 
-> **覆盖场景：**14、15、16
+> **覆盖场景：** 14、15、16
 >
-> **教材依据：**第 8–9 章（托管加载）、第 24 章（Web 与服务账户）、C2/C6（Web 入口）
+> **教材依据：** 第 8–9 章（托管加载）、第 24 章（Web 与服务账户）、C2/C6（Web 入口）
 >
-> **前置依赖：**可上传文件或存在注入点的 Web 服务；IIS/.NET（ASPX）或 PHP/JSP 运行时；攻击机有可被目标访问的投递地址
+> **前置依赖：** 可上传文件或存在注入点的 Web 服务；IIS/.NET（ASPX）或 PHP/JSP 运行时；攻击机有可被目标访问的投递地址
 
 **本模块的共同原则**：
 1. **Web 入口的身份通常很低**（IIS 应用池账户、`NT AUTHORITY\NETWORK SERVICE`），拿到后第一件事是 `whoami /priv`——是否有 `SeImpersonatePrivilege` 决定你能不能立刻提权。
@@ -61,7 +61,7 @@
 | `m10-jsp-shell.jsp` / `m10-php-shell.php` | 非 IIS 环境备选 | `cmd` |
 | `m10-download-fallbacks.md` | 下载器备选矩阵 | — |
 
-#### `m10-minimal-exec.aspx` {#m10-minimal-exec-aspx}
+#### `m10-minimal-exec.aspx`
 
 ````html
 <%@ Page Language="C#" AutoEventWireup="true" Debug="false" Trace="false" %>
@@ -119,7 +119,7 @@ protected void Page_Load(object sender, EventArgs e)
 --%>
 ````
 
-#### `m10-managed-loader.aspx` {#m10-managed-loader-aspx}
+#### `m10-managed-loader.aspx`
 
 ````html
 <%@ Page Language="C#" AutoEventWireup="true" Debug="false" Trace="false" %>
@@ -278,7 +278,7 @@ protected void Page_Load(object sender, EventArgs e)
 --%>
 ````
 
-#### `m10-jsp-shell.jsp` {#m10-jsp-shell-jsp}
+#### `m10-jsp-shell.jsp`
 
 ````xml
 <%--
@@ -332,7 +332,7 @@ protected void Page_Load(object sender, EventArgs e)
 --%>
 ````
 
-#### `m00-delivery-server.py` {#m00-delivery-server-py}
+#### `m00-delivery-server.py`
 
 ````python
 #!/usr/bin/env python3
@@ -487,7 +487,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m10-download-fallbacks.md` {#m10-download-fallbacks-md}
+#### `m10-download-fallbacks.md`
 
 ````markdown
 # 下载器备选矩阵（场景 15 / 16 / 17）
@@ -714,7 +714,7 @@ md5sum /tmp/.PAYLOAD          # Linux 目标
 | `m05-amsi-bypass-variants.ps1` | PowerShell 下载时的 AMSI 处理 |
 | `m00-delivery-server.py` | 投递与请求日志 |
 
-#### `m10-php-shell.php` {#m10-php-shell-php}
+#### `m10-php-shell.php`
 
 ````php
 <?php
@@ -800,7 +800,7 @@ if (function_exists('popen')) {
 echo "no command execution function available (check disable_functions)";
 ````
 
-#### `m05-amsi-bypass-variants.ps1` {#m05-amsi-bypass-variants-ps1}
+#### `m05-amsi-bypass-variants.ps1`
 
 ````powershell
 <#
