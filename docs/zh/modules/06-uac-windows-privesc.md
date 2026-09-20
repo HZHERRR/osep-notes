@@ -5,7 +5,9 @@
 # 06 · UAC Bypass & Windows 本地提权（场景 25–27）
 
 > 技术路线对齐 （关键词：`UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`）。
+>
 > 相关模块：本模块只讲「拿到第一段立足点之后的本地提权」。横向移动见 [15-winrm-lateral](/zh/modules/15-winrm-lateral)，凭据抓取见 [07-credentials-lsass](/zh/modules/07-credentials-lsass)。
+>
 > 统一占位符：`LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`。
 
 三种提权形态在本模块的适用顺序（考试建议的排查顺序）：

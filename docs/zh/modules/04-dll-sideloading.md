@@ -5,7 +5,9 @@
 # 04 · DLL 旁加载（DLL Sideloading）
 
 > 归属模块：`M04` · 场景 11–12 · 依据：教材第 6 章（§6.1–6.2）
+>
 > 关联 cheat sheet 关键词：`New Admin with C` / `DLL` / `Shellcode Inject`
+>
 > 前置概念：Windows DLL 搜索顺序、PE 导入/导出表、调用约定。
 
 ## 0. 速览

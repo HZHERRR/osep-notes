@@ -5,7 +5,9 @@
 # 14 · 场景 41–43：Kiosk 突破 · JEA 越权文件复制 · JIT 时间窗
 
 > 依据说明：本主题在  中没有直接条目，以下内容按教材第 16 章（受限桌面 / Kiosk 突破）与第 23 章（PowerShell 受限端点 JEA 与临时授权 JIT）的实验思路整理，并补充通用枚举与验证方法。
+>
 > 行文约定：中文说明 + 英文命令；占位符统一为 `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`。
+>
 > 本模块文件：[14-kiosk-jea-jit](/zh/modules/14-kiosk-jea-jit)、`m14-jea-file-copy.ps1`、`m14-jea-service-dll.cs`、`m14-jit-admin-window.ps1`、`m14-kiosk-breakout.md`。
 
 ## 0. 场景总览
@@ -79,11 +81,17 @@
 # Kiosk 突破路径清单（场景 41）
 
 > 用途：受限 Kiosk 桌面（单应用 / Assigned Access / 替换外壳）下，逐项勾选"能否拿到命令执行"的通道清单，
+>
 > 以及取得执行机会后如何稳定落到 payload。
+>
 > 场景：41（只有受限 Kiosk 桌面，没有终端）
+>
 > 依赖：物理终端或 RDP 交互；攻击机侧已起监听（`nc -lvnp LPORT`）并备好二阶段 `PAYLOAD` 与投递用 `URL`
+>
 > 使用：现场按"成本从低到高、先静默后动静"逐项试，每条**试一次就够**，把结果勾在 §5 清单里（报告要写清哪条通、哪条被封）
+>
 > 占位符：`LHOST`（攻击机 IP）、`LPORT`（监听端口）、`TARGET`（目标机）、`USER`（kiosk 账户）、`URL`（投递地址）、`PAYLOAD`（载荷文件名）
+>
 > 测试状态：操作笔记，无可执行代码；所有命令均需在实验环境按实际版本核对（尤其浏览器内核与 Edge/Chrome 策略）
 
 ---
@@ -215,6 +223,7 @@ dir %APPDATA%\Microsoft\Credentials
 ```
 
 > `PAYLOAD` 生成时填 `LHOST`/`LPORT`；攻击机保持 `nc -lvnp LPORT` 常开。
+>
 > kiosk 每次重启会还原的场景：不要依赖持久化，当前会话内一次做完。
 
 ---

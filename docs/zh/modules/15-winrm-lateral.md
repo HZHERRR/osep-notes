@@ -5,7 +5,8 @@
 # 模块 M15：WinRM 横移（凭据有效 · 仅 WinRM 开放）
 
 > 覆盖场景：56
-> > 前置依赖：已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；攻击机为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
+>
+> 前置依赖：已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；攻击机为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
 
 ---
 
@@ -274,7 +275,9 @@ else {
 # m15 · WinRM 横移命令速查（Kali / evil-winrm / netexec 线）
 
 > 场景 56：凭据有效、SMB 不通、仅 5985/5986 开放。本文是 Linux 攻击机一侧的速查；
+>
 > Windows 跳板一侧的模板见 `m15-winrm-auth-matrix.ps1`。
+>
 > 占位符：`TARGET`(IP/FQDN) `DOMAIN` `USER` `PASS` `NTHASH` `LHOST` `LPORT` `PAYLOAD` `URL`
 
 ## 1. 先判定（30 秒内决定路线）

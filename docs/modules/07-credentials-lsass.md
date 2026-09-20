@@ -5,7 +5,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # 07 · Credentials: LSASS / LSA / SAM and alternate sources (scenario 46)
 
 > Aligned with: (`Mimikatz` `LSA Protection Bypass` `MiniDump` `Invoke-Mimikatz` `Cracking Hashes`)
+>
 > Scenario basis: `scenarios.md` scenario 46.
+>
 > Lab files: `m07-invoke-mimikatz-reflect.ps1`, `m07-credential-sources.ps1`
 
 ## Module goals
@@ -81,6 +83,7 @@ tasklist /FI "IMAGENAME eq lsass.exe"
 - D. Command-line obfuscation / encoded calls (AMSI static features); remember scenario 18: encode/encrypt before delivery.
 
 > Artifact list: `sekurlsa::logonpasswords` (interactive logon cache cleartext/NTLM), `sekurlsa::wdigest`,
+>
 > `sekurlsa::kerberos` (tickets), `sekurlsa::msv` (msv1_0 cache).
 
 **Step 2 · Alternate sources (highest rights first; prefer what only SYSTEM can read)**

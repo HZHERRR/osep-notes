@@ -5,7 +5,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # 08 · Pivoting & tunneling (port forwarding)
 
 > Scenarios 34–35. Core of lateral movement: **internal reachability ≠ your reachability** — treat the two directions separately.
+>
 > Lab files: `m08-ligolo-ng-setup.sh`, `m08-chisel-socks.sh`, `m08-port-forward.ps1`.
+>
 > Keywords: `Ligolo-ng` `SSHUTTLE` `Autoroute` `Socks`.
 
 ---

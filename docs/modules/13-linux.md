@@ -5,7 +5,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # 13 · Linux attack surface (scenarios 36–40, 48)
 
 > Scenario map: 36 Linux upload site runs ELF but still requires a business check · 37 Linux target has AV · 38 Linux program loads a shared library from a path you control · 39 sudo allows only one editor/interpreter · 40 you can overwrite an artifact but cannot log into the consumer hosts · 48 no SSH password, but an already-authenticated reusable connection exists.
+>
 > Aligned with cheat-sheet sections: `Payloads (XOR Payload Encoder / Simple Loader / Shared Library LD PRELOAD / Shared Library LD LIBRARY Path)`, `Abusing SUIDs`, `SSH Hijacking with ControlMaster / SSH Agent Forwarding`, `Artifactory (JFrog)`.
+>
 > Placeholders: `LHOST` (attacker IP) `LPORT` (listener port) `TARGET` (target address) `USER` `PASS` `DOMAIN` `PAYLOAD`. Commands assume x86_64 Linux unless noted.
 
 ## Overview

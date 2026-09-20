@@ -5,7 +5,9 @@
 # 07 · 凭据获取：LSASS / LSA / SAM 与替代来源（场景 46）
 
 > 对齐：（关键词：`Mimikatz` `LSA Protection Bypass` `MiniDump` `Invoke-Mimikatz` `Cracking Hashes`）
+>
 > 场景依据：`scenarios.md` 场景 46。
+>
 > 脚本：`m07-invoke-mimikatz-reflect.ps1`、`m07-credential-sources.ps1`
 
 ## 模块目标
@@ -81,6 +83,7 @@ tasklist /FI "IMAGENAME eq lsass.exe"
 - D. 命令行混淆/编码调用（防 AMSI 静态特征），注意场景 18：先编码/加密再投递。
 
 > 产物清单：`sekurlsa::logonpasswords`（交互式登录缓存明文/NTLM）、`sekurlsa::wdigest`、
+>
 > `sekurlsa::kerberos`（票据）、`sekurlsa::msv`（msv1_0 缓存）。
 
 **第 2 步 · 替代来源（按权限从高到低，优先 SYSTEM 才能读的）**

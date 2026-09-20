@@ -5,7 +5,8 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # Module M02: HTA entry (first stage when mail has no Office macros)
 
 > Covers scenarios: 6, 7, 8
-> > Prerequisites: HTTP service on the attacker reachable from the target (Kali `python3 -m http.server` is enough); a Windows environment that can compile .NET Framework (any Win10 on the lab net or your own Windows VM, to produce `m02-clm-bypass-runspace.exe`); mail delivery path (swaks/sendEmail; see scenario 6).
+>
+> Prerequisites: HTTP service on the attacker reachable from the target (Kali `python3 -m http.server` is enough); a Windows environment that can compile .NET Framework (any Win10 on the lab net or your own Windows VM, to produce `m02-clm-bypass-runspace.exe`); mail delivery path (swaks/sendEmail; see scenario 6).
 
 **How the three scenarios relate**: Scenario 6 is “HTA as first stage; target has AppLocker, no Office.” Scenario 7 is “AppLocker + CLM + AMSI all on,” so you must **combine** HTA, an InstallUtil-compatible assembly, a custom Runspace, AMSI handling, and a stage-2 Runner and verify the full chain. Scenario 8 is **timing/lifecycle triage** when “download+execute in one command fails, but split works” — do not blame AV first. All three share the same files; differences are combination and triage order.
 

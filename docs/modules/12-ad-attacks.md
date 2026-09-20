@@ -5,6 +5,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # 12 · AD Attacks: Tickets, Delegation, LAPS, Trust and ADCS (Scenarios 47, 49–55)
 
 > Front: press [00-environment-and-infra](/modules/00-environment-and-infra) Set up the attack machine directory, monitoring and delivery. unified placeholder `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`。
+>
 > The teaching materials are based on cheat sheet（，Hereinafter referred to as CS）Correspondence: scene 47←C5/Textbook§19.3；49←C1；50←C1/Textbook21、23 chapter；51←C5/Textbook21、23 chapter；52←Textbook21、23 chapter；53←C5/Textbook21 chapter；54←Textbook§22.2.1；55←Textbook§22.2.2。CS big festival：`AD Enumeration`(≈L7768)、`AD Attacking`(≈L8251，Contains Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460)、`Kerberos`(≈L7071)。
 
 **Principle of penetration**: 80% of the work of this module occurs on the attack machine Kali (impacket suite + certipy), only "inducing authentication/ticket capture" must be completed on the target Windows host side. First write clearly "where the bill comes from, which service it is going to, and in whose identity" before proceeding - if the bill is in the wrong direction, it will be useless no matter how correct the order is.
@@ -2074,7 +2075,9 @@ Test state: command shape press cheat sheet "AD Enumeration / AD Attacking" Comp
 -->
 
 > one sentence principle：**Decide first before taking action**。LAPS You need to distinguish the version first（legacy `ms-Mcs-AdmPwd*` vs Windows LAPS
+>
 > `msLAPS-*`）；Cross-domain trust attributes must be determined first (whether `WITHIN_FOREST`、Is the direction available?），
+>
 > Change the route when the judgment is not established. Don't waste time on impossible routes.。
 >
 > placeholder：`DOMAIN` `TARGET` `USER` `PASS` `NTHASH` `LHOST`

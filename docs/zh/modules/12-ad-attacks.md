@@ -5,6 +5,7 @@
 # 12 · AD 攻击：票据、委派、LAPS、信任与 ADCS（场景 47、49–55）
 
 > 前置：按 [00-environment-and-infra](/zh/modules/00-environment-and-infra) 搭好攻击机目录、监听与投递。统一占位符 `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`。
+>
 > 教材依据与 cheat sheet（，下称 CS）对应：场景 47←C5/教材§19.3；49←C1；50←C1/教材21、23 章；51←C5/教材21、23 章；52←教材21、23 章；53←C5/教材21 章；54←教材§22.2.1；55←教材§22.2.2。CS 大节：`AD Enumeration`(≈L7768)、`AD Attacking`(≈L8251，含 Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460)、`Kerberos`(≈L7071)。
 
 **贯穿原则**：本模块八成工作发生在攻击机 Kali 上（impacket 套件 + certipy），只有"诱导认证/抓票"必须在目标 Windows 主机侧完成。先把「票据从哪来、要去哪个服务、以谁的身份」写清楚再动手——票据方向错了，命令再对也白搭。
@@ -2074,7 +2075,9 @@ info "        信任 + SID 命中看场景 53（m12-laps-and-trust-notes.md 的 
 -->
 
 > 一句话原则：**先判定再动手**。LAPS 要先分清版本（legacy `ms-Mcs-AdmPwd*` vs Windows LAPS
+>
 > `msLAPS-*`）；跨域要先判定信任属性（是否 `WITHIN_FOREST`、方向是否可用），
+>
 > 判定不成立时换路径，不要在不可能的路线耗时间。
 >
 > 占位符：`DOMAIN` `TARGET` `USER` `PASS` `NTHASH` `LHOST`

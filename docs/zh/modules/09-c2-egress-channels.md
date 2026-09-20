@@ -5,7 +5,8 @@
 # 模块 M09：C2 回连与出网通道（分阶段 / 代理 / DNS / 域前置）
 
 > 覆盖场景：17、28、29、30、31、32、33
-> > 前置依赖：攻击机（Kali）+ 一个入口会话；HTTPS 需自签证书（生成见 [00-environment-and-infra](/zh/modules/00-environment-and-infra) §3）；DNS 通道需一个可把 NS 指向你的域或实验网允许的直连 UDP 53；域前置需可自定义 Host 转发的 CDN/自建 nginx 前端。
+>
+> 前置依赖：攻击机（Kali）+ 一个入口会话；HTTPS 需自签证书（生成见 [00-environment-and-infra](/zh/modules/00-environment-and-infra) §3）；DNS 通道需一个可把 NS 指向你的域或实验网允许的直连 UDP 53；域前置需可自定义 Host 转发的 CDN/自建 nginx 前端。
 
 **核心思想**：本模块解决"代码能跑但会话/第二阶段回不来"的问题。所有方案都围绕一条**已验证可达的通信路径**展开——先验证路径（投递、代理、DNS 解析、TLS 握手），再让每个阶段走同一条路径。任何阶段换了地址/端口/协议/代理上下文，都是场景 30 的翻版。
 

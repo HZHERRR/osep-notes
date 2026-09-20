@@ -5,7 +5,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # 14 · Scenarios 41–43: Kiosk breach · JEA unauthorized file copy · JIT time window
 
 > Basis explanation: This topic has no direct entry in. The following content is based on the textbook chapter. 16 Chapter (restricted desktop / Kiosk breakthrough) and the 23 chapter（PowerShell restricted endpoint JEA with temporary authorization JIT）Organize experimental ideas and supplement general enumeration and verification methods。
+>
 > Writing convention: Chinese description + English commands; placeholders are unified as `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`。
+>
 > This module file：[14-kiosk-jea-jit](/modules/14-kiosk-jea-jit)、`m14-jea-file-copy.ps1`、`m14-jea-service-dll.cs`、`m14-jit-admin-window.ps1`、`m14-kiosk-breakout.md`。
 
 ## 0. Scene Overview
@@ -79,11 +81,17 @@ according to“Cost from low to high, first silent and then dynamic”Try each c
 # Kiosk Breakout Path Checklist (Scenario 41)
 
 > Usage: restricted Kiosk Desktop (single app / Assigned Access / Under Replace Shell), check each item"Can I get the order to execute?"channel list，
+>
 > And how to stabilize the situation after obtaining the execution opportunity payload。
+>
 > scene：41（only restricted Kiosk Desktop, no terminal）
+>
 > Dependencies: physical terminal or RDP Interaction; the attack machine side has started monitoring（`nc -lvnp LPORT`）And prepare for the second stage `PAYLOAD` For delivery `URL`
+>
 > Use: press on site"Cost from low to high, first silent and then dynamic"Test item by item, each item**Just try it once**，Check the result §5 In the list (the report must clearly indicate which ones are accessible and which ones are blocked)）
+>
 > placeholder：`LHOST`（attack aircraft IP）、`LPORT`（listening port）、`TARGET`（target machine）、`USER`（kiosk Account）、`URL`（Delivery address）、`PAYLOAD`（Payload file name）
+>
 > Test status: Operation notes, no executable code; all commands need to be checked against the actual version in the experimental environment (especially the browser kernel and Edge/Chrome Strategy）
 
 ---
@@ -215,6 +223,7 @@ dir %APPDATA%\Microsoft\Credentials
 ```
 
 > `PAYLOAD` Fill in when generating `LHOST`/`LPORT`；Attack aircraft maintain `nc -lvnp LPORT` Normally open。
+>
 > kiosk Scenarios that will be restored every time you restart: Don’t rely on persistence, complete it once in the current session。
 
 ---

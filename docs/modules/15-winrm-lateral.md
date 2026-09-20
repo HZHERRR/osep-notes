@@ -5,7 +5,8 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # Module M15: WinRM lateral movement (valid creds · WinRM only)
 
 > Covers scenario: 56
-> > Prerequisites: you already have valid credentials (password / NTLM hash / Kerberos ticket); target 5985 (HTTP) or 5986 (HTTPS) is reachable; attacker box is Kali (evil-winrm, netexec, impacket) or a controlled Windows pivot
+>
+> Prerequisites: you already have valid credentials (password / NTLM hash / Kerberos ticket); target 5985 (HTTP) or 5986 (HTTPS) is reachable; attacker box is Kali (evil-winrm, netexec, impacket) or a controlled Windows pivot
 
 ---
 
@@ -275,7 +276,9 @@ else {
 # m15 · WinRM lateral cheat sheet (Kali / evil-winrm / netexec)
 
 > Scenario 56: valid creds, SMB closed, only 5985/5986 open. Linux attacker side;
+>
 > Windows pivot templates are in `m15-winrm-auth-matrix.ps1`.
+>
 > Placeholders: `TARGET`(IP/FQDN) `DOMAIN` `USER` `PASS` `NTHASH` `LHOST` `LPORT` `PAYLOAD` `URL`
 
 ## 1. Decide the path (≈30 seconds)

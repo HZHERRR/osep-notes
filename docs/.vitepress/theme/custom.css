@@ -173,9 +173,11 @@ body {
 }
 
 .vp-doc blockquote {
-  margin: 1.25rem 0;
-  padding: 1rem 1.15rem;
-  border: 1px solid var(--ht-border);
+  margin: 1.25rem 0 1.25rem 0 !important;
+  margin-left: 0 !important;
+  padding: 1rem 1.15rem !important;
+  border: 1px solid var(--ht-border) !important;
+  border-left: 1px solid var(--ht-border) !important;
   border-radius: 0;
   background: oklch(17.07% 0.0143 2.14 / 0.035);
   color: var(--ht-fg);
@@ -185,8 +187,15 @@ html.dark .vp-doc blockquote {
   background: oklch(97.35% 0.0261 90.1 / 0.05);
 }
 
+.vp-doc blockquote blockquote {
+  border: none !important;
+  margin: 0.45rem 0 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
 .vp-doc blockquote > p {
-  margin: 0.4rem 0;
+  margin: 0.45rem 0;
   color: var(--ht-fg);
 }
 

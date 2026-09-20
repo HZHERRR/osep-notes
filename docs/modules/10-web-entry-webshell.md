@@ -7,7 +7,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 Prove RCE with a tiny page. Swap downloaders when one is blocked. Watch command length.
 
 > Covers scenarios: 14, 15, 16
-> > Course mapping: chapters on managed loading; web and service accounts; web-entry challenges
+>
+> Course mapping: chapters on managed loading; web and service accounts; web-entry challenges
+>
 > Prerequisites: a web service that allows uploads or has an injection point; IIS/.NET (ASPX) or PHP/JSP runtime; attacker box has a delivery URL the target can reach
 
 **Rules for this module**:
@@ -493,9 +495,13 @@ if __name__ == "__main__":
 # Downloader fallback matrix (scenarios 15 / 16 / 17)
 
 > Purpose: When a download tool is stopped after the command is executed, press"Blocked. → Which one?"The order is next.。**One variable at a time.**And record the results.。
+>
 > scene: 15（Injection points can execute orders, but downloaders are blocked.）、16（The length of the command is limited.）、17（No stable checkout）
+>
 > Dependence: attack side delivery service `python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads`
+>
 > Placeholder: `LHOST`（Attack aircraft IP）、`LPORT`（Attack machine port）、`PAYLOAD`（Organisation）、`URL`（Complete http(s) Address）、`TARGET`（Objective）
+>
 > Test status: command template manually checked the order of parameters; not measured in the target environment, as per test 5 A non-hazardous download validation of the knot
 
 ---

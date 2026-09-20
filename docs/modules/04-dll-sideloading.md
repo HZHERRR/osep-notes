@@ -5,7 +5,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # 04 · DLL Sideloading
 
 > Module: `M04` · Scenarios 11–12 · Based on: course chapter 6 (§6.1–6.2)
+>
 > Related cheat sheet keywords: `New Admin with C` / `DLL` / `Shellcode Inject`
+>
 > Prerequisites: Windows DLL search order, PE import/export tables, calling conventions.
 
 ## 0. Overview

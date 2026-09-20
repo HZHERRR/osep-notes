@@ -5,7 +5,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # 06 · UAC Bypass & Windows local privilege escalation (scenarios 25–27)
 
 > Technique alignment (keywords: `UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`).
+>
 > Related modules: this module covers **local privilege escalation after the first foothold**. Lateral movement: [15-winrm-lateral](/modules/15-winrm-lateral). Credential collection: [07-credentials-lsass](/modules/07-credentials-lsass).
+>
 > Shared placeholders: `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`.
 
 Recommended triage order for the three priv-esc shapes in this module:

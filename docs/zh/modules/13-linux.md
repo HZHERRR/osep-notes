@@ -5,7 +5,9 @@
 # 13 · Linux 攻击面（场景 36–40、48）
 
 > 对应场景表：36 Linux 上传站会执行 ELF 但还要通过业务检查 · 37 Linux 目标有杀毒软件 · 38 Linux 程序从可控位置加载共享库 · 39 sudo 只允许一个编辑器/解释器 · 40 能覆盖制品但不能直接登录下载制品的机器 · 48 没有 SSH 密码但存在已认证的复用连接。
+>
 > 技术对齐： 的 `Payloads (XOR Payload Encoder / Simple Loader / Shared Library LD PRELOAD / Shared Library LD LIBRARY Path)`、`Abusing SUIDs`、`SSH Hijacking with ControlMaster / SSH Agent Forwarding`、`Artifactory (JFrog)` 各节。
+>
 > 统一占位符：`LHOST`（攻击机 IP）`LPORT`（监听端口）`TARGET`（目标地址）`USER` `PASS` `DOMAIN` `PAYLOAD`。所有命令默认在 x86_64 Linux 上执行。
 
 ## 总览

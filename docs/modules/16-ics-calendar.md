@@ -5,7 +5,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 # 16 · ICS calendar invite triggers authentication (scenario 13)
 
 > One-liner: you know the recipient address, the target will process meeting invites, but there is no macro execution path → send an `.ics` invite that **references external resources**, so the calendar client fetches them on parse/render/reminder and authenticates; capture hashes with Responder on the attacker box, or relay with ntlmrelayx to another SMB target.
+>
 > Course chapter 5 (Initial Access / client-side); cheat-sheet keywords: `Relay Attacks`, `Capture Hashes`.
+>
 > **Core idea: whether auth fires depends on the calendar client version and config — “invite received / accepted” ≠ “auth will fire”. Require protocol-log evidence before moving on.**
 
 ---
@@ -15,6 +17,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 ## 1. Situation
 
 > From `scenarios.md` (scenario 13): the target accepts calendar invites, but there is no macro execution opportunity. You know the recipient address; the target will process meeting invites. In the lab, the calendar client **may** fetch external resources referenced by the invite and authenticate.
+>
 > Prepare ahead: the course ICS invite file, plus notes for auth capture and follow-on handling.
 
 One-liner exam point: an `.ics` invite is a carrier that makes the client **call back** to you; put a UNC path or URL in `LOCATION` / `DESCRIPTION` / `URL` / `ATTACH`. When the client handles the invite it may open SMB (`\\LHOST\...`) or HTTP(S). Whether auth succeeds and which protocol is used is entirely client behavior — **do not assume**.
