@@ -104,21 +104,28 @@ export const groups: Group[] = [
     entries: [
       entry('97', 'Field lookup', '考场定位', '/modules/97-exam-day-lookup'),
       entry('98', 'Note template', '记录模板', '/modules/98-exam-note-template'),
-      entry('99', 'Pre-exam list', '考前清单', '/modules/99-pre-exam-checklist'),
+      entry('99', 'Pre exam list', '考前清单', '/modules/99-pre-exam-checklist'),
     ],
   },
 ]
 
 /** VitePress sidebar shape, derived from the taxonomy above. */
-export function sidebarFor(locale: 'en' | 'zh', collapsed = true) {
-  return groups.map((group, index) => ({
-    text: group[locale],
-    // The first group stays open; everything else starts folded.
-    collapsed: index === 0 ? false : collapsed,
-    items: group.entries.map((e) => ({
-      text: e.num ? `${e.num} ${e[locale]}` : e[locale],
-      link: e.link,
-    })),
+export function sidebarFor(locale: 'en' | 'zh', collapsed = false) {
+  return groups.map((group) => ({
+    text: group[locale].replace(/-/g, ' ').replace(/\s+/g, ' '),
+    collapsed,
+    items: group.entries.map((e) => {
+      let link = e.link
+      if (locale === 'zh') {
+        link = link === '/' ? '/zh/' : `/zh${link}`
+      }
+      const rawText = e.num ? `${e.num} ${e[locale]}` : e[locale]
+      const cleanText = rawText.replace(/-/g, ' ').replace(/\s+/g, ' ')
+      return {
+        text: cleanText,
+        link,
+      }
+    }),
   }))
 }
 

@@ -2,7 +2,7 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 11 · MSSQL — auth triggers, credential capture/relay, and linked servers
+# 11 · MSSQL: auth triggers, credential capture/relay, and linked servers
 
 > **Covers scenarios:** 44, 45
 >

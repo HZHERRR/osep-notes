@@ -16,17 +16,11 @@ export default defineConfig({
   lastUpdated: false,
   appearance: true,
   ignoreDeadLinks: true,
-  // VitePress reads `search` from the ROOT themeConfig when it decides whether to
-  // build the local index. Declaring it only inside `locales.*.themeConfig` left
-  // the provider unregistered, so the search box rendered empty and the site
-  // shipped with no offline search. The per-locale entries below still supply
-  // the localized labels; this one registers the provider.
   themeConfig: {
     search: { provider: 'local' },
+    outline: { level: [2, 3] },
   },
   markdown: {
-    // The code plate is the densest mass on the page in both appearances,
-    // so the token palette is the dark one in both.
     theme: 'github-dark',
   },
   locales: {

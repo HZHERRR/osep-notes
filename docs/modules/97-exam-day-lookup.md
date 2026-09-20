@@ -2,7 +2,7 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 97 · Exam-day lookup (symptom → scenario → doc)
+# 97 · Exam day lookup (symptom → scenario → doc)
 
 > The fastest way to use this on the exam: **read the symptom first, then locate the scenario, then open the matching section of the module doc**.
 >

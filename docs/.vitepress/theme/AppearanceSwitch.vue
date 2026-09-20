@@ -1,13 +1,17 @@
 <script setup lang="ts">
-// The appearance control, rebuilt in the world's own vocabulary: a hairline
-// square that names the appearance it will switch to, exactly like the language
-// control beside it. The built-in switch is a rounded pill with a sun glyph,
-// which belongs to no part of this page.
 import { computed } from 'vue'
-import { useData } from 'vitepress'
+import { useData, useRoute } from 'vitepress'
 
 const { isDark } = useData()
-const label = computed(() => (isDark.value ? 'Light' : 'Dark'))
+const route = useRoute()
+const zh = computed(() => route.path === '/zh' || route.path.startsWith('/zh/'))
+
+const label = computed(() => {
+  if (isDark.value) {
+    return zh.value ? '浅色' : 'Light'
+  }
+  return zh.value ? '深色' : 'Dark'
+})
 
 function toggle() {
   const next = !isDark.value
@@ -35,22 +39,30 @@ function toggle() {
 
 <style scoped>
 .appearance-switch {
-  padding: 0.3rem 0.62rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 0.6rem;
   border: 1px solid var(--storm-hair-strong);
+  border-radius: 2px;
   background: transparent;
   color: var(--storm-mass);
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
+  white-space: nowrap;
   transition:
-    background-color 160ms ease-out,
-    color 160ms ease-out;
+    background-color 140ms ease-out,
+    color 140ms ease-out,
+    border-color 140ms ease-out;
 }
 
 .appearance-switch:hover {
   background: var(--storm-mass);
   color: var(--storm-field);
+  border-color: var(--storm-mass);
 }
 </style>

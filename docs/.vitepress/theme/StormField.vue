@@ -12,6 +12,9 @@ function href(link: string) {
 }
 
 function isActive(link: string) {
+  if (route.path === '/' || route.path === '/zh/' || route.path === '/zh') {
+    return false
+  }
   return route.path === href(link)
 }
 
@@ -27,9 +30,11 @@ function slug(name: string) {
 <template>
   <div class="storm-fronts">
     <section v-for="group in groups" :id="slug(group.en)" :key="group.en" class="storm-front">
-      <h2 class="storm-front-name">{{ zh ? group.zh : group.en }}</h2>
-      <div class="storm-front-body">
+      <div class="storm-front-meta">
+        <h2 class="storm-front-name">{{ zh ? group.zh : group.en }}</h2>
         <p class="storm-front-condition">{{ zh ? group.conditionZh : group.conditionEn }}</p>
+      </div>
+      <div class="storm-front-body">
         <ul class="storm-entries">
           <li v-for="entry in group.entries" :key="entry.link">
             <a
@@ -38,6 +43,7 @@ function slug(name: string) {
               :href="href(entry.link)"
             >
               <span v-if="entry.num" class="storm-entry-num">{{ entry.num }}</span>
+              <span v-else class="storm-entry-num storm-entry-arrow">→</span>
               <span class="storm-entry-name">{{ entry[zh ? 'zh' : 'en'] }}</span>
             </a>
           </li>
@@ -54,33 +60,41 @@ function slug(name: string) {
 
 .storm-front {
   display: grid;
-  grid-template-columns: minmax(9rem, 20%) 1fr;
-  gap: 1.5rem 2.5rem;
-  padding: 1.6rem 0 1.7rem;
+  grid-template-columns: minmax(14rem, 260px) 1fr;
+  gap: 1.5rem 3rem;
+  padding: 1.8rem 0 2rem;
   border-top: 1px solid var(--storm-hair);
+}
+
+.storm-front-meta {
+  min-width: 0;
 }
 
 .storm-front-name {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   font-weight: 700;
-  letter-spacing: 0.13em;
-  line-height: 1.5;
+  letter-spacing: 0.1em;
+  line-height: 1.4;
   text-transform: uppercase;
+  color: var(--storm-mass);
 }
 
 .storm-front-condition {
-  max-width: 46ch;
-  margin: 0 0 1rem;
+  margin: 0.45rem 0 0;
   color: var(--storm-rain);
-  font-size: 0.88rem;
-  line-height: 1.6;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.storm-front-body {
+  min-width: 0;
 }
 
 .storm-entries {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-  gap: 0.1rem 2rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem 1.8rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -89,46 +103,71 @@ function slug(name: string) {
 .storm-entry {
   display: flex;
   align-items: baseline;
-  gap: 0.7rem;
-  padding: 0.32rem 0;
+  gap: 0.6rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: 2px;
   color: var(--storm-mass);
-  font-size: 0.98rem;
-  line-height: 1.4;
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: border-color 160ms ease-out;
+  font-size: 0.94rem;
+  line-height: 1.45;
+  text-decoration: none !important;
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out;
 }
 
 .storm-entry:hover {
-  border-bottom-color: var(--storm-mass);
+  background: var(--storm-hair);
+  color: var(--storm-mass);
 }
 
 .storm-entry-num {
-  min-width: 1.6rem;
+  width: 1.8rem;
+  flex-shrink: 0;
   color: var(--storm-rain);
   font-family: var(--storm-mono);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  transition: color 140ms ease-out;
+}
+
+.storm-entry:hover .storm-entry-num {
+  color: var(--storm-mass);
+}
+
+.storm-entry-arrow {
+  color: var(--storm-rain);
+  font-size: 0.88rem;
+}
+
+.storm-entry-name {
+  font-weight: 500;
+}
+
+.storm-entry.is-here {
+  background: var(--storm-hair-strong);
 }
 
 .storm-entry.is-here .storm-entry-name {
   font-weight: 700;
 }
 
-.storm-entry.is-here .storm-entry-num::before {
-  content: '';
-  display: inline-block;
-  width: 0.32rem;
-  height: 0.32rem;
-  margin-right: 0.28rem;
-  background: var(--storm-mass);
-  vertical-align: 0.16rem;
+@media (max-width: 1080px) {
+  .storm-entries {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .storm-front {
     grid-template-columns: 1fr;
-    gap: 0.6rem;
+    gap: 0.85rem;
+    padding: 1.4rem 0 1.6rem;
+  }
+
+  .storm-entries {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
   }
 }
 </style>

@@ -2,7 +2,7 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 99 · Pre-exam checklist (assets, scenario by scenario)
+# 99 · Pre exam checklist (assets, scenario by scenario)
 
 > How to use it: in the 48–72 hours before the exam, **actually build and verify each item below once**, then tick it off.
 >
