@@ -692,7 +692,7 @@ html:not(.dark) .vp-doc div[class*='language-'] .lang {
 
 html:not(.dark) .vp-doc div[class*='language-'] .copy {
   border-color: #d0d7de !important;
-  background: #ffffff !important;
+  background-color: #ffffff !important;
   color: #24292e !important;
 }
 
@@ -719,7 +719,7 @@ html.dark .vp-doc div[class*='language-'] .lang {
 
 html.dark .vp-doc div[class*='language-'] .copy {
   border-color: rgba(255, 255, 255, 0.14) !important;
-  background: rgba(255, 255, 255, 0.06) !important;
+  background-color: rgba(255, 255, 255, 0.06) !important;
 }
 
 html.dark .vp-doc div[class*='language-'] pre,
@@ -772,14 +772,24 @@ html.dark .vp-doc div[class*='language-'] span[style*='color:#6A737D'] {
   height: 26px;
   border: 1px solid var(--tac-border);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background-color: rgba(255, 255, 255, 0.05);
+  background-image: var(--vp-icon-copy);
+  background-position: 50%;
+  background-size: 16px;
+  background-repeat: no-repeat;
   z-index: 3;
   transition: all 140ms ease-out;
 }
 
 .vp-doc div[class*='language-'] .copy:hover {
   border-color: var(--tac-border-firm);
-  background: rgba(255, 255, 255, 0.12);
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* The copy control has its own slot, so the language label need not disappear. */
+.vp-doc div[class*='language-']:hover > .copy + .lang,
+.vp-doc div[class*='language-'] > .copy:focus + .lang {
+  opacity: 1;
 }
 
 /* Code shifted left, closer to border */
@@ -807,6 +817,10 @@ html.dark .vp-doc div[class*='language-'] span[style*='color:#6A737D'] {
 
 /* Inline Code Pill */
 .vp-doc :not(pre) > code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
   padding: 0.2em 0.45em;
   border: 1px solid var(--tac-border-firm);
   border-radius: 4px;
