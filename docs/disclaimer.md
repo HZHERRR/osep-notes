@@ -13,6 +13,5 @@ These notes are for the official OSEP labs and exam, or for systems you have wri
 ## Not allowed
 
 - Any unauthorized host, even “just to try a command”
-- Redistributing OffSec course PDFs or exam/challenge walkthroughs as if they were this site
 
 Change one variable at a time. Confirm delivery logs before you blame AV. Placeholders: `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS`.

@@ -104,7 +104,3 @@ gcc -shared -fPIC -o libpayload.so libpayload.c -O2
 ```
 
 Prefer `csc.exe` on the target for .NET.
-
-## Pace
-
-Twenty to thirty minutes per entry: probe, deliver, verify, then switch. On every new session: identity, bitness, egress.

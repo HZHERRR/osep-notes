@@ -172,10 +172,62 @@ body {
   font-weight: 500;
 }
 
+.vp-doc blockquote {
+  margin: 1.25rem 0;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--ht-border);
+  border-radius: 0;
+  background: oklch(17.07% 0.0143 2.14 / 0.035);
+  color: var(--ht-fg);
+}
+
+html.dark .vp-doc blockquote {
+  background: oklch(97.35% 0.0261 90.1 / 0.05);
+}
+
+.vp-doc blockquote > p {
+  margin: 0.4rem 0;
+  color: var(--ht-fg);
+}
+
+.vp-doc blockquote > p:first-child {
+  margin-top: 0;
+}
+
+.vp-doc blockquote > p:last-child {
+  margin-bottom: 0;
+}
+
+.VPDoc .content {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.VPDoc .aside {
+  z-index: 8;
+  background: var(--ht-bg);
+}
+
 .vp-doc table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  font-size: 0.88rem;
+  border-collapse: collapse;
+}
+
+.vp-doc thead,
+.vp-doc tbody {
   display: table;
   width: 100%;
-  font-size: 0.88rem;
+  table-layout: auto;
+}
+
+.vp-doc th,
+.vp-doc td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .vp-doc th {

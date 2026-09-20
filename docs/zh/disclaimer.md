@@ -13,6 +13,5 @@
 ## 禁止
 
 - 任何未授权主机，包括“只跑一条命令”
-- 把 OffSec 教材 PDF 或考试/Challenge 逐步答案当作本站内容再分发
 
 一次只改一个变量。先看投递日志，再怀疑杀软。占位符：`LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS`。

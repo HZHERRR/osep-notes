@@ -9,7 +9,6 @@ const enSidebar = [
     text: 'Start',
     items: [
       { text: 'Scope', link: '/disclaimer' },
-      { text: 'How to read', link: '/conventions' },
       { text: 'Scenario map', link: '/scenarios' },
     ],
   },
@@ -50,7 +49,6 @@ const zhSidebar = [
     text: '开始',
     items: [
       { text: '使用边界', link: '/zh/disclaimer' },
-      { text: '阅读方式', link: '/zh/conventions' },
       { text: '场景清单', link: '/zh/scenarios' },
     ],
   },
