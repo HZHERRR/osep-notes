@@ -4,9 +4,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 # Module M03: JScript / DotNetToJScript client-side code execution
 
-> Covers scenarios: 9–10
+> **Covers scenarios:** 9–10
 >
-> Prerequisites: target still has Windows Script Host (`cscript` / `wscript`); target has .NET Framework (2.0/3.5 or 4.x); attacker has `msfvenom`, an HTTP service, and an MSF listener; a tool host that can run .NET to generate DotNetToJScript / SuperSharpShooter artifacts (Windows, or Linux + mono/python)
+> **Prerequisites:** target still has Windows Script Host (`cscript` / `wscript`); target has .NET Framework (2.0/3.5 or 4.x); attacker has `msfvenom`, an HTTP service, and an MSF listener; a tool host that can run .NET to generate DotNetToJScript / SuperSharpShooter artifacts (Windows, or Linux + mono/python)
 
 ## Background: why WSH can bypass “EXE restricted”
 

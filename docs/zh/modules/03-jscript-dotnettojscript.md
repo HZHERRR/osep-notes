@@ -4,9 +4,9 @@
 
 # 模块 M03：JScript / DotNetToJScript 客户端代码执行
 
-> 覆盖场景：9–10
+> **覆盖场景：**9–10
 >
-> 前置依赖：目标保留 Windows Script Host（`cscript` / `wscript`）；目标装有 .NET Framework（2.0/3.5 或 4.x）；攻击机有 `msfvenom`、HTTP 服务与 MSF 监听；一台能运行 .NET 的工具机用于生成 DotNetToJScript / SuperSharpShooter 产物（Windows 或 Linux + mono/python）
+> **前置依赖：**目标保留 Windows Script Host（`cscript` / `wscript`）；目标装有 .NET Framework（2.0/3.5 或 4.x）；攻击机有 `msfvenom`、HTTP 服务与 MSF 监听；一台能运行 .NET 的工具机用于生成 DotNetToJScript / SuperSharpShooter 产物（Windows 或 Linux + mono/python）
 
 ## 背景速览：WSH 为什么能绕开"EXE 受限"
 

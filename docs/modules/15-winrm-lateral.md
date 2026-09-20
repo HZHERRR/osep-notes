@@ -6,7 +6,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > Covers scenario: 56
 >
-> Prerequisites: you already have valid credentials (password / NTLM hash / Kerberos ticket); target 5985 (HTTP) or 5986 (HTTPS) is reachable; attacker box is Kali (evil-winrm, netexec, impacket) or a controlled Windows pivot
+> **Prerequisites:** you already have valid credentials (password / NTLM hash / Kerberos ticket); target 5985 (HTTP) or 5986 (HTTPS) is reachable; attacker box is Kali (evil-winrm, netexec, impacket) or a controlled Windows pivot
 
 ---
 

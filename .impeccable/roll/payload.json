@@ -1,0 +1,100 @@
+{
+  "title": "Choose the visual world — OSEP Notes (bolder hand)",
+  "question": "Bolder hand: the dice dealt six foreign forms and the first dealt leads — Datamatics Field. Keep it, take one of the three full alternates, or re-roll. The normalled jackfield waits in the re-roll pool.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Datamatics Field",
+      "kicker": "THE LEAD",
+      "lineage": "datamatics — a data-sublime field of hairline barcode columns and sine lattices, monospace numerals at data density",
+      "thesis": "The whole note set as one dense data field you scan by column, instead of a sidebar you scroll.",
+      "palette": ["#000000", "#ffffff", "#ff3b00", "#00a3ff", "#ffb300"],
+      "materials": ["hairline barcode bar-fields", "sine lattice overlay", "monospace numerals in tight tabular columns", "flat unmodulated hue at full strength", "one-frame inversion"],
+      "viewport": "A full-bleed field of hairline bars carrying six flat hues across the whole first viewport, a monospace status strip above it — field status, signal index, frame — and the module set read as labelled columns inside the field rather than as cards.",
+      "risk": "Data density suits numbers and is hostile to two-thousand-word prose; and the system owns no colour of its own, so the hues have to stay data or the world dies.",
+      "raised": [
+        { "from": "Alphabet Storm", "raise": "Monumental type as matter — the module title set at true display scale and allowed to break across lines like a weather front, instead of sitting politely in a heading slot." }
+      ],
+      "note": "Material translation, named as required: your brief pins colour, and this system is pure black and white. The translation keeps every structural rule — flat unmodulated fields, no gradient, no glow, no tint — and lets colour in only as the data itself: each module group is one fully saturated hue, and state is still never carried by hue.",
+      "wireframe": {
+        "cols": 12,
+        "rows": 10,
+        "regions": [
+          { "label": "status strip · monospace field / signal / frame", "x": 0, "y": 0, "w": 12, "h": 1 },
+          { "label": "monumental title · display scale, breaks across lines", "x": 0, "y": 1, "w": 7, "h": 3, "accent": true },
+          { "label": "sine lattice over barcode field", "x": 7, "y": 1, "w": 5, "h": 3 },
+          { "label": "module field · six flat hues, labelled columns", "x": 0, "y": 4, "w": 12, "h": 4, "accent": true },
+          { "label": "focus column · the selected numbers drawn out", "x": 0, "y": 8, "w": 12, "h": 2 }
+        ]
+      }
+    },
+    {
+      "id": "challenger-tabboard",
+      "label": "Tab Board",
+      "verdict": "competitive",
+      "lineage": "a boxed-software reference manual — milk acetate leaves hinged over one full-strength section board, tabbed fore edge",
+      "thesis": "Every division owns a board of one hue at full strength, and the leaf you read floats a millimetre above it.",
+      "palette": ["#f7f5ef", "#14110e", "#ffc800", "#0ca678", "#7b3fe4"],
+      "materials": ["one full-strength board hue per division", "milk acetate leaf with a punched bound edge", "stepped tab rail down the fore edge", "serif at a 62-character measure", "heads hanging in the fifth margin column"],
+      "viewport": "A full-strength chrome-yellow board carrying the division, a stepped tab rail down the fore edge whose heights show how long each division is, and the reading leaf floating above the board in a single serif measure.",
+      "case": "Holds clarity best in the hand — a real 62-character reading measure, headings given their own margin column, and a tab rail whose heights encode extent. Loses audience identification narrowly: the boxed-manual era is remembered, not lived.",
+      "risk": "The system reads nostalgic the moment the acetate stops doing real work.",
+      "hero": "https://impeccable.style/worlds/cards/rw-manual-acetate-tab-board-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/rw-manual-acetate-tab-board.webp"
+    },
+    {
+      "id": "challenger-bauhaus",
+      "label": "Foundation Workshop",
+      "verdict": "competitive",
+      "lineage": "the Bauhaus foundation course — primary circle, square, and triangle tested as material exercises on a white worktable",
+      "thesis": "Three primaries rationed by role: a red circle for the live item, a blue square for structure, a yellow triangle for the warning.",
+      "palette": ["#f7f7f4", "#111111", "#e52521", "#1a4fd6", "#f5c400"],
+      "materials": ["worktable white", "lowercase geometric sans", "visible baseline grid", "point, line, and plane as the only ornament"],
+      "viewport": "A white worktable under a visible baseline grid: a lowercase headline at display scale, the module set laid out as geometric exercises in a strict grid, and the three primaries marking live, structural, and warning roles.",
+      "case": "Holds clarity and colour at once — shape carries state so hue never has to, and lowercase geometric sans is the most legible display voice in the hand. Loses audience identification: the workshop is design history, not the reader's craft.",
+      "risk": "Primaries on white are a well-known graphic register and go costume the moment the shapes stop meaning something.",
+      "hero": "https://impeccable.style/worlds/cards/design-canon-bauhaus-foundation-workshop-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/design-canon-bauhaus-foundation-workshop.webp"
+    },
+    {
+      "id": "challenger-utility",
+      "label": "Utility Protocol",
+      "verdict": "competitive",
+      "lineage": "industrial streetwear — literal words inside straight quotation marks, zip-tie tags left on, hazard diagonals on white cotton and black nylon",
+      "thesis": "Everything is named literally inside quotes, and anything destructive wears the hazard stripe.",
+      "palette": ["#f4f2ee", "#111111", "#ff5a1f", "#d9d6ce"],
+      "materials": ["stockroom white and black nylon", "black-on-white hazard diagonals at 45 degrees", "safety-orange zip-tie tags", "stencilled label plates set square on the grid"],
+      "viewport": "A system of quote-marked label plates: every module named literally inside straight quotes, the active one keeping its orange zip tie on, and the authorized-use boundary and every irreversible step crossed by the hazard stripe.",
+      "case": "Holds clarity exactly where it matters — the hazard stripe makes destructive steps and the authorized-use boundary unmissable, which this product genuinely needs. Loses identification: the stockroom is not the reader's world.",
+      "risk": "Loud graphic grammar over dense prose tires quickly, and it is thin the moment the stripes stop marking real danger.",
+      "hero": "https://impeccable.style/worlds/cards/textiles-weave-drape-fashion-industrial-quote-grammar-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/textiles-weave-drape-fashion-industrial-quote-grammar.webp"
+    },
+    {
+      "id": "challenger-storm",
+      "label": "Alphabet Storm",
+      "verdict": "declined",
+      "lineage": "letters condensing into weather — words bursting into rain and carving rivers",
+      "thesis": "Language itself becomes the landscape, reshaping as the grammar changes.",
+      "palette": ["#fbfbf9", "#111111", "#c9ccd1"],
+      "materials": ["paper white ground", "storm-letter black as both ink and mass", "one silver flash", "procedural particle weather"],
+      "viewport": "Type condenses into cloud, breaks into rain, and carves a river across the page as the reader moves between grammar fronts.",
+      "kept": "Monumental type as matter — display set at true scale and allowed to behave like weather.",
+      "risk": "Type as weather is an art piece; reading a procedure through it is not possible.",
+      "hero": "https://impeccable.style/worlds/cards/dream-surreal-impossible-worlds-alphabet-storm-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/dream-surreal-impossible-worlds-alphabet-storm.webp"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "code" },
+  "canon": true,
+  "canonCard": {
+    "label": "The category standard",
+    "thesis": "What a technical notes site ships — sidebar taxonomy, hero, three equal cards, one blue accent — executed impeccably.",
+    "palette": ["#ffffff", "#111827", "#2563eb"],
+    "materials": ["clean grid", "system UI type", "soft cards"],
+    "viewport": "The arrangement a reader already expects from a documentation site, at full craft.",
+    "risk": "Indistinguishable from every other documentation site by design."
+  },
+  "steer": true
+}

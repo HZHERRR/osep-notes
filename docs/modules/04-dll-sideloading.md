@@ -8,7 +8,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 >
 > Related cheat sheet keywords: `New Admin with C` / `DLL` / `Shellcode Inject`
 >
-> Prerequisites: Windows DLL search order, PE import/export tables, calling conventions.
+> **Prerequisites:** Windows DLL search order, PE import/export tables, calling conventions.
 
 ## 0. Overview
 

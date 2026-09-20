@@ -3,3 +3,13 @@ docs/.vitepress/cache
 docs/.vitepress/dist
 .DS_Store
 *.log
+
+# Local tooling installs and the design process's bulky evidence.
+# The durable record (PRODUCT.md, DESIGN.md, .impeccable/design.json, the
+# direction roll, the surface brief, the capture tools) IS committed.
+.dsh/
+.impeccable/refs/
+.impeccable/review/
+.impeccable/build/
+.impeccable/mocks/
+.impeccable/config.local.json

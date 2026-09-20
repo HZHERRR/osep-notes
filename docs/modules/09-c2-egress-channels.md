@@ -6,9 +6,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 User vs SYSTEM proxy. Every stage of a staged payload uses the same proven path.
 
-> Covers scenarios: 17, 28, 29, 30, 31, 32, 33
+> **Covers scenarios:** 17, 28, 29, 30, 31, 32, 33
 >
-> Prerequisites: attacker box (Kali) + an entry session; HTTPS needs a self-signed certificate (see [00-environment-and-infra](/modules/00-environment-and-infra) §3); DNS channel needs a domain whose NS points at you, or lab-allowed direct UDP/53; domain fronting needs a CDN/nginx front-end that can forward by custom Host.
+> **Prerequisites:** attacker box (Kali) + an entry session; HTTPS needs a self-signed certificate (see [00-environment-and-infra](/modules/00-environment-and-infra) §3); DNS channel needs a domain whose NS points at you, or lab-allowed direct UDP/53; domain fronting needs a CDN/nginx front-end that can forward by custom Host.
 
 **Core idea**: This module solves "code runs but the session / stage 2 never comes back." Every approach hangs off one ** proven reachable path**— verify the path first (delivery, proxy, DNS resolution, TLS handshake), then make every stage use that same path. Changing address / port / protocol / proxy context mid-stream is just scenario 30 again.
 

@@ -6,11 +6,11 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 Prove RCE with a tiny page. Swap downloaders when one is blocked. Watch command length.
 
-> Covers scenarios: 14, 15, 16
+> **Covers scenarios:** 14, 15, 16
 >
-> Course mapping: chapters on managed loading; web and service accounts; web-entry challenges
+> **Course mapping:** chapters on managed loading; web and service accounts; web-entry challenges
 >
-> Prerequisites: a web service that allows uploads or has an injection point; IIS/.NET (ASPX) or PHP/JSP runtime; attacker box has a delivery URL the target can reach
+> **Prerequisites:** a web service that allows uploads or has an injection point; IIS/.NET (ASPX) or PHP/JSP runtime; attacker box has a delivery URL the target can reach
 
 **Rules for this module**:
 1. **Web-entry identity is usually low** (IIS app-pool account, `NT AUTHORITY\NETWORK SERVICE`). First check `whoami /priv` — `SeImpersonatePrivilege` decides whether you can escalate immediately.

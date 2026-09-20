@@ -4,7 +4,7 @@
 
 # 12 · AD 攻击：票据、委派、LAPS、信任与 ADCS（场景 47、49–55）
 
-> 前置：按 [00-environment-and-infra](/zh/modules/00-environment-and-infra) 搭好攻击机目录、监听与投递。统一占位符 `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`。
+> **前置：**按 [00-environment-and-infra](/zh/modules/00-environment-and-infra) 搭好攻击机目录、监听与投递。统一占位符 `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`。
 >
 > 教材依据与 cheat sheet（，下称 CS）对应：场景 47←C5/教材§19.3；49←C1；50←C1/教材21、23 章；51←C5/教材21、23 章；52←教材21、23 章；53←C5/教材21 章；54←教材§22.2.1；55←教材§22.2.2。CS 大节：`AD Enumeration`(≈L7768)、`AD Attacking`(≈L8251，含 Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460)、`Kerberos`(≈L7071)。
 

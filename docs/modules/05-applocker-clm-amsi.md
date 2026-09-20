@@ -4,11 +4,11 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 # Module 05 — AppLocker / CLM / AMSI bypass and trusted hosts
 
-> Covers scenarios: 18, 19, 20, 21, 22, 23, 24
+> **Covers scenarios:** 18, 19, 20, 21, 22, 23, 24
 >
-> Course mapping: Chapter 11 (AV evasion), Chapter 13 (AppLocker / CLM bypass), Chapters 8–9 (managed assembly load)
+> **Course mapping:** Chapter 11 (AV evasion), Chapter 13 (AppLocker / CLM bypass), Chapters 8–9 (managed assembly load)
 >
-> Prerequisites: an entry that can execute code (macro / HTA / JScript / Web); target has Defender + possibly AppLocker and CLM; attacker box can compile C#/C
+> **Prerequisites:** an entry that can execute code (macro / HTA / JScript / Web); target has Defender + possibly AppLocker and CLM; attacker box can compile C#/C
 
 **Rules for this module**: first **decide whether what was blocked is the “loader” or the “execution content”**. Fixes for those two failure classes are completely different — loader kills need static-signature and host-shape changes; execution blocks need behavior and staging changes. The most common exam mistake: after a block, keep rewriting static encoding when the real problem is behavior.
 

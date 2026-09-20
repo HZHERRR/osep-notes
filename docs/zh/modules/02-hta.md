@@ -4,9 +4,9 @@
 
 # 模块 M02：HTA 入口（邮件无 Office 宏时的第一阶段）
 
-> 覆盖场景：6、7、8
+> **覆盖场景：**6、7、8
 >
-> 前置依赖：攻击机上可被目标访问的 HTTP 服务（Kali `python3 -m http.server` 即可）；一个能编译 .NET Framework 的 Windows 环境（实验网任意 Win10 或自备 Windows VM，用于产出 `m02-clm-bypass-runspace.exe`）；邮件投递链路（swaks/sendEmail，见场景 6）。
+> **前置依赖：**攻击机上可被目标访问的 HTTP 服务（Kali `python3 -m http.server` 即可）；一个能编译 .NET Framework 的 Windows 环境（实验网任意 Win10 或自备 Windows VM，用于产出 `m02-clm-bypass-runspace.exe`）；邮件投递链路（swaks/sendEmail，见场景 6）。
 
 **本文档三个场景的关系**：场景 6 是"HTA 当第一阶段，目标有 AppLocker 无 Office"；场景 7 是"AppLocker + CLM + AMSI 全开"，需要把 HTA、InstallUtil 兼容程序集、自定义 Runspace、AMSI 处理、第二阶段 Runner **组合**起来验证；场景 8 是"同一链路下载+执行合在一起不工作，拆开才工作"的**时序/生命周期排错**——不要一上来就怪杀软。三者共用同一套文件，差别在组合方式与排错顺序。
 

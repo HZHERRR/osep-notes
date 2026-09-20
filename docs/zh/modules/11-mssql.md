@@ -4,11 +4,11 @@
 
 # 模块 M11：MSSQL —— 认证触发、凭据捕获/中继与 Linked Server
 
-> 覆盖场景：44、45
+> **覆盖场景：**44、45
 >
-> 教材依据：场景 44 → C4；场景 45 → C2、C6
+> **教材依据：**场景 44 → C4；场景 45 → C2、C6
 >
-> 前置依赖：一个可登录的 SQL Server 实例（SQL 认证或 Windows 认证均可）；攻击机（Kali）可被目标实例反向访问（445/SMB 出方向不被拦）；PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat 按场景准备
+> **前置依赖：**一个可登录的 SQL Server 实例（SQL 认证或 Windows 认证均可）；攻击机（Kali）可被目标实例反向访问（445/SMB 出方向不被拦）；PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat 按场景准备
 
 ---
 

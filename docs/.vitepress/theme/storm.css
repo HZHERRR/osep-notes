@@ -1,0 +1,1034 @@
+/* =========================================================================
+   Alphabet Storm — OSEP Notes
+   Type behaves as matter. Paper-white field, storm-letter mass, one silver
+   flash for a word mid-transformation, rain grey for spent grammar. No hue
+   anywhere: force comes from mass, scale, and hairline contrast.
+   ========================================================================= */
+
+/* --- Faces: self-hosted, because the exam scene has no outside network --- */
+
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('./fonts/archivo-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('./fonts/archivo-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Spline Sans Mono';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/spline-sans-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Spline Sans Mono';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/spline-sans-mono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* --- Tokens --- */
+
+:root {
+  --storm-sans: 'Archivo', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC',
+    system-ui, -apple-system, sans-serif;
+  --storm-mono: 'Spline Sans Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --storm-field: #f1f1ee;
+  --storm-mass: #15161a;
+  --storm-rain: #63666c;
+  --storm-silver: #7f8791;
+  --storm-hair: rgb(21 22 26 / 0.15);
+  --storm-hair-strong: rgb(21 22 26 / 0.4);
+  --storm-plate: #15161a;
+  --storm-plate-ink: #e9e7e1;
+  --storm-plate-rain: #8d9199;
+  --storm-scroll-cue: rgb(21 22 26 / 0.22);
+
+  --vp-font-family-base: var(--storm-sans);
+  --vp-font-family-mono: var(--storm-mono);
+  --vp-layout-max-width: 1560px;
+  --vp-sidebar-width: 270px;
+  --vp-aside-width: 230px;
+
+  --vp-c-bg: var(--storm-field);
+  --vp-c-bg-alt: var(--storm-field);
+  --vp-c-bg-elv: var(--storm-field);
+  --vp-c-bg-soft: var(--storm-field);
+  --vp-c-gutter: var(--storm-field);
+
+  --vp-c-text-1: var(--storm-mass);
+  --vp-c-text-2: var(--storm-rain);
+  --vp-c-text-3: var(--storm-rain);
+
+  --vp-c-brand-1: var(--storm-mass);
+  --vp-c-brand-2: var(--storm-mass);
+  --vp-c-brand-3: var(--storm-mass);
+  --vp-c-brand-soft: transparent;
+
+  --vp-c-divider: var(--storm-hair);
+  --vp-c-border: var(--storm-hair);
+  --vp-c-border-hard: var(--storm-hair-strong);
+
+  --vp-c-default-1: var(--storm-mass);
+  --vp-c-default-2: var(--storm-rain);
+  --vp-c-default-3: var(--storm-rain);
+  --vp-c-default-soft: transparent;
+
+  --vp-code-color: var(--storm-mass);
+  --vp-code-bg: transparent;
+  --vp-code-block-bg: var(--storm-plate);
+  --vp-code-line-highlight-color: rgb(255 255 255 / 0.07);
+  --vp-code-copy-code-bg: rgb(255 255 255 / 0.08);
+  --vp-code-copy-code-hover-bg: rgb(255 255 255 / 0.16);
+
+  --vp-button-brand-bg: var(--storm-mass);
+  --vp-button-brand-border: var(--storm-mass);
+  --vp-button-brand-text: var(--storm-field);
+  --vp-button-brand-hover-bg: var(--storm-mass);
+  --vp-button-brand-hover-border: var(--storm-mass);
+  --vp-button-brand-hover-text: var(--storm-field);
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-border: var(--storm-hair-strong);
+  --vp-button-alt-text: var(--storm-mass);
+  --vp-button-alt-hover-bg: transparent;
+  --vp-button-alt-hover-border: var(--storm-mass);
+  --vp-button-alt-hover-text: var(--storm-mass);
+
+  --vp-custom-block-tip-border: var(--storm-hair-strong);
+  --vp-custom-block-tip-text: var(--storm-mass);
+  --vp-custom-block-tip-bg: transparent;
+  --vp-custom-block-warning-border: var(--storm-mass);
+  --vp-custom-block-warning-text: var(--storm-field);
+  --vp-custom-block-warning-bg: var(--storm-mass);
+  --vp-custom-block-danger-border: var(--storm-mass);
+  --vp-custom-block-danger-text: var(--storm-field);
+  --vp-custom-block-danger-bg: var(--storm-mass);
+  --vp-custom-block-info-border: var(--storm-hair-strong);
+  --vp-custom-block-info-text: var(--storm-mass);
+  --vp-custom-block-info-bg: transparent;
+
+  --vp-nav-bg-color: var(--storm-field);
+  --vp-sidebar-bg-color: var(--storm-field);
+  --vp-local-search-bg: var(--storm-field);
+  --vp-local-search-highlight-bg: var(--storm-mass);
+  --vp-local-search-highlight-text: var(--storm-field);
+
+  color-scheme: light;
+}
+
+html.dark {
+  --storm-field: #0f1013;
+  --storm-mass: #edece7;
+  --storm-rain: #9a9ea6;
+  --storm-silver: #6b7280;
+  --storm-hair: rgb(237 236 231 / 0.16);
+  --storm-hair-strong: rgb(237 236 231 / 0.42);
+  --storm-plate: #07080a;
+  --storm-plate-ink: #dcdee2;
+  --storm-plate-rain: #7c8189;
+  --storm-scroll-cue: rgb(0 0 0 / 0.55);
+
+  color-scheme: dark;
+}
+
+/* --- Base --- */
+
+html {
+  scroll-padding-top: calc(var(--vp-nav-height) + 16px);
+}
+
+body {
+  background: var(--storm-field);
+  color: var(--storm-mass);
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--storm-mass);
+  color: var(--storm-field);
+}
+
+:focus-visible,
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--storm-mass);
+  outline-offset: 2px;
+  border-radius: 0;
+}
+
+* {
+  caret-color: var(--storm-mass);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--storm-hair-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--storm-hair-strong);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* --- Navigation --- */
+
+.VPNavBar {
+  border-bottom: 1px solid var(--storm-hair) !important;
+  background: var(--storm-field) !important;
+  backdrop-filter: none !important;
+}
+
+.VPNavBar.has-sidebar .content {
+  background: var(--storm-field) !important;
+}
+
+.VPNavBarTitle .title {
+  border-bottom: 0 !important;
+  font-size: 1.06rem;
+  font-weight: 800;
+  font-stretch: 96%;
+  letter-spacing: -0.02em;
+  word-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* The built-in appearance pill is replaced by a control in the world's own
+   vocabulary; see AppearanceSwitch.vue. */
+.VPNavBarAppearance {
+  display: none !important;
+}
+
+.storm-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 0.75rem;
+}
+
+
+.VPNavBarMenuLink,
+.VPNavBarMenuGroup .text,
+.VPNavBarExtra .menu-link {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuLink.active,
+.VPNavBarMenuGroup:hover .text,
+.VPNavBarMenuGroup.active .text {
+  color: var(--storm-rain);
+}
+
+/* The locale switch replaces the built-in translations menu. */
+.VPNavBarTranslations {
+  display: none !important;
+}
+
+.DocSearch-Button,
+.VPNavBarSearch .DocSearch-Button {
+  border: 1px solid var(--storm-hair) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.DocSearch-Button:hover {
+  border-color: var(--storm-mass) !important;
+  box-shadow: none !important;
+}
+
+.DocSearch-Button-Placeholder {
+  font-size: 0.82rem;
+}
+
+/* VitePress rings the search button from a class-scoped rule, which outranks the
+   world's element-level focus rule. Same specificity, declared later. */
+.DocSearch-Button:focus,
+.DocSearch-Button:focus-visible {
+  outline: 2px solid var(--storm-mass);
+  outline-offset: 2px;
+}
+
+.DocSearch-Button-Keys,
+.DocSearch-Button-Key {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.DocSearch-Button-Key {
+  border: 1px solid var(--storm-hair);
+  background: transparent !important;
+  color: var(--storm-rain);
+  font-family: var(--storm-mono);
+}
+
+.VPNavScreen {
+  background: var(--storm-field) !important;
+}
+
+.VPNavScreenMenuLink,
+.VPNavScreenMenuGroup .text {
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.VPLocalNav {
+  border-bottom: 1px solid var(--storm-hair) !important;
+  background: var(--storm-field) !important;
+}
+
+/* --- Sidebar: the letter-mass index --- */
+
+.VPSidebar {
+  padding-top: 30px;
+  border-right: 1px solid var(--storm-hair);
+  background: var(--storm-field) !important;
+}
+
+.VPSidebarItem.level-0 {
+  padding-bottom: 0;
+}
+
+.VPSidebarItem.level-0 + .VPSidebarItem.level-0 {
+  margin-top: 1.6rem;
+}
+
+.VPSidebarItem.level-0 > .item .text {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.VPSidebarItem.level-0 > .item .caret {
+  color: var(--storm-rain);
+}
+
+.VPSidebarItem.level-1 {
+  padding: 0;
+}
+
+.VPSidebarItem.level-1 > .item {
+  position: relative;
+  padding: 0.34rem 0;
+}
+
+.VPSidebarItem.level-1 .link {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.VPSidebarItem.level-1 .text {
+  padding: 0;
+  color: var(--storm-mass);
+  font-size: 0.94rem;
+  font-weight: 430;
+  line-height: 1.5;
+  transition: color 140ms ease-out;
+}
+
+.VPSidebarItem.level-1 .link:hover .text {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.VPSidebarItem.level-1.is-active > .item {
+  padding-left: 0.9rem;
+}
+
+.VPSidebarItem.level-1.is-active > .item .text {
+  color: var(--storm-mass) !important;
+  font-weight: 700;
+}
+
+.VPSidebarItem.level-1.is-active > .item::before {
+  position: absolute;
+  top: 0.92rem;
+  left: 0;
+  width: 0.34rem;
+  height: 0.34rem;
+  background: var(--storm-mass);
+  content: '';
+}
+
+/* Spent grammar: a sheet the reader has already been through recedes to rain
+   grey and takes a hollow mark, so progress survives losing the colour. */
+.VPSidebarItem.level-1 .link.is-spent .text {
+  color: var(--storm-rain);
+}
+
+.VPSidebarItem.level-1 .link.is-spent .text::before {
+  display: inline-block;
+  width: 0.3rem;
+  height: 0.3rem;
+  margin-right: 0.42rem;
+  border: 1px solid var(--storm-rain);
+  content: '';
+}
+
+/* --- Article --- */
+
+.VPContent {
+  background: var(--storm-field);
+}
+
+.VPDoc .content-container {
+  max-width: 768px !important;
+}
+
+.VPDoc .aside {
+  background: var(--storm-field);
+}
+
+.vp-doc {
+  color: var(--storm-mass);
+  font-size: 1.0625rem;
+  line-height: 1.72;
+}
+
+.vp-doc > h1:first-child {
+  margin-top: 0.5rem;
+}
+
+.vp-doc h1 {
+  font-size: clamp(1.95rem, 3.1vw, 2.75rem);
+  font-weight: 800;
+  font-stretch: 96%;
+  letter-spacing: -0.032em;
+  line-height: 1.06;
+  text-wrap: balance;
+}
+
+/* Every section is a front: a rule that loses its ink as it runs out. */
+.vp-doc h2 {
+  margin-top: 3.6rem;
+  padding-top: 1.15rem;
+  border-top: 0;
+  font-size: 1.52rem;
+  font-weight: 750;
+  font-stretch: 98%;
+  letter-spacing: -0.022em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.vp-doc h2::before {
+  display: block;
+  height: 1px;
+  margin-bottom: 1.05rem;
+  background: linear-gradient(
+    90deg,
+    var(--storm-mass) 0%,
+    var(--storm-hair-strong) 18%,
+    var(--storm-hair) 55%,
+    transparent 100%
+  );
+  content: '';
+}
+
+.vp-doc h3 {
+  margin-top: 2.4rem;
+  font-size: 1.16rem;
+  font-weight: 700;
+  letter-spacing: -0.014em;
+}
+
+.vp-doc h4 {
+  margin-top: 2rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.vp-doc h2 .header-anchor,
+.vp-doc h3 .header-anchor {
+  color: var(--storm-rain);
+}
+
+.vp-doc p,
+.vp-doc li {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.vp-doc p {
+  max-width: 70ch;
+  margin: 1.15rem 0;
+}
+
+.vp-doc > ul,
+.vp-doc > ol {
+  max-width: 70ch;
+}
+
+.vp-doc h1 + p {
+  max-width: 62ch;
+  color: var(--storm-rain);
+  font-size: 1.06em;
+  line-height: 1.66;
+}
+
+.vp-doc li + li {
+  margin-top: 0.34rem;
+}
+
+.vp-doc ul,
+.vp-doc ol {
+  padding-left: 1.15rem;
+}
+
+.vp-doc li::marker {
+  color: var(--storm-rain);
+}
+
+.vp-doc strong {
+  font-weight: 700;
+}
+
+.vp-doc a {
+  color: var(--storm-mass);
+  font-weight: 550;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--storm-hair-strong);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 140ms ease-out;
+}
+
+.vp-doc a:hover {
+  text-decoration-color: var(--storm-mass);
+}
+
+.vp-doc hr {
+  height: 1px;
+  margin: 3rem 0;
+  border: 0;
+  background: linear-gradient(90deg, var(--storm-mass), var(--storm-hair) 30%, transparent 100%);
+}
+
+/* --- Quotes and admonitions: fronts, never coloured boxes --- */
+
+.vp-doc blockquote {
+  margin: 1.7rem 0;
+  padding: 0.1rem 0 0.1rem 1.2rem;
+  border-left: 1px solid var(--storm-hair-strong);
+  color: var(--storm-mass);
+}
+
+.vp-doc blockquote > p {
+  margin: 0.5rem 0;
+}
+
+.vp-doc div.custom-block {
+  margin: 1.8rem 0;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--storm-hair-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--storm-mass);
+  font-size: 0.98rem;
+}
+
+.vp-doc div.custom-block .custom-block-title {
+  margin-bottom: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.vp-doc div.custom-block p {
+  max-width: 68ch;
+  font-size: 0.98rem;
+  line-height: 1.65;
+}
+
+/* The boundary and the destructive branches take the full mass: no hue is
+   available, so weight does the work. */
+.vp-doc div.custom-block.warning,
+.vp-doc div.custom-block.danger {
+  border-color: var(--storm-mass);
+  background: var(--storm-mass);
+  color: var(--storm-field);
+}
+
+.vp-doc div.custom-block.warning .custom-block-title,
+.vp-doc div.custom-block.danger .custom-block-title,
+.vp-doc div.custom-block.warning p,
+.vp-doc div.custom-block.danger p,
+.vp-doc div.custom-block.warning a,
+.vp-doc div.custom-block.danger a,
+.vp-doc div.custom-block.warning strong,
+.vp-doc div.custom-block.danger strong {
+  color: var(--storm-field);
+}
+
+.vp-doc div.custom-block.tip,
+.vp-doc div.custom-block.info {
+  border-color: var(--storm-hair);
+}
+
+.vp-doc div.custom-block.details {
+  border-color: var(--storm-hair);
+}
+
+/* --- Code: the densest mass on the page --- */
+
+.vp-doc div[class*='language-'] {
+  margin: 1.7rem 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--storm-plate) !important;
+}
+
+/* At night the plate sits darker than the field rather than lighter, so it needs
+   one hairline to hold its edge. */
+html.dark .vp-doc div[class*='language-'] {
+  border: 1px solid var(--storm-hair);
+}
+
+.vp-doc div[class*='language-'] .lang {
+  top: 0.5rem;
+  right: 0.75rem;
+  color: var(--storm-plate-rain);
+  font-family: var(--storm-mono);
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.vp-doc div[class*='language-'] pre {
+  max-width: 100%;
+  padding: 1.15rem 1.25rem;
+  overflow-x: auto !important;
+  background: transparent !important;
+  font-size: 0.83rem;
+  line-height: 1.7;
+  tab-size: 4;
+}
+
+.vp-doc div[class*='language-'] code {
+  color: var(--storm-plate-ink);
+  white-space: pre !important;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.vp-doc div[class*='language-'] .copy {
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 0;
+  background: transparent;
+}
+
+.vp-doc div[class*='language-'] .copy:hover {
+  border-color: var(--storm-plate-ink);
+  background: rgb(255 255 255 / 0.1);
+}
+
+.vp-doc :not(pre) > code {
+  padding: 0.1em 0.34em;
+  border: 1px solid var(--storm-hair);
+  border-radius: 0;
+  background: transparent;
+  color: var(--storm-mass);
+  font-size: 0.84em;
+  font-weight: 500;
+}
+
+.vp-doc a > code {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* --- Tables: hairline specification, no boxes --- */
+
+.vp-doc .table-scroll {
+  max-width: 100%;
+  margin: 1.7rem 0;
+  overflow-x: auto;
+  border-top: 1px solid var(--storm-mass);
+  border-bottom: 1px solid var(--storm-hair);
+  /* A wide table has to scroll, and the reader has to be able to see that it
+     does. The shadows appear only on a side that still has content; the sheet
+     coloured covers travel with the content and hide them at each end. */
+  background:
+    linear-gradient(to right, var(--storm-field) 30%, transparent) left center / 34px 100% no-repeat
+      local,
+    linear-gradient(to left, var(--storm-field) 30%, transparent) right center / 34px 100% no-repeat
+      local,
+    radial-gradient(farthest-side at 0% 50%, var(--storm-scroll-cue), transparent) left center / 13px
+      100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--storm-scroll-cue), transparent) right center /
+      13px 100% no-repeat scroll;
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+  min-width: 620px;
+  margin: 0;
+  border: 0;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.vp-doc thead {
+  display: table-header-group;
+}
+
+.vp-doc th {
+  padding: 0.6rem 0.85rem 0.6rem 0;
+  border-bottom: 1px solid var(--storm-hair-strong);
+  color: var(--storm-rain);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.vp-doc td {
+  padding: 0.6rem 0.85rem 0.6rem 0;
+  border-bottom: 1px solid var(--storm-hair);
+  color: var(--storm-mass);
+  line-height: 1.55;
+  vertical-align: top;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.vp-doc tr:last-child td {
+  border-bottom: 0;
+}
+
+.vp-doc td:first-child,
+.vp-doc th:first-child {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Aside: the weather rail --- */
+
+.VPDocAsideOutline .outline-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.VPDocAsideOutline .content {
+  border-left: 1px solid var(--storm-hair);
+}
+
+.VPDocAsideOutline .outline-link {
+  overflow: visible;
+  padding: 0.28rem 0 0.28rem 0.9rem;
+  color: var(--storm-rain);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  text-overflow: clip;
+  white-space: normal;
+  transition: color 140ms ease-out;
+}
+
+.VPDocAsideOutline .outline-link:hover,
+.VPDocAsideOutline .outline-link.active {
+  color: var(--storm-mass);
+}
+
+.VPDocAsideOutline .outline-link.active {
+  font-weight: 650;
+}
+
+.VPDocAside .outline-marker {
+  background: var(--storm-mass);
+}
+
+/* --- Pagination and footer --- */
+
+.VPDocFooter {
+  margin-top: 4rem;
+}
+
+.VPDocFooter .edit-link-button {
+  color: var(--storm-rain);
+}
+
+.VPDocFooter .prev-next {
+  border-top: 1px solid var(--storm-hair);
+  padding-top: 1.4rem;
+}
+
+.pager-link {
+  border: 1px solid var(--storm-hair);
+  border-radius: 0;
+  transition: border-color 160ms ease-out;
+}
+
+.pager-link:hover {
+  border-color: var(--storm-mass);
+}
+
+.pager-link .desc {
+  color: var(--storm-rain);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pager-link .title {
+  color: var(--storm-mass);
+  font-size: 0.98rem;
+}
+
+.VPFooter {
+  border-top: 1px solid var(--storm-hair) !important;
+  background: var(--storm-field) !important;
+}
+
+.VPFooter .message,
+.VPFooter .copyright {
+  color: var(--storm-rain);
+  font-size: 0.82rem;
+}
+
+/* --- Search --- */
+
+.VPLocalSearchBox .shell {
+  border: 1px solid var(--storm-mass);
+  border-radius: 0;
+  background: var(--storm-field);
+}
+
+.VPLocalSearchBox .search-bar {
+  border-bottom: 1px solid var(--storm-hair);
+}
+
+.VPLocalSearchBox .result {
+  border: 1px solid transparent;
+  border-radius: 0;
+}
+
+.VPLocalSearchBox .result.selected {
+  border-color: var(--storm-mass);
+  background: transparent;
+}
+
+.VPLocalSearchBox .title {
+  color: var(--storm-mass);
+}
+
+.VPLocalSearchBox .excerpt {
+  color: var(--storm-rain);
+}
+
+.VPLocalSearchBox .titles .title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+/* --- Home: the open field --- */
+
+.VPHome {
+  padding-bottom: 0;
+}
+
+.VPHomeContent {
+  padding: 0;
+}
+
+.storm-field {
+  max-width: var(--vp-layout-max-width);
+  margin: 0 auto;
+  padding: clamp(2.5rem, 6vw, 5.5rem) 1.5rem clamp(2rem, 4vw, 3.4rem);
+}
+
+/* The first viewport is the whole field at once: the monumental statement, and
+   beside it the index of everything the site holds. */
+.storm-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(15rem, 0.8fr);
+  gap: clamp(2rem, 5vw, 4.5rem);
+  align-items: start;
+}
+
+.storm-hero-lead {
+  min-width: 0;
+}
+
+.storm-lede {
+  max-width: 52ch;
+  margin: 2rem 0 0;
+  color: var(--storm-rain);
+  font-size: 1.06rem;
+  line-height: 1.66;
+}
+
+.storm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin: 1.9rem 0 0;
+}
+
+.storm-action {
+  display: inline-block;
+  padding: 0.72rem 1.15rem;
+  border: 1px solid var(--storm-mass);
+  color: var(--storm-mass);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition:
+    background-color 160ms ease-out,
+    color 160ms ease-out;
+}
+
+.storm-action:hover {
+  background: var(--storm-mass);
+  color: var(--storm-field);
+}
+
+.storm-action.is-primary {
+  background: var(--storm-mass);
+  color: var(--storm-field);
+}
+
+.storm-action.is-primary:hover {
+  background: transparent;
+  color: var(--storm-mass);
+}
+
+.storm-fronts,
+.storm-boundary {
+  max-width: var(--vp-layout-max-width);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.storm-fronts {
+  padding-bottom: 0;
+}
+
+.storm-boundary {
+  margin-top: clamp(2.5rem, 5vw, 4rem);
+  padding-bottom: clamp(3rem, 6vw, 5rem);
+}
+
+.storm-boundary {
+  max-width: none;
+  padding-right: max(1.5rem, calc((100vw - var(--vp-layout-max-width)) / 2 + 1.5rem));
+  padding-left: max(1.5rem, calc((100vw - var(--vp-layout-max-width)) / 2 + 1.5rem));
+  background: var(--storm-mass);
+  color: var(--storm-field);
+}
+
+.storm-boundary > * {
+  max-width: 78ch;
+}
+
+.storm-boundary p {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.6;
+}
+
+.storm-boundary-label {
+  margin-bottom: 0.5rem !important;
+  font-size: 0.7rem !important;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+/* --- The language weather event --- */
+
+html.is-weathering .vp-doc,
+html.is-weathering .storm-field {
+  opacity: 0.25;
+  transition: opacity 220ms ease-out;
+}
+
+/* --- Motion --- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  html.is-weathering .vp-doc,
+  html.is-weathering .storm-field {
+    opacity: 1;
+  }
+}
+
+/* --- Narrow screens --- */
+
+@media (max-width: 959px) {
+  .VPDoc .content-container {
+    max-width: none !important;
+  }
+
+  .storm-field {
+    padding-top: 2rem;
+  }
+
+  .storm-hero {
+    grid-template-columns: 1fr;
+    gap: 2.4rem;
+  }
+}

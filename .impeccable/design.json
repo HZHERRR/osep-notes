@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2025-09-20T14:30:00Z",
+  "title": "Design System: OSEP Notes",
+  "extensions": {
+    "colorMeta": {
+      "storm-ink": {
+        "role": "primary",
+        "displayName": "Storm Ink",
+        "canonical": "#15161a",
+        "tonalRamp": ["#0b0c0e", "#15161a", "#2a2c32", "#42454c", "#5f6269", "#7e8288", "#9fa3a9", "#c2c5ca"]
+      },
+      "rain-grey": {
+        "role": "secondary",
+        "displayName": "Rain Grey",
+        "canonical": "#63666c",
+        "tonalRamp": ["#0b0c0e", "#1d1f23", "#31343a", "#4a4d53", "#63666c", "#85888e", "#a7aab0", "#c9ccd1"]
+      },
+      "silver-flash": {
+        "role": "secondary",
+        "displayName": "Silver Flash",
+        "canonical": "#7f8791",
+        "tonalRamp": ["#080a0c", "#1c1f23", "#333841", "#4d5561", "#66707f", "#7f8791", "#9ba2ab", "#bcc1c8"]
+      },
+      "paper-field": {
+        "role": "neutral",
+        "displayName": "Paper Field",
+        "canonical": "#f1f1ee",
+        "tonalRamp": ["#0f1013", "#22242a", "#3a3d44", "#565a60", "#767a80", "#989ca1", "#bbbdc0", "#dcdcd9"]
+      },
+      "hairline-rule": {
+        "role": "neutral",
+        "displayName": "Hairline Rule",
+        "canonical": "rgb(21 22 26 / 0.15)",
+        "tonalRamp": ["#15161a", "#2a2c31", "#474a50", "#686b71", "#8b8e94", "#aeb1b6", "#d0d0cc", "#f1f1ee"]
+      },
+      "hairline-firm": {
+        "role": "neutral",
+        "displayName": "Hairline Firm",
+        "canonical": "rgb(21 22 26 / 0.4)",
+        "tonalRamp": ["#15161a", "#2a2c31", "#474a50", "#686b71", "#8b8e94", "#aeb1b6", "#d0d0cc", "#f1f1ee"]
+      },
+      "code-plate": {
+        "role": "neutral",
+        "displayName": "Code Plate",
+        "canonical": "#15161a",
+        "tonalRamp": ["#07080a", "#15161a", "#2a2c32", "#42454c", "#5f6269", "#7e8288", "#9fa3a9", "#c2c5ca"]
+      },
+      "code-plate-ink": {
+        "role": "neutral",
+        "displayName": "Code Plate Ink",
+        "canonical": "#e9e7e1",
+        "tonalRamp": ["#0f1013", "#22242a", "#3a3d44", "#565a60", "#767a80", "#989ca1", "#bbbdc0", "#e9e7e1"]
+      },
+      "code-plate-rain": {
+        "role": "neutral",
+        "displayName": "Code Plate Rain",
+        "canonical": "#8d9199",
+        "tonalRamp": ["#080a0c", "#1c1f23", "#333841", "#4d5561", "#66707f", "#8d9199", "#a9aeb4", "#c8cbd0"]
+      },
+      "scroll-cue": {
+        "role": "neutral",
+        "displayName": "Scroll Cue",
+        "canonical": "rgb(21 22 26 / 0.22)",
+        "tonalRamp": ["#15161a", "#2a2c31", "#474a50", "#686b71", "#8b8e94", "#aeb1b6", "#d0d0cc", "#f1f1ee"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The home headline only: three authored uppercase lines at monumental scale, whose final word dissolves into letter-mass. Never used for a section title." },
+      "headline": { "displayName": "Headline", "purpose": "A page or module h1 — the sheet's own title, set at 96% width and balanced." },
+      "title": { "displayName": "Title", "purpose": "Every h2, i.e. every section front. Always preceded by the fading hairline." },
+      "section": { "displayName": "Section Rail", "purpose": "The system's labelling voice: h4, admonition titles, table headers, sidebar group names, the field index title, the boundary label. Uppercase 0.72rem at 0.13–0.15em." },
+      "body": { "displayName": "Body", "purpose": "Technical prose at a 70ch measure, 1.0625rem/1.72; 62ch for a lede. The reading text of every surface." },
+      "code": { "displayName": "Code", "purpose": "Spline Sans Mono inside the code plate and for inline code — anything a reader copies, types, or compares character by character." },
+      "label": { "displayName": "Plate Label", "purpose": "The language tag pinned to the top-right of a code plate: the only mono micro-label in the system, 0.66rem/500 uppercase at 0.14em." },
+      "nav": { "displayName": "Nav", "purpose": "Top-bar menu items and the square nav controls, 0.8rem/600 uppercase at 0.1em." },
+      "rail": { "displayName": "Rail", "purpose": "The on-this-page outline: the smallest reading text in the system, 0.84rem/1.45." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "ease-world", "value": "ease-out", "purpose": "The system's only easing curve, used for every colour, border, underline, and opacity transition in the world." },
+      { "name": "duration-hover", "value": "140ms", "purpose": "Colour and text-decoration transitions on rail entries and outline links." },
+      { "name": "duration-state", "value": "160ms", "purpose": "Background and border swaps on actions, the nav controls, and rail underlines." },
+      { "name": "duration-veil", "value": "220ms", "purpose": "The page's own opacity while a word-weather event is running (0.25 while weathering, back to 1)." },
+      { "name": "duration-meter", "value": "90ms linear", "purpose": "The reading meter under the top bar — the one mechanical, un-eased transition, because it reports position rather than performing it." },
+      { "name": "weather-peel", "value": "wind 165 / life 2.2s / budget 1100 glyphs", "purpose": "The settled headline dissolve: letters leave the line and drift on the wind field." },
+      { "name": "weather-language", "value": "wind 620 / life 1.15s / budget 1200 glyphs", "purpose": "The language switch as a weather event: the on-screen heading is sampled into letter-mass and blown off before the other locale lands." },
+      { "name": "weather-bounds", "value": "MAX_PARTICLES 1500 / MAX_MS 2800 / GLYPH_SIZE 15", "purpose": "Hard ceilings on the particle engine, so no event can run away with the page." },
+      { "name": "reduced-motion", "value": "prefers-reduced-motion: reduce", "purpose": "No particles are created at all, the veil is disabled, and all transitions and animations collapse to 0.01ms; the loosened silvered tracking remains as the settled static state." }
+    ],
+    "breakpoints": [
+      { "name": "front-collapse", "value": "720px", "purpose": "A home front becomes a single column: its name above its entries." },
+      { "name": "rail-collapse", "value": "959px", "purpose": "Sidebar and aside collapse, the content container goes full width, the home hero becomes one column, and the field tightens its top padding. Reading text never changes size." },
+      { "name": "measure", "value": "768px", "purpose": "The document content container's maximum width; prose holds its 70ch measure inside it." },
+      { "name": "shell", "value": "1560px", "purpose": "The widest the shell ever gets: 270px sidebar + content + 230px aside." },
+      { "name": "table-floor", "value": "620px", "purpose": "A reference table's minimum width — below it the table scrolls rather than wrapping or breaking an identifier token." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Action — Primary",
+      "kind": "button",
+      "refersTo": "action-primary",
+      "description": "The filled square action, used once per view for the one thing the reader should open first. Hovering empties it.",
+      "html": "<a class=\"ds-action-primary\" href=\"#\">Open scenario map</a>",
+      "css": ".ds-action-primary { display: inline-block; padding: 0.72rem 1.15rem; border: 1px solid var(--storm-mass, #15161a); background: var(--storm-mass, #15161a); color: var(--storm-field, #f1f1ee); font-family: 'Archivo', system-ui, sans-serif; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em; line-height: 1.4; text-decoration: none; text-transform: uppercase; border-radius: 0; transition: background-color 160ms ease-out, color 160ms ease-out; } .ds-action-primary:hover { background: transparent; color: var(--storm-mass, #15161a); } .ds-action-primary:focus-visible { outline: 2px solid var(--storm-mass, #15161a); outline-offset: 2px; }"
+    },
+    {
+      "name": "Action — Quiet",
+      "kind": "button",
+      "refersTo": "action-quiet",
+      "description": "The hairline action beside the primary one. Hovering fills it with mass — the exact inverse of the primary action.",
+      "html": "<a class=\"ds-action-quiet\" href=\"#\">Establish the lab baseline</a>",
+      "css": ".ds-action-quiet { display: inline-block; padding: 0.72rem 1.15rem; border: 1px solid var(--storm-mass, #15161a); background: transparent; color: var(--storm-mass, #15161a); font-family: 'Archivo', system-ui, sans-serif; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em; line-height: 1.4; text-decoration: none; text-transform: uppercase; border-radius: 0; transition: background-color 160ms ease-out, color 160ms ease-out; } .ds-action-quiet:hover { background: var(--storm-mass, #15161a); color: var(--storm-field, #f1f1ee); } .ds-action-quiet:focus-visible { outline: 2px solid var(--storm-mass, #15161a); outline-offset: 2px; }"
+    },
+    {
+      "name": "Control Switch",
+      "kind": "button",
+      "refersTo": "control-switch",
+      "description": "The nav cluster control. It names the state it will switch to, not the state it is in — language and appearance are the same control in two jobs.",
+      "html": "<button type=\"button\" class=\"ds-control-switch\" role=\"switch\" aria-checked=\"false\" aria-label=\"Switch to dark appearance\">Dark</button>",
+      "css": ".ds-control-switch { padding: 0.3rem 0.62rem; border: 1px solid var(--storm-hair-strong, rgba(21, 22, 26, 0.4)); border-radius: 0; background: transparent; color: var(--storm-mass, #15161a); font-family: 'Archivo', system-ui, sans-serif; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; line-height: 1.4; cursor: pointer; transition: background-color 160ms ease-out, color 160ms ease-out; } .ds-control-switch:hover { background: var(--storm-mass, #15161a); color: var(--storm-field, #f1f1ee); } .ds-control-switch:focus-visible { outline: 2px solid var(--storm-mass, #15161a); outline-offset: 2px; } .ds-control-switch[disabled] { color: var(--storm-rain, #63666c); cursor: progress; }"
+    },
+    {
+      "name": "Rail Entry",
+      "kind": "nav",
+      "refersTo": "rail-entry",
+      "description": "One row of the left rail. Current state is a filled mass square plus weight 700; a spent sheet is rain grey plus a hollow square, so progress survives losing the colour.",
+      "html": "<ul class=\"ds-rail\">\n  <li class=\"ds-rail-item\"><a class=\"ds-rail-link\" href=\"#\"><span class=\"ds-rail-text\">12 Active Directory</span></a></li>\n  <li class=\"ds-rail-item ds-rail-item--current\"><a class=\"ds-rail-link\" href=\"#\"><span class=\"ds-rail-text\">11 MSSQL</span></a></li>\n  <li class=\"ds-rail-item\"><a class=\"ds-rail-link\" href=\"#\"><span class=\"ds-rail-text ds-rail-text--spent\">10 Web entry</span></a></li>\n</ul>",
+      "css": ".ds-rail { margin: 0; padding: 0; list-style: none; font-family: 'Archivo', system-ui, sans-serif; } .ds-rail-item { position: relative; padding: 0.34rem 0; } .ds-rail-link { display: flex; align-items: baseline; gap: 0.55rem; color: var(--storm-mass, #15161a); text-decoration: none; } .ds-rail-text { color: var(--storm-mass, #15161a); font-size: 0.94rem; font-weight: 430; line-height: 1.5; } .ds-rail-link:hover .ds-rail-text { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; } .ds-rail-item--current { padding-left: 0.9rem; } .ds-rail-item--current .ds-rail-text { font-weight: 700; } .ds-rail-item--current::before { position: absolute; top: 0.92rem; left: 0; width: 0.34rem; height: 0.34rem; background: var(--storm-mass, #15161a); content: ''; } .ds-rail-text--spent { color: var(--storm-rain, #63666c); } .ds-rail-text--spent::before { display: inline-block; width: 0.3rem; height: 0.3rem; margin-right: 0.42rem; border: 1px solid var(--storm-rain, #63666c); content: ''; }"
+    },
+    {
+      "name": "Field Index",
+      "kind": "nav",
+      "refersTo": "field-index",
+      "description": "The whole body of material as one hairline rail, visible in the first viewport. Rows are separated by hairlines; numbers are mono and tabular.",
+      "html": "<nav class=\"ds-index\" aria-label=\"Module index\">\n  <p class=\"ds-index-title\">Field index</p>\n  <ul class=\"ds-index-list\">\n    <li><a class=\"ds-index-row\" href=\"#\"><span class=\"ds-index-name\">Delivery &amp; execution</span><span class=\"ds-index-nums\">010203040516</span></a></li>\n    <li><a class=\"ds-index-row\" href=\"#\"><span class=\"ds-index-name\">Privilege &amp; credentials</span><span class=\"ds-index-nums\">0607</span></a></li>\n    <li><a class=\"ds-index-row\" href=\"#\"><span class=\"ds-index-name\">Exam</span><span class=\"ds-index-nums\">979899</span></a></li>\n  </ul>\n</nav>",
+      "css": ".ds-index { border-top: 1px solid var(--storm-mass, #15161a); font-family: 'Archivo', system-ui, sans-serif; } .ds-index-title { margin: 0; padding: 0.62rem 0; border-bottom: 1px solid var(--storm-hair, rgba(21, 22, 26, 0.15)); color: var(--storm-rain, #63666c); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; } .ds-index-list { margin: 0; padding: 0; list-style: none; } .ds-index-list li + li { border-top: 1px solid var(--storm-hair, rgba(21, 22, 26, 0.15)); } .ds-index-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.5rem 0; color: var(--storm-mass, #15161a); text-decoration: none; } .ds-index-name { font-size: 0.94rem; font-weight: 550; transition: color 140ms ease-out; } .ds-index-row:hover .ds-index-name { color: var(--storm-rain, #63666c); } .ds-index-nums { color: var(--storm-rain, #63666c); font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.72rem; font-variant-numeric: tabular-nums; letter-spacing: 0.06em; white-space: nowrap; }"
+    },
+    {
+      "name": "Content Card",
+      "kind": "card",
+      "refersTo": "content-card",
+      "description": "How this system groups content without a card: a front is a hairline above, a label column, and more space — no enclosure, no background, no radius. Every home front and every section is built this way.",
+      "html": "<section class=\"ds-front\">\n  <h2 class=\"ds-front-name\">Delivery &amp; execution</h2>\n  <div class=\"ds-front-body\">\n    <p class=\"ds-front-condition\">You have a way in but the host will not run what you send it.</p>\n    <ul class=\"ds-front-entries\">\n      <li><a class=\"ds-front-entry\" href=\"#\"><span class=\"ds-front-num\">01</span><span>Word / VBA</span></a></li>\n      <li><a class=\"ds-front-entry\" href=\"#\"><span class=\"ds-front-num\">02</span><span>HTA</span></a></li>\n    </ul>\n  </div>\n</section>",
+      "css": ".ds-front { display: grid; grid-template-columns: minmax(9rem, 20%) 1fr; gap: 1.5rem 2.5rem; padding: 1.6rem 0 1.7rem; border-top: 1px solid var(--storm-hair, rgba(21, 22, 26, 0.15)); border-radius: 0; background: transparent; font-family: 'Archivo', system-ui, sans-serif; } .ds-front-name { margin: 0; color: var(--storm-mass, #15161a); font-size: 0.82rem; font-weight: 700; letter-spacing: 0.13em; line-height: 1.5; text-transform: uppercase; } .ds-front-condition { max-width: 46ch; margin: 0 0 1rem; color: var(--storm-rain, #63666c); font-size: 0.9rem; line-height: 1.6; } .ds-front-entries { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.1rem 2rem; margin: 0; padding: 0; list-style: none; } .ds-front-entry { display: flex; align-items: baseline; gap: 0.7rem; padding: 0.32rem 0; border-bottom: 1px solid transparent; color: var(--storm-mass, #15161a); font-size: 1rem; line-height: 1.4; text-decoration: none; transition: border-color 160ms ease-out; } .ds-front-entry:hover { border-bottom-color: var(--storm-mass, #15161a); } .ds-front-num { min-width: 1.6rem; color: var(--storm-rain, #63666c); font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.78rem; font-variant-numeric: tabular-nums; } @media (max-width: 720px) { .ds-front { grid-template-columns: 1fr; gap: 0.6rem; } }"
+    },
+    {
+      "name": "Code Plate",
+      "kind": "custom",
+      "refersTo": "code-plate",
+      "description": "The densest object in the system: a square near-black plate with the language tag pinned top-right and the copy control in translucent white.",
+      "html": "<div class=\"ds-plate\">\n  <span class=\"ds-plate-lang\">powershell</span>\n  <button type=\"button\" class=\"ds-plate-copy\" aria-label=\"Copy code\">Copy</button>\n  <pre class=\"ds-plate-pre\"><code>Invoke-Command -ComputerName DC01 -ScriptBlock { whoami }</code></pre>\n</div>",
+      "css": ".ds-plate { position: relative; margin: 1.7rem 0; border: 0; border-radius: 0; background: var(--storm-plate, #15161a); } .ds-plate-lang { position: absolute; top: 0.5rem; right: 0.75rem; color: var(--storm-plate-rain, #8d9199); font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.66rem; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; } .ds-plate-pre { max-width: 100%; margin: 0; padding: 1.15rem 1.25rem; overflow-x: auto; background: transparent; font-size: 0.83rem; line-height: 1.7; tab-size: 4; } .ds-plate-pre code { color: var(--storm-plate-ink, #e9e7e1); font-family: 'Spline Sans Mono', ui-monospace, monospace; white-space: pre; word-break: normal; overflow-wrap: normal; } .ds-plate-copy { position: absolute; top: 0.5rem; left: 0.75rem; padding: 0.2rem 0.5rem; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 0; background: transparent; color: var(--storm-plate-rain, #8d9199); font-family: 'Spline Sans Mono', ui-monospace, monospace; font-size: 0.66rem; letter-spacing: 0.08em; cursor: pointer; transition: border-color 160ms ease-out, color 160ms ease-out; } .ds-plate-copy:hover { border-color: var(--storm-plate-ink, #e9e7e1); background: rgba(255, 255, 255, 0.1); color: var(--storm-plate-ink, #e9e7e1); }"
+    },
+    {
+      "name": "Reference Table",
+      "kind": "custom",
+      "refersTo": "reference-table",
+      "description": "The densest reading form: a mass top rule, hairline row rules, no vertical borders, and a monospaced tabular first column for identifiers. Scrolls rather than wrapping.",
+      "html": "<div class=\"ds-table-scroll\">\n  <table class=\"ds-table\">\n    <thead><tr><th>Score</th><th>One-sentence goal</th><th>Scripts used</th></tr></thead>\n    <tbody>\n      <tr><td>47</td><td>Local Admin Host → Windows Service</td><td>m2-token.xlsx · Listen.xls</td></tr>\n      <tr><td>50</td><td>Unconstrained delegation DC → TGT</td><td>m2-delegation-attacks.ps1</td></tr>\n    </tbody>\n  </table>\n</div>",
+      "css": ".ds-table-scroll { max-width: 100%; margin: 1.7rem 0; overflow-x: auto; border-top: 1px solid var(--storm-mass, #15161a); border-bottom: 1px solid var(--storm-hair, rgba(21, 22, 26, 0.15)); } .ds-table { display: table; width: 100%; min-width: 620px; margin: 0; border: 0; border-collapse: collapse; font-family: 'Archivo', system-ui, sans-serif; font-size: 0.88rem; font-variant-numeric: tabular-nums; } .ds-table th { padding: 0.6rem 0.85rem 0.6rem 0; border-bottom: 1px solid var(--storm-hair-strong, rgba(21, 22, 26, 0.4)); color: var(--storm-rain, #63666c); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-align: left; text-transform: uppercase; white-space: nowrap; } .ds-table td { padding: 0.6rem 0.85rem 0.6rem 0; border-bottom: 1px solid var(--storm-hair, rgba(21, 22, 26, 0.15)); color: var(--storm-mass, #15161a); line-height: 1.55; vertical-align: top; overflow-wrap: normal; word-break: normal; } .ds-table tr:last-child td { border-bottom: 0; } .ds-table td:first-child, .ds-table th:first-child { font-family: 'Spline Sans Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Admonition — Mass",
+      "kind": "card",
+      "refersTo": "admonition-mass",
+      "description": "The boundary voice. With no hue to tint it with, a warning or destructive branch inverts the whole field to mass and paper-white text.",
+      "html": "<div class=\"ds-admonition-mass\">\n  <p class=\"ds-admonition-title\">Authorized use only</p>\n  <p class=\"ds-admonition-body\">These notes are for the official OSEP labs and exam, your own isolated lab, or systems you have written authorization to test.</p>\n</div>",
+      "css": ".ds-admonition-mass { margin: 1.8rem 0; padding: 1rem 1.2rem; border: 1px solid var(--storm-mass, #15161a); border-radius: 0; background: var(--storm-mass, #15161a); color: var(--storm-field, #f1f1ee); font-family: 'Archivo', system-ui, sans-serif; font-size: 0.98rem; } .ds-admonition-title { margin: 0 0 0.5rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; } .ds-admonition-body { max-width: 68ch; margin: 0; font-size: 0.98rem; line-height: 1.65; } .ds-admonition-mass a { color: var(--storm-field, #f1f1ee); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }"
+    },
+    {
+      "name": "Admonition — Hairline",
+      "kind": "card",
+      "refersTo": "admonition",
+      "description": "The tip, info, and details branch: transparent, outlined by a 0.15 hairline, with the uppercase section-rail title. No tint, no icon, no coloured left bar.",
+      "html": "<div class=\"ds-admonition\">\n  <p class=\"ds-admonition-title\">Assumptions</p>\n  <p class=\"ds-admonition-body\">The deviation between Linux time and DC is &lt;5 minutes. TCP/5985 and TCP/5986 reachable from the attack machine.</p>\n</div>",
+      "css": ".ds-admonition { margin: 1.8rem 0; padding: 1rem 1.2rem; border: 1px solid var(--storm-hair, rgba(21, 22, 26, 0.15)); border-radius: 0; background: transparent; color: var(--storm-mass, #15161a); font-family: 'Archivo', system-ui, sans-serif; font-size: 0.98rem; } .ds-admonition-title { margin: 0 0 0.5rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; } .ds-admonition-body { max-width: 68ch; margin: 0; font-size: 0.98rem; line-height: 1.65; } .ds-admonition-body a { color: var(--storm-mass, #15161a); font-weight: 550; text-decoration: underline; text-decoration-color: var(--storm-hair-strong, rgba(21, 22, 26, 0.4)); text-underline-offset: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Alphabet Storm",
+    "overview": "Letters condense into words, break into weather, and reshape the landscape according to grammar. The page is a paper-white field with no weather on it yet; the site's own type is the weather. A single monumental grotesk behaves as matter: it sets a headline at monumental scale, and the same letterforms lift off the page as drifting glyphs. Where the world needs weight it adds mass, where it needs hierarchy it adds scale, and where it needs a boundary it inverts the whole field to near-black. Nothing is a colour; everything is a density.\n\nThe palette is strictly achromatic. A storm-letter near-black carries body ink *and* weather mass — they are the same substance at different scales — while one rain grey marks grammar the reader has already spent and one silver marks a word caught mid-transformation. Force comes from mass, scale, and hairline contrast. There are no cards, no shadows, no rounded corners, and no gradients except two functional fades. Every container is a rule, not a box: a hairline says *this is grouped* and a firmer hairline says *this is a boundary*. Remove all the content and the page still reads as a weather chart — hairlines, letter-mass blocks, one dissolving line.\n\nRhythm is long-form and unhurried, because the reader is a practitioner working through dense technical prose for hours, often in low light: a 70ch measure, generous leading, and section breaks large enough that a front is visibly a new weather system. Motion is one word-weather event per view and nothing else; the type's loosened tracking is the settled state, visible with motion on or off, so the world survives `prefers-reduced-motion` with its identity intact. Depth is expressed as surface density (open field, dense plate, full mass) rather than as shadow, so the code plate is the densest object on any page and the inverted mass band is the loudest thing the system can say.",
+    "keyCharacteristics": [
+      "Strictly achromatic: near-black mass, rain grey, one silver, paper field — no hue anywhere, including focus and system UI.",
+      "Hairline-only containers: 1px rules at `rgb(21 22 26 / 0.15)` and `rgb(21 22 26 / 0.4)`; no cards, no boxes, no corner radius (0 everywhere).",
+      "One family for display and text (Archivo, variable 100–900 / 62–125% width), with Spline Sans Mono reserved for code and identifiers.",
+      "Depth by density inversion, never by shadow: field → code plate → full-mass band.",
+      "One word-weather event per view, readable text preserved throughout, and nothing at all under `prefers-reduced-motion`.",
+      "Both self-hosted fonts, because the exam scene has no outside network and a CDN font is a broken font."
+    ],
+    "rules": [
+      { "name": "The No-Hue Rule", "body": "No hue anywhere, in either appearance, on any surface, in any state. Mass, scale, and hairline contrast carry all hierarchy and all emphasis. A chromatic accent — error red, links blue, a tinted badge — is out of world, and so is a browser default focus ring or a tinted system scrollbar on a surface this world owns.", "section": "colors" },
+      { "name": "The One Silver Rule", "body": "Silver is used in exactly one place: the dissolving word in a monumental display line. It is a transformation state, never a text colour, never a hover state, and never a decorative tint. If a second use is considered, the answer is mass or rain grey.", "section": "colors" },
+      { "name": "The Mass Inversion Rule", "body": "Inverted mass (`#f1f1ee` on `#15161a`, 15.98:1) means exactly one thing: this is a boundary or a destructive branch. The code plate is the same mass, which is deliberate — code is the densest object in the system, and the authorized-use boundary and the warning/danger branches are its peers, not its children.", "section": "colors" },
+      { "name": "The One Family Rule", "body": "Display and text are Archivo. Code and identifiers are Spline Sans Mono. There is no third face, no serif, no display cut, and no glyph or symbol font. Hierarchy is built from weight, width, scale, tracking, and case — never from adding a family.", "section": "typography" },
+      { "name": "The Readable Text Rule", "body": "No motion, effect, or state in this system may reduce legibility of text the reader is meant to read: prose holds a 70ch measure, 1.0625rem minimum, 1.72 leading, and no tracking games. The one place contrast dips below AA is the silver dissolving word, and that is display type, not prose.", "section": "typography" },
+      { "name": "The Self-Hosted Font Rule", "body": "Every face ships as a woff2 in `docs/.vitepress/theme/fonts/` with a latin and a latin-ext file and an explicit `unicode-range`. A CDN font is a broken font: the exam scene has no outside network, and a missing face falls back to a system grotesk that is not this world.", "section": "typography" },
+      { "name": "The One Column Rule", "body": "A reading page has exactly one column of prose at a 70ch measure. Multi-column prose, card grids, side-by-side comparisons, and centered marketing arrangements are not part of how this world lays out a page. A second column is only ever a rail.", "section": "layout" },
+      { "name": "The Fading Hairline Rule", "body": "Every horizontal division loses ink as it runs out: `h2::before` goes mass → 0.4 → 0.15 → transparent across its length, and the horizontal rule does the same over 30%. A rule is a front passing over the page, not a box edge. Use the fade for divisions inside a page; keep the firm 0.4 hairline for boundaries around content.", "section": "layout" },
+      { "name": "The Density Rule", "body": "Depth is density, not elevation. Something is \"higher\" only because it is darker, bolder, or more inked — never because it floats, blurs, or casts. A new surface earns depth by choosing a tier (field, plate, mass), not by acquiring a shadow.", "section": "elevation" },
+      { "name": "The Gradient Ban", "body": "Gradients are banned except for two functional fades, both achromatic, both serving overflow or division: the hairline that fades out beneath a section title, and the table scroll shadows (a field-coloured cover travelling with the content, plus a scroll-cue radial that appears only on a side that still has content). A decorative gradient, a coloured overlay, or a gradient as a text fill is out of world.", "section": "elevation" },
+      { "name": "The Square-Corner Rule", "body": "Radius is 0. Everywhere. There is no `rounded` exception and no \"just this once\" pill; if a component arrives with a radius, the radius is removed, not tolerated. A mark may be a small square, but nothing gets rounded.", "section": "shapes" },
+      { "name": "The Rule-Not-Box Rule", "body": "Containers are rules. If a group of content seems to need a box, it needs a hairline and more space instead. Enclosure by border is reserved for the two cases where the boundary itself is the message: the mass-inverted band and the admonition outline.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do keep every surface strictly achromatic. If a new state needs emphasis, spend mass, scale, or a firmer hairline — never a hue.",
+      "Do reach for the three density tiers first: open field, dense plate (`#15161a`), full mass band. They are the system's entire depth vocabulary.",
+      "Do use hairline rules (0.15 for grouping, 0.4 for a boundary) instead of boxes, cards, and enclosures.",
+      "Do set display and body in Archivo, and reach for Spline Sans Mono only for what a reader copies, types, or compares: commands, identifiers, module numbers, scenario IDs, keyboard hints, plate language tags.",
+      "Do keep prose at a 70ch measure, 1.0625rem, 1.72 leading, and set display type at 92% width with -0.035em tracking and 0.1em word-spacing so uppercase lines do not collide.",
+      "Do self-host both faces as latin + latin-ext woff2 with explicit `unicode-range`, and keep the CJK fallback chain behind Archivo.",
+      "Do preserve the readable text through any weather event, allow one event per view, cap it in both particle count and time, and stop the frame loop when it settles.",
+      "Do ship `prefers-reduced-motion: reduce` as a real alternative: no particles at all, and the loosened silvered tracking as the settled static state so the world still reads.",
+      "Do carry state by weight and shape as well as colour — a bolded entry plus a filled square for current, a hollow square for spent — so nothing depends on grey alone.",
+      "Do keep tokens square: `border-radius: 0` restated on every component, even where it looks redundant."
+    ],
+    "donts": [
+      "Don't introduce a hue anywhere: no accent colour, no error red, no link blue, no tinted badge, no coloured gradient, no coloured shadow. This includes the browser's default focus ring and system scrollbars on surfaces this world owns.",
+      "Don't use silver (`#7f8791` / `#6b7280`) as a text colour or a hover state. It is the transformation flash in the dissolving display word, and it is used in exactly one place.",
+      "Don't use shadows, glows, blurs, or `backdrop-filter` for depth, and don't let a hover lift an element. Depth is density.",
+      "Don't round a corner, and don't let an imported component keep its radius, pill, or rounded control. Restyle the control in this vocabulary instead.",
+      "Don't enclose content in a card, and don't introduce a second accent to distinguish variants — the button vocabulary is filled and unfilled, nothing more.",
+      "Don't add a third typeface, a serif, or a glyph/symbol icon font. Marks are drawn as squares and hairlines.",
+      "Don't use a gradient decoratively; only the section-title hairline fade and the table overflow scroll shadows are permitted, and both are achromatic.",
+      "Don't reduce reading text below 1.0625rem, and don't trade legibility for a motion effect — nothing in the system may make a line harder to read while it moves.",
+      "Don't add a second motion vocabulary. Ease-out colour and border swaps (140–160ms) and the single weather event are the whole set; a bouncy, springy, or looping animation is out of world.",
+      "Don't fabricate identifiers, counts, or status to fill a rail. Sheet meta reads the page's real taxonomy and real table contents, and shows nothing when there is nothing."
+    ]
+  }
+}

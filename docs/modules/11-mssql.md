@@ -6,11 +6,11 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 Login is not xp_cmdshell. Impersonate, linked servers, or trigger outbound SMB auth.
 
-> Covers scenarios: 44, 45
+> **Covers scenarios:** 44, 45
 >
-> Course mapping: scenario 44 → C4; scenario 45 → C2, C6
+> **Course mapping:** scenario 44 → C4; scenario 45 → C2, C6
 >
-> Prerequisites: a SQL Server instance you can log into (SQL auth or Windows auth); attacker box (Kali) reachable from the instance for outbound SMB/445; PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat as needed per scenario
+> **Prerequisites:** a SQL Server instance you can log into (SQL auth or Windows auth); attacker box (Kali) reachable from the instance for outbound SMB/445; PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat as needed per scenario
 
 ---
 

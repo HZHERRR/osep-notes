@@ -4,9 +4,9 @@
 
 # 模块 M15：WinRM 横移（凭据有效 · 仅 WinRM 开放）
 
-> 覆盖场景：56
+> **覆盖场景：**56
 >
-> 前置依赖：已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；攻击机为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
+> **前置依赖：**已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；攻击机为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
 
 ---
 

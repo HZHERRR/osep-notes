@@ -4,11 +4,11 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 # Module M01: Word / VBA macro entry and payload shapes
 
-> Covers scenarios: 1, 2, 3, 4, 5
+> **Covers scenarios:** 1, 2, 3, 4, 5
 >
-> Course mapping: Chapter 4 (macros and initial access), Chapter 10 (process migration and lifecycle), Chapter 11 (evasion and encoding)
+> **Course mapping:** Chapter 4 (macros and initial access), Chapter 10 (process migration and lifecycle), Chapter 11 (evasion and encoding)
 >
-> Prerequisites: deliverable `.docm`/`.doc`; Office installed on the target; attacker has an HTTP delivery service (`m00-delivery-server.py`); both x86 and x64 Runners already compiled
+> **Prerequisites:** deliverable `.docm`/`.doc`; Office installed on the target; attacker has an HTTP delivery service (`m00-delivery-server.py`); both x86 and x64 Runners already compiled
 
 **Shared principles for this module**:
 1. **Probe first, deliver second** — when Office bitness is unknown, delivering a Runner directly is a gamble.
