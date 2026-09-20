@@ -198,6 +198,23 @@ html.dark .vp-doc tr:nth-child(2n) {
   border: 1px solid var(--ht-border);
   border-radius: 0;
   background: var(--vp-code-block-bg) !important;
+  overflow: visible;
+  max-width: 100%;
+}
+
+.vp-doc div[class*="language-"] pre,
+.vp-doc div[class*="language-"] code {
+  white-space: pre-wrap !important;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow-x: hidden !important;
+  max-width: 100%;
+}
+
+.vp-doc p,
+.vp-doc li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .vp-doc :not(pre) > code {
@@ -213,6 +230,10 @@ html.dark .vp-doc :not(pre) > code {
 .VPFooter {
   border-top: 1px solid var(--ht-border);
   background: var(--ht-bg);
+}
+
+.VPDocFooter .last-updated {
+  display: none !important;
 }
 
 .ht-grid {

