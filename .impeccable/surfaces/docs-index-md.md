@@ -23,10 +23,7 @@ and the real scenario IDs. No counters, no vanity metrics, no invented material 
 mirrored `zh` routes, minimal dependencies, Markdown stays the content format. Fonts are self-hosted:
 the exam scene has no outside network, so a CDN font is a broken font.
 
-**Chosen direction.** Alphabet Storm — adopted on request from the bolder hand's fourth dealt
-challenger, against my recorded `declined` verdict. Memorable moment: **the language change as a
-weather event** — this site's real bilingualism, performed by the world's own control ("type, split,
-conjugate, recombine language while physical consequences remain reversible").
+**Chosen direction.** Tactical Ops Console (战术控制台与现代战术手册) — Dark-first precision engineering surface with tactical semantic status accents, terminal-grade code execution blocks, and high-density condition-first wayfinding.
 
 **Unresolved.** Whether the mechanically translated English module prose is ever rewritten. Not
 authorized here; the design must survive it.
@@ -35,27 +32,14 @@ authorized here; the design must survive it.
 
 ## Direction contract
 
-**THESIS.** Language is weather: a single monumental grotesk behaving as matter, dissolving into
-letter-mass at the edges of a page. It refuses the category's sidebar-plus-three-equal-cards
-arrangement and refuses to seal type inside card containers.
+**THESIS.** An offensive security field reference is a tactical flight deck, not an avant-garde art experiment or generic blog. It refuses low-contrast monochrome ambiguity and refuses oversized, unreadable display typography. It elevates operating conditions, prerequisite verification, and failure branches into instantly distinguishable, high-scanability visual landmarks.
 
-**OWN-WORLD.** Paper-white open field, storm-letter near-black as both body ink and weather mass, one
-silver flash for a word mid-transformation, rain gray for spent grammar. No hue anywhere: force comes
-from mass, scale, and hairline contrast. Every container is a hairline rule, never a rounded box; code
-is the densest mass — a near-black plate of paper-white type. Remove all content and the page still
-reads as a weather chart: hairlines, letter-mass blocks, one dissolving line.
+**OWN-WORLD.** Deep obsidian/graphite foundation (`#0a0b0e` / `#0f1117`), crisp hairline seam borders (`rgba(255,255,255,0.08)`), terminal-grade code plates with dedicated status controls, and three strict functional semantic signals: Tactical Emerald (`#10b981`) for execution success and active state, Tactical Amber (`#f59e0b`) for prerequisites and procedure cautions, and Crimson (`#ef4444`) for high-risk OPSEC and AV trigger boundaries. Remove all prose, and the interface remains unmistakable as a mission-ready security console.
 
-**STORY.** The reader understands that this is one body of material organized by condition, sees the
-whole field at once instead of a menu, believes the destructive and out-of-bounds material is marked
-because they can see the mass move, and opens the module their situation matches.
+**STORY.** The practitioner immediately recognizes an operator-to-operator tactical reference manual. Under intense lab and 48-hour exam pressure, they can identify the target condition within seconds, copy clean execution payloads with high confidence, verify prerequisites without reading walls of text, and heed OPSEC risks before running a noisy command.
 
-**FIRST VIEWPORT.** Full-bleed open field. The monumental lowercase headline occupies the left two
-thirds at display scale, its final line breaking and dissolving rightward into drifting letter-mass;
-a live hairline weather rail sits at the right edge with the current front's real data. Beneath the
-headline, one line of real prose and two text actions. At the bottom edge, the authorized-use
-boundary begins as a full-width mass band. Nothing is centered; nothing is in a card.
+**FIRST VIEWPORT.** Crisp tactical banner with authorized-use boundary and monospace telemetry badge (`OFFSEC PEN-300 // RED TEAM FIELD MANUAL`). Balanced, authoritative title with high legibility. Instant condition-first index matrix with structured phase cards, scenario count pill, and immediate action buttons. No colossal avant-garde typography; generous, calibrated spacing with rock-solid alignment.
 
-**FORM.** Challenger, adopted on request, 4th dealt in the bolder hand. Seed key `4567ddff`.
+**FORM.** Built candidate: Tactical Ops Console. Assigned direction fused with digital-design-canon-dark-first-developer-console. Seed key `b493cba8`.
 
-**FINISH.** unreviewed and undocumented is unfinished; this build ends with the finish review, the
-verdict, DESIGN.md, and every shipping raster carrying its provenance.
+**FINISH.** unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.

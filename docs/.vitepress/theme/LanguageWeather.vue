@@ -52,27 +52,24 @@ const label = computed(() => (zh.value ? 'English' : '中文'))
   align-items: center;
   justify-content: center;
   height: 28px;
-  padding: 0 0.6rem;
-  border: 1px solid var(--storm-hair-strong);
-  border-radius: 2px;
-  background: transparent;
-  color: var(--storm-mass);
-  font-family: inherit;
-  font-size: 0.76rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--tac-border);
+  border-radius: 6px;
+  background: var(--tac-card);
+  color: var(--tac-text-2);
+  font-family: var(--tac-mono);
+  font-size: 0.74rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-decoration: none !important;
   cursor: pointer;
   white-space: nowrap;
-  transition:
-    background-color 140ms ease-out,
-    color 140ms ease-out,
-    border-color 140ms ease-out;
+  transition: all 120ms ease-out;
 }
 
 .language-weather:hover {
-  background: var(--storm-mass);
-  color: var(--storm-field);
-  border-color: var(--storm-mass);
+  border-color: var(--tac-accent);
+  color: var(--tac-accent);
+  background: var(--tac-card-hover);
 }
 </style>

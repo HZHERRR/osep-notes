@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRoute } from 'vitepress'
 
 const props = withDefaults(
   defineProps<{
@@ -11,32 +12,74 @@ const props = withDefaults(
   { dissolve: -1 },
 )
 
+const route = useRoute()
+const zh = computed(() => route.path === '/zh' || route.path.startsWith('/zh/'))
 const activeIndex = computed(() => props.dissolve)
 </script>
 
 <template>
-  <h1 class="storm-title">
-    <span
-      v-for="(line, index) in lines"
-      :key="line"
-      class="storm-line"
-      :class="{ 'is-highlight': index === activeIndex }"
-    >
-      {{ line }}
-    </span>
-  </h1>
+  <div class="tactical-hero-header">
+    <div class="tactical-kicker">
+      <span class="tactical-kicker-dot"></span>
+      <span class="tactical-kicker-text">
+        {{ zh ? 'OFFSEC PEN-300 // 红队技术行动手册' : 'OFFSEC PEN-300 // FIELD MANUAL' }}
+      </span>
+    </div>
+    <h1 class="storm-title">
+      <span
+        v-for="(line, index) in lines"
+        :key="line"
+        class="storm-line"
+        :class="{ 'is-highlight': index === activeIndex }"
+      >
+        {{ line }}
+      </span>
+    </h1>
+  </div>
 </template>
 
 <style scoped>
+.tactical-hero-header {
+  margin: 0;
+}
+
+.tactical-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.65rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--tac-border);
+  border-radius: 9999px;
+  background: var(--tac-card);
+}
+
+.tactical-kicker-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tac-accent);
+  box-shadow: 0 0 8px var(--tac-accent);
+}
+
+.tactical-kicker-text {
+  font-family: var(--tac-mono);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  color: var(--tac-text-2);
+  text-transform: uppercase;
+}
+
 .storm-title {
   margin: 0;
   font-weight: 800;
-  font-size: clamp(2.2rem, 4.6vw, 3.8rem);
-  line-height: 1.1;
+  font-size: clamp(2rem, 3.8vw, 3rem);
+  line-height: 1.15;
   letter-spacing: -0.025em;
   text-transform: uppercase;
   text-wrap: balance;
-  color: var(--storm-mass);
+  color: var(--tac-text-1);
 }
 
 .storm-line {
@@ -44,13 +87,13 @@ const activeIndex = computed(() => props.dissolve)
 }
 
 .storm-line.is-highlight {
-  color: var(--storm-mass);
+  color: var(--tac-accent);
 }
 
 @media (max-width: 640px) {
   .storm-title {
-    font-size: clamp(1.9rem, 7.5vw, 2.6rem);
-    line-height: 1.15;
+    font-size: clamp(1.75rem, 6.5vw, 2.25rem);
+    line-height: 1.2;
   }
 }
 </style>

@@ -7,6 +7,8 @@ docs/.vitepress/dist
 # Local tooling installs and the design process's bulky evidence.
 # The durable record (PRODUCT.md, DESIGN.md, .impeccable/design.json, the
 # direction roll, the surface brief, the capture tools) IS committed.
+.agents/
+.codex/
 .dsh/
 .impeccable/refs/
 .impeccable/review/

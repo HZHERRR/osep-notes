@@ -55,16 +55,19 @@ function formatNums(group: Group): string {
 </script>
 
 <template>
-  <nav class="storm-index" :aria-label="zh ? '模块索引' : 'Module index'">
-    <div class="storm-index-header">
-      <span class="storm-index-title">{{ zh ? '全字段索引' : 'Field index' }}</span>
-      <span class="storm-index-badge">{{ zh ? '共 20 模块' : '20 modules' }}</span>
+  <nav class="tactical-index" :aria-label="zh ? '模块快速索引' : 'Module quick index'">
+    <div class="tactical-index-header">
+      <div class="tactical-index-title-group">
+        <span class="tactical-status-indicator"></span>
+        <span class="tactical-index-title">{{ zh ? '战术模块索引' : 'FIELD INDEX' }}</span>
+      </div>
+      <span class="tactical-index-badge">{{ zh ? '共 20 模块' : '20 MODULES' }}</span>
     </div>
-    <ul>
-      <li v-for="group in groups" :key="group.en">
-        <a :href="`#${slug(group.en)}`">
-          <span class="storm-index-name">{{ zh ? group.zh : group.en }}</span>
-          <span class="storm-index-nums">{{ formatNums(group) }}</span>
+    <ul class="tactical-index-list">
+      <li v-for="group in groups" :key="group.en" class="tactical-index-item">
+        <a :href="`#${slug(group.en)}`" class="tactical-index-link">
+          <span class="tactical-index-name">{{ zh ? group.zh : group.en }}</span>
+          <span class="tactical-index-nums">{{ formatNums(group) }}</span>
         </a>
       </li>
     </ul>
@@ -72,76 +75,94 @@ function formatNums(group: Group): string {
 </template>
 
 <style scoped>
-.storm-index {
-  border-top: 2px solid var(--storm-mass);
-  background: transparent;
+.tactical-index {
+  border: 1px solid var(--tac-border);
+  border-radius: 8px;
+  background: var(--tac-card);
+  padding: 1rem 1.25rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
 }
 
-.storm-index-header {
+.tactical-index-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.65rem 0;
-  border-bottom: 1px solid var(--storm-hair-strong);
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--tac-border);
 }
 
-.storm-index-title {
-  color: var(--storm-rain);
-  font-size: 0.72rem;
+.tactical-index-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tactical-status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tac-accent);
+}
+
+.tactical-index-title {
+  color: var(--tac-text-2);
+  font-family: var(--tac-mono);
+  font-size: 0.74rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.storm-index-badge {
-  color: var(--storm-rain);
+.tactical-index-badge {
+  color: var(--tac-text-3);
+  font-family: var(--tac-mono);
   font-size: 0.72rem;
-  font-family: var(--storm-mono);
   letter-spacing: 0.04em;
 }
 
-.storm-index ul {
-  margin: 0;
+.tactical-index-list {
+  margin: 0.25rem 0 0;
   padding: 0;
   list-style: none;
 }
 
-.storm-index li + li {
-  border-top: 1px solid var(--storm-hair);
+.tactical-index-item + .tactical-index-item {
+  border-top: 1px solid var(--tac-border);
 }
 
-.storm-index a {
+.tactical-index-link {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 1.2rem;
-  padding: 0.58rem 0;
-  color: var(--storm-mass);
-  text-decoration: none;
-  transition: color 140ms ease-out;
+  gap: 1rem;
+  padding: 0.6rem 0.4rem;
+  border-radius: 4px;
+  color: var(--tac-text-1);
+  text-decoration: none !important;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 
-.storm-index a:hover .storm-index-name {
-  color: var(--storm-rain);
+.tactical-index-link:hover {
+  background: var(--tac-card-hover);
 }
 
-.storm-index a:hover .storm-index-nums {
-  color: var(--storm-mass);
+.tactical-index-link:hover .tactical-index-name {
+  color: var(--tac-accent);
 }
 
-.storm-index-name {
-  font-size: 0.92rem;
+.tactical-index-name {
+  font-size: 0.88rem;
   font-weight: 500;
   letter-spacing: -0.01em;
+  transition: color 120ms ease-out;
 }
 
-.storm-index-nums {
-  color: var(--storm-rain);
-  font-family: var(--storm-mono);
-  font-size: 0.8rem;
+.tactical-index-nums {
+  color: var(--tac-text-3);
+  font-family: var(--tac-mono);
+  font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
   white-space: nowrap;
-  transition: color 140ms ease-out;
 }
 </style>

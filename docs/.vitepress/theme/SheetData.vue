@@ -37,76 +37,105 @@ const scenarios = computed(() => {
 </script>
 
 <template>
-  <div v-if="found" class="sheet-data">
-    <div class="sheet-data-header">
-      <span class="sheet-data-num">{{ found.entry.num }}</span>
-      <span class="sheet-data-front">{{ zh ? found.group.zh : found.group.en }}</span>
+  <div v-if="found" class="tactical-sheet-data">
+    <div class="tactical-sheet-header">
+      <span class="tactical-sheet-badge">[{{ found.entry.num }}]</span>
+      <span class="tactical-sheet-phase">{{ zh ? found.group.zh : found.group.en }}</span>
     </div>
-    <div class="sheet-data-title">{{ found.entry[zh ? 'zh' : 'en'] }}</div>
-    <dl v-if="scenarios.length" class="sheet-data-scenarios">
-      <dt>{{ zh ? '包含场景' : 'Covered scenarios' }}</dt>
-      <dd>{{ scenarios.join(' · ') }}</dd>
-    </dl>
+    <div class="tactical-sheet-title">{{ found.entry[zh ? 'zh' : 'en'] }}</div>
+    <div v-if="scenarios.length" class="tactical-sheet-scenarios">
+      <div class="tactical-scenarios-label">
+        <span class="tactical-scenarios-dot"></span>
+        <span>{{ zh ? '覆盖场景' : 'COVERED SCENARIOS' }}</span>
+      </div>
+      <div class="tactical-scenarios-pills">
+        <span v-for="id in scenarios" :key="id" class="tactical-scenario-pill">
+          #{{ id }}
+        </span>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.sheet-data {
-  padding: 0 0 1rem 1rem;
-  margin-bottom: 0.8rem;
-  border-left: 1px solid var(--storm-hair);
-  border-bottom: 1px solid var(--storm-hair);
+.tactical-sheet-data {
+  padding: 0.85rem 1rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--tac-border);
+  border-radius: 8px;
+  background: var(--tac-card);
 }
 
-.sheet-data-header {
+.tactical-sheet-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
 }
 
-.sheet-data-num {
-  font-family: var(--storm-mono);
-  font-size: 1.35rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  color: var(--storm-mass);
+.tactical-sheet-badge {
+  font-family: var(--tac-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--tac-accent);
 }
 
-.sheet-data-front {
-  color: var(--storm-rain);
+.tactical-sheet-phase {
+  color: var(--tac-text-3);
+  font-family: var(--tac-mono);
   font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-weight: 650;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.sheet-data-title {
-  margin-top: 0.35rem;
-  font-size: 0.88rem;
+.tactical-sheet-title {
+  margin-top: 0.4rem;
+  font-size: 0.92rem;
   font-weight: 600;
-  color: var(--storm-mass);
+  color: var(--tac-text-1);
   line-height: 1.35;
 }
 
-.sheet-data-scenarios {
-  margin: 0.75rem 0 0;
+.tactical-sheet-scenarios {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--tac-border);
 }
 
-.sheet-data-scenarios dt {
-  color: var(--storm-rain);
+.tactical-scenarios-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--tac-text-3);
+  font-family: var(--tac-mono);
   font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.sheet-data-scenarios dd {
-  margin: 0.25rem 0 0;
-  font-family: var(--storm-mono);
-  font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.6;
-  color: var(--storm-mass);
+.tactical-scenarios-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--tac-accent);
+}
+
+.tactical-scenarios-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.tactical-scenario-pill {
+  padding: 0.12rem 0.4rem;
+  border: 1px solid var(--tac-border-firm);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--tac-text-2);
+  font-family: var(--tac-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 </style>

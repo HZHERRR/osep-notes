@@ -115,7 +115,7 @@ onBeforeUnmount(() => {
   top: var(--vp-nav-height, 64px);
   right: 0;
   left: 0;
-  height: 1px;
+  height: 2px;
   overflow: hidden;
   pointer-events: none;
 }
@@ -124,7 +124,8 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: 100%;
-  background: var(--storm-mass);
+  background: var(--tac-accent);
+  box-shadow: 0 0 8px var(--tac-accent);
   transform: scaleX(0);
   transform-origin: left center;
   transition: transform 90ms linear;

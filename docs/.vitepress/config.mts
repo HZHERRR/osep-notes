@@ -21,7 +21,10 @@ export default defineConfig({
     outline: { level: [2, 3] },
   },
   markdown: {
-    theme: 'github-dark',
+    theme: {
+      light: 'github-light',
+      dark: 'github-dark',
+    },
   },
   locales: {
     root: {
