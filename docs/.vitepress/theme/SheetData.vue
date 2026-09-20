@@ -18,10 +18,35 @@ const found = computed(() => {
   return null
 })
 
-// Scenarios: only read from tables where the first column explicitly represents Scenarios.
+// Scenarios: read from covers line, headings, or tables
 const scenarios = computed(() => {
   if (typeof document === 'undefined') return []
   const ids = new Set<string>()
+
+  // 1. Check top blockquote "Covers scenarios: ..." or "覆盖场景：..."
+  const blockquotes = document.querySelectorAll('.vp-doc blockquote')
+  for (const bq of blockquotes) {
+    const text = bq.textContent || ''
+    const match = text.match(/(?:Covers scenarios|覆盖场景)[：:\s]*([0-9\s,、–-]+)/i)
+    if (match && match[1]) {
+      const parts = match[1].split(/[,、\s]+/)
+      for (const p of parts) {
+        const trimmed = p.trim()
+        if (/^\d{1,3}$/.test(trimmed)) ids.add(trimmed)
+      }
+    }
+  }
+
+  // 2. Check Scenario headings (e.g. "Scenario 18:" or "场景 18：")
+  document.querySelectorAll('.vp-doc h2').forEach((h2) => {
+    const text = (h2.textContent || '').trim()
+    const match = text.match(/(?:Scenario|场景)\s*(\d{1,3})/i)
+    if (match && match[1]) {
+      ids.add(match[1])
+    }
+  })
+
+  // 3. Fallback: read from tables where first column is Scenario / 场景
   document.querySelectorAll('.vp-doc table').forEach((table) => {
     const firstTh = table.querySelector('thead th:first-child')
     const thText = (firstTh?.textContent || '').trim().toLowerCase()
@@ -32,6 +57,7 @@ const scenarios = computed(() => {
       })
     }
   })
+
   return [...ids].sort((a, b) => Number(a) - Number(b))
 })
 </script>

@@ -21,9 +21,10 @@ export default defineConfig({
     outline: { level: [2, 3] },
   },
   markdown: {
-    // Code plates stay dark in both site appearances, so use one matching,
-    // high-contrast token palette instead of light tokens on a dark plate.
-    theme: 'github-dark-high-contrast',
+    theme: {
+      light: 'github-light',
+      dark: 'github-dark',
+    },
   },
   locales: {
     root: {

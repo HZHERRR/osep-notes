@@ -22,7 +22,7 @@ const activeIndex = computed(() => props.dissolve)
     <div class="tactical-kicker">
       <span class="tactical-kicker-dot"></span>
       <span class="tactical-kicker-text">
-        {{ zh ? 'OFFSEC PEN-300 // 授权环境速查' : 'OFFSEC PEN-300 // AUTHORIZED REFERENCE' }}
+        {{ zh ? 'OFFSEC PEN-300 // 备忘速查表' : 'OFFSEC PEN-300 // CHEAT SHEET' }}
       </span>
     </div>
     <h1 class="storm-title">

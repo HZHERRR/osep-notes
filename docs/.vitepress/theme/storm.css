@@ -457,9 +457,11 @@ html:not(.dark) .VPNavBar {
 }
 
 .vp-doc h2 {
-  margin-top: 3.2rem;
+  margin-top: 3rem;
   margin-bottom: 1rem;
+  padding-top: 0 !important;
   padding-bottom: 0.5rem;
+  border-top: 0 !important;
   border-bottom: 1px solid var(--tac-border);
   font-size: 1.35rem;
   font-weight: 700;
@@ -548,17 +550,9 @@ html:not(.dark) .VPNavBar {
   opacity: 0.85;
 }
 
+/* Eliminate redundant horizontal lines: h2 already has a clean section divider */
 .vp-doc hr {
-  height: 1px;
-  margin: 2.8rem 0;
-  border: 0;
-  background: var(--tac-border);
-}
-
-/* Markdown often places a thematic break immediately before an h2. The h2
-   already owns the section rule, so suppress the duplicate line. */
-.vp-doc hr:has(+ h2) {
-  display: none;
+  display: none !important;
 }
 
 /* --- Tactical Callouts & Admonitions --- */
@@ -571,11 +565,14 @@ html:not(.dark) .VPNavBar {
   border-radius: 6px;
   background: var(--tac-card);
   color: var(--tac-text-1);
+  max-width: 100% !important;
 }
 
 .vp-doc blockquote > p {
   margin: 0.4rem 0;
   line-height: 1.7;
+  max-width: 100% !important;
+  width: 100% !important;
 }
 
 .vp-doc blockquote > p:first-child {
@@ -596,6 +593,7 @@ html:not(.dark) .VPNavBar {
   background: var(--tac-card);
   color: var(--tac-text-1);
   font-size: 0.94rem;
+  max-width: 100% !important;
 }
 
 .vp-doc div.custom-block .custom-block-title {
@@ -615,6 +613,8 @@ html:not(.dark) .VPNavBar {
   line-height: 1.7;
   margin: 0;
   color: var(--tac-text-1);
+  max-width: 100% !important;
+  width: 100% !important;
 }
 
 .vp-doc div.custom-block p + p {
@@ -665,7 +665,7 @@ html:not(.dark) .VPNavBar {
 
 .vp-doc div[class*='language-'] {
   position: relative;
-  margin: 1.8rem 0;
+  margin: 1.6rem 0;
   border: 1px solid var(--tac-border);
   border-radius: 8px;
   background: var(--tac-code-bg) !important;
@@ -674,8 +674,64 @@ html:not(.dark) .VPNavBar {
 }
 
 html:not(.dark) .vp-doc div[class*='language-'] {
-  background: #0f1117 !important;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  background: #f6f8fa !important;
+  border-color: #d0d7de !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+html:not(.dark) .vp-doc div[class*='language-']::before {
+  background: #edf2f7 !important;
+  border-bottom-color: #d0d7de !important;
+}
+
+html:not(.dark) .vp-doc div[class*='language-'] .lang {
+  background: #ffffff !important;
+  border-color: #d0d7de !important;
+  color: #57606a !important;
+}
+
+html:not(.dark) .vp-doc div[class*='language-'] .copy {
+  border-color: #d0d7de !important;
+  background: #ffffff !important;
+  color: #24292e !important;
+}
+
+html:not(.dark) .vp-doc div[class*='language-'] pre,
+html:not(.dark) .vp-doc div[class*='language-'] code {
+  color: #1f2328 !important;
+}
+
+html.dark .vp-doc div[class*='language-'] {
+  background: #0f1219 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+html.dark .vp-doc div[class*='language-']::before {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .vp-doc div[class*='language-'] .lang {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #8b949e !important;
+}
+
+html.dark .vp-doc div[class*='language-'] .copy {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark .vp-doc div[class*='language-'] pre,
+html.dark .vp-doc div[class*='language-'] code {
+  color: #f0f6fc !important;
+}
+
+/* High contrast comments in dark mode */
+html.dark .vp-doc div[class*='language-'] span[style*='color:#484f58'],
+html.dark .vp-doc div[class*='language-'] span[style*='color:#6a737d'],
+html.dark .vp-doc div[class*='language-'] span[style*='color:#6A737D'] {
+  color: #94a3b8 !important;
 }
 
 /* Terminal top bar decoration */
@@ -726,23 +782,24 @@ html:not(.dark) .vp-doc div[class*='language-'] {
   background: rgba(255, 255, 255, 0.12);
 }
 
+/* Code shifted left, closer to border */
 .vp-doc div[class*='language-'] pre {
   max-width: 100%;
-  padding: 1.05rem 0.9rem 1.2rem !important;
+  padding: 0.85rem 0.75rem 1rem 0.75rem !important;
   margin: 0 !important;
   overflow-x: auto !important;
   background: transparent !important;
   font-family: var(--tac-mono);
   font-size: 0.875rem;
-  line-height: 1.7;
+  line-height: 1.65;
   tab-size: 4;
 }
 
 .vp-doc div[class*='language-'] code {
   display: block;
   padding: 0 !important;
+  margin: 0 !important;
   font-family: inherit;
-  color: var(--tac-code-ink);
   white-space: pre !important;
   word-break: normal;
   overflow-wrap: normal;
@@ -858,10 +915,14 @@ html:not(.dark) .vp-doc thead {
 }
 
 .VPDocAsideOutline .outline-link {
-  padding: 0.32rem 0 0.32rem 1rem;
+  padding: 0.35rem 0 0.35rem 1rem;
   color: var(--tac-text-2);
   font-size: 0.84rem;
   line-height: 1.45;
+  white-space: normal !important;
+  text-overflow: clip !important;
+  overflow: visible !important;
+  word-break: break-word !important;
   transition: color 120ms ease-out;
 }
 
