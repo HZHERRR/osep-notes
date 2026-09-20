@@ -817,10 +817,9 @@ html.dark .vp-doc div[class*='language-'] span[style*='color:#6A737D'] {
 
 /* Inline Code Pill */
 .vp-doc :not(pre) > code {
-  display: inline-block;
-  max-width: 100%;
-  overflow-x: auto;
   white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
   padding: 0.2em 0.45em;
   border: 1px solid var(--tac-border-firm);
   border-radius: 4px;
