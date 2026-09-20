@@ -2386,7 +2386,7 @@ whoami /groups                               # after injecting /ptt you should s
 
 ---
 
-## 11. Exam notes / OPSEC
+## 11. Exam / OPSEC notes
 
 - LAPS queries write LDAP audit logs; that is expected enumeration behavior; do **not** dump the whole domain and then try passwords at random, take only the machines the scenario needs.
 - Do not leave passwords in your shell history as long cleartext command lines (use environment variables or script arguments).

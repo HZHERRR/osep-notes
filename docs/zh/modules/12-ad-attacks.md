@@ -6,7 +6,7 @@
 
 > **前置：**按 [00-environment-and-infra](/zh/modules/00-environment-and-infra) 搭好攻击机目录、监听与投递。统一占位符 `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`。
 >
-> 教材依据与 cheat sheet（，下称 CS）对应：场景 47←C5/教材§19.3；49←C1；50←C1/教材21、23 章；51←C5/教材21、23 章；52←教材21、23 章；53←C5/教材21 章；54←教材§22.2.1；55←教材§22.2.2。CS 大节：`AD Enumeration`(≈L7768)、`AD Attacking`(≈L8251，含 Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460)、`Kerberos`(≈L7071)。
+> 教材依据与 cheat sheet（下称 CS）对应：场景 47←C5/教材§19.3；49←C1；50←C1/教材21、23 章；51←C5/教材21、23 章；52←教材21、23 章；53←C5/教材21 章；54←教材§22.2.1；55←教材§22.2.2。CS 大节：`AD Enumeration`(≈L7768)、`AD Attacking`(≈L8251，含 Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460)、`Kerberos`(≈L7071)。
 
 **贯穿原则**：本模块八成工作发生在攻击机 Kali 上（impacket 套件 + certipy），只有"诱导认证/抓票"必须在目标 Windows 主机侧完成。先把「票据从哪来、要去哪个服务、以谁的身份」写清楚再动手——票据方向错了，命令再对也白搭。
 
@@ -57,7 +57,7 @@ evil-winrm -i ws02.corp.local -k                             # 走 Kerberos 需 
 - 时间偏差错误（`Clock skew too great`）→ `sudo ntpdate DC01` 或手动校准，偏差必须 <5 分钟。
 - 跨网段访问内网 Windows 服务（目标只在内网段可达）→ 先做端口转发/Ligolo（[08-pivoting-tunneling](/zh/modules/08-pivoting-tunneling)），**转发后再 Kerberos**，注意转发路径上的机器也要能到 DC:88。
 
-**考试注意 OPSEC**：先用无害动作验证票据身份（`smbclient -L`）再上执行类工具；ccache 文件按会话区分存放（`~/osep/tickets/`），防止把 A 域票据当 B 域用；所有 `-k` 工具都吃 `KRB5CCNAME`，切换票据必须显式 `export`，并在命令前 `klist` 确认。
+**考试注意 / OPSEC**：先用无害动作验证票据身份（`smbclient -L`）再上执行类工具；ccache 文件按会话区分存放（`~/osep/tickets/`），防止把 A 域票据当 B 域用；所有 `-k` 工具都吃 `KRB5CCNAME`，切换票据必须显式 `export`，并在命令前 `klist` 确认。
 
 ---
 
@@ -551,7 +551,7 @@ Windows 侧（会话机）：`m12-ad-enum-windows.ps1 -Mode LAPS -ComputerName W
 - Windows LAPS 存的是 `msLAPS-EncryptedPassword`（加密值）→ 明文读取需 `Get-LapsADPassword`（解密由目标机密钥完成）或用 DC 侧 LAPS 模块；纯 LDAP 拿不到明文时**不要死磕**，换 `msLAPS-Password` 明文模式的机器，或回落到传统 LAPS 机器。
 - 只开 WinRM 不开 SMB → 换 `evil-winrm`；两协议都不开 → LAPS 密码无用，回到枚举找其他入口。
 
-**考试注意 OPSEC**：LAPS 查询会产生 LDAP 审计日志，属预期内枚举行为，但不要对全域做无差别密码 dump 后逐个乱试；执行目标只选场景需要的机器。密码字符串不要 echo 进 shell 历史可读的长命令里（用环境变量或脚本参数）。
+**考试注意 / OPSEC**：LAPS 查询会产生 LDAP 审计日志，属预期内枚举行为，但不要对全域做无差别密码 dump 后逐个乱试；执行目标只选场景需要的机器。密码字符串不要 echo 进 shell 历史可读的长命令里（用环境变量或脚本参数）。
 
 ---
 
@@ -1109,7 +1109,7 @@ impacket-psexec -k -no-pass CORP/Administrator@DC01.corp.local -hashes :NTHASH  
 - 抓到的是普通用户 TGT（不是 DC/域管）→ 用它先横向（该用户能访问的机器），或继续等更高价值认证；也可用 `Rubeus harvest` 思路扩大覆盖面。
 - 非约束主机与 DC 不在可达网段 → 无法诱导认证时，该主机价值只剩"被动收集"，回到枚举找其他入口（不要把时间耗在不可能的回连上）。
 
-**考试注意 OPSEC**：非约束主机上跑 `Rubeus monitor` 会持续抓所有认证，日志明显——任务完成（拿到 DC 票）就停；抓到的票第一时间导出到攻击机再清理本机 base64 文本。不要拿域管 TGT 直接 `psexec` 乱跳，先 `secretsdump` 确认价值再决定最小动作。
+**考试注意 / OPSEC**：非约束主机上跑 `Rubeus monitor` 会持续抓所有认证，日志明显——任务完成（拿到 DC 票）就停；抓到的票第一时间导出到攻击机再清理本机 base64 文本。不要拿域管 TGT 直接 `psexec` 乱跳，先 `secretsdump` 确认价值再决定最小动作。
 
 ---
 
@@ -1594,7 +1594,7 @@ impacket-wmiexec -k -no-pass CORP/Administrator@WS02.corp.local
 - `getST` 报 KDC 错 → S4U2Self 成功但 S4U2Proxy 被拒，常见原因：目标账户敏感不可委派 / 假主体无 SPN（addcomputer 会自动注册 `host/FAKE01`，若手动建账户要补 SPN）/ 票据过期，重新走 ①。
 - 模拟 Administrator 被拒 → 换模拟其他管理员（如域管组的另一成员）。
 
-**考试注意 OPSEC**：改 WS02 的委派属性是**持久痕迹**，完成任务后必须回滚（脚本提供 rollback），否则复查时目标机器处于被接管状态会扣分；假机器账户用完可删（可选，但至少删掉不再用的票据缓存）。
+**考试注意 / OPSEC**：改 WS02 的委派属性是**持久痕迹**，完成任务后必须回滚（脚本提供 rollback），否则复查时目标机器处于被接管状态会扣分；假机器账户用完可删（可选，但至少删掉不再用的票据缓存）。
 
 ---
 
@@ -1629,7 +1629,7 @@ Windows 侧等价：`Rubeus.exe s4u /user:svc_sql /password:PASS /impersonateuse
 - 只有 NTHASH 无明文密码 → `getST` 带 `-hashes`；DC 强制 AES-only 时需 `-aesKey`（枚举里取）。
 - 服务账户本身 SPN 需要（S4U 的前提是被模拟者是服务账户身份）——svc 账户一般自带 SPN，若没有先补一个。
 
-**考试注意 OPSEC**：约束委派只对**指定 SPN 主机**有效，不要试图把票用到别的机器上浪费时间；模拟对象与目标服务按场景最小化，拿到目标后立即清理 ccache，避免票在攻击机留存。
+**考试注意 / OPSEC**：约束委派只对**指定 SPN 主机**有效，不要试图把票用到别的机器上浪费时间；模拟对象与目标服务按场景最小化，拿到目标后立即清理 ccache，避免票在攻击机留存。
 
 ---
 
@@ -1664,7 +1664,7 @@ impacket-secretsdump -k -no-pass ROOTDC.corp.local
 - 没有子域 krbtgt 但已控子域 DA → 先在子域 DC `secretsdump` 拿 krbtgt 再做黄金票；拿不到 krbtgt（只控非 DC 高权限）→ 走子域内其他横向到 DC。
 - 黄金票主体在根域认证失败（TGS 被拒）→ 检查 `/etc/hosts` 里根 DC FQDN、`-extra-sid` 的根域 SID 是否写对（少 519 后缀或根域 SID 抄错是高频错误）。
 
-**考试注意 OPSEC**：黄金票属于"域内最高敏感"操作，只在确认信任判定（WITHIN_FOREST + 方向可行）后执行；ticketer 只在攻击机本地跑，不投递任何文件到目标；完成后清理 ccache。
+**考试注意 / OPSEC**：黄金票属于"域内最高敏感"操作，只在确认信任判定（WITHIN_FOREST + 方向可行）后执行；ticketer 只在攻击机本地跑，不投递任何文件到目标；完成后清理 ccache。
 
 ---
 
@@ -2409,7 +2409,7 @@ impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC0
 - CA 名/主机解析失败 → `find` 输出里取 `CA Name` 与 DNS 主机名，`/etc/hosts` 指到真实 CA IP；`-target` 参数可直指 CA。
 - 无可用 ESC1 模板 → 别硬试，跳到 ESC8（场景 55）或其他入口。
 
-**考试注意 OPSEC**：`certipy find -vulnerable` 输出会列全域问题模板，只看场景需要的；申请证书会写入 CA 日志，冒充对象选场景目标（管理员/机器账户），不要为"测试"乱申请无关证书。
+**考试注意 / OPSEC**：`certipy find -vulnerable` 输出会列全域问题模板，只看场景需要的；申请证书会写入 CA 日志，冒充对象选场景目标（管理员/机器账户），不要为"测试"乱申请无关证书。
 
 ---
 
@@ -2801,7 +2801,7 @@ impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC0
 - 没有可用的触发向量（全部补丁/防火墙挡 RPC）→ ESC8 无受害认证来源即不可行，转其他模块入口。
 - 中继拿到的是低价值账户证书 → 换触发目标（域管登录会话触发比较难控，DC 机器账户最稳）。
 
-**考试注意 OPSEC**：`ntlmrelayx` 会接收并转发认证，日志含凭据哈希，运行目录放 `~/osep/logs` 并事后清理；CA 的 HTTP 日志会记录中继来的申请——选择受害者时优先 DC 机器账户（行为上等同正常机器自动注册），避免伪造域管申请留下明显异常。
+**考试注意 / OPSEC**：`ntlmrelayx` 会接收并转发认证，日志含凭据哈希，运行目录放 `~/osep/logs` 并事后清理；CA 的 HTTP 日志会记录中继来的申请——选择受害者时优先 DC 机器账户（行为上等同正常机器自动注册），避免伪造域管申请留下明显异常。
 
 ---
 

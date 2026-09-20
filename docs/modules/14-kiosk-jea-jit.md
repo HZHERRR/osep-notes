@@ -4,7 +4,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 # 14 · Scenarios 41–43: Kiosk breakout · JEA over-permissive file copy · JIT time window
 
-> Basis: this topic has no direct entry in the source material; the following is organized from the lab approach in the textbook's chapter 16 (restricted desktop / kiosk breakout) and chapter 23 (PowerShell restricted endpoints: JEA and just-in-time authorization JIT), plus general enumeration and validation methods.
+> Basis: this topic has no direct entry in the cheat sheet; the following is organized from the lab approach in the textbook's chapter 16 (restricted desktop / kiosk breakout) and chapter 23 (PowerShell restricted endpoints: JEA and just-in-time authorization JIT), plus general enumeration and validation methods.
 >
 > Style convention: Chinese notes plus English commands; placeholders are unified as `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`.
 >
@@ -255,7 +255,7 @@ dir %APPDATA%\Microsoft\Credentials
 
 ---
 
-## 6. OPSEC reminders
+## 6. Exam / OPSEC notes
 
 - **Try each channel once**: repeated probing leaves a lot of suspicious interaction in the shell/EDR; prefer the dialog-type channels with no process behavior.
 - Avoid touching disk before the callback; after the breakout prefer memory-only channels (PowerShell reflection / `Add-Type` in-memory loading).

@@ -20,7 +20,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 - Network: Kali→target 5985/5986 open; target→Kali 445/139 closed (otherwise this scenario is unnecessary). After multi-hop pivots, ensure port-forward/proxy reaches 5985/5986 first.
 - Methods to abandon (**SMB closed = they fail; do not waste time**): `psexec.py`/PsExec, `wmiexec.py`/WMIC (most implementations write `admin$`), `smbexec.py`, SMB relay, copy scripts over SMB then `schtasks`/`sc`, drop PowerShell via `admin$`.
 
-**Prepare (attacker)**:
+**Prepare (attacker side)**:
 1. Confirm Kali tools:
    ```bash
    which evil-winrm netexec 2>/dev/null
@@ -400,7 +400,7 @@ Then run: `C:\Windows\Temp\PAYLOAD.exe` (admin session can run directly; non-adm
 | evil-winrm won’t start | Broken Ruby/gem → switch to netexec winrm or Windows path |
 | Long commands hang | Split into one-liners; redirect output to a file then `download` |
 
-## 7. OPSEC
+## 7. Exam / OPSEC notes
 
 - 5985 logons leave 4624/4625 + WinRM operational logs; password spraying can lock accounts — control attempts.
 - NTLM hash auth leaves 4776 on the DC; quieter option is Kerberos (tickets, no password on the wire).
@@ -413,7 +413,7 @@ Then run: `C:\Windows\Temp\PAYLOAD.exe` (admin session can run directly; non-adm
 - Final proof of follow-on delivery is a callback: listener (`nc -lvnp LPORT` / msfconsole handler), reverse payload in-session, Kali receives the connection.
 - If no callback, use **out-of-band checks**: `Invoke-Command` with `cmd /c "ping LHOST"` while Kali runs `tcpdump -i any icmp`; or have the target `curl http://LHOST/flag` and watch the delivery server 404/200 (see module 00 OOB validation).
 
-**Failure branches (≥2)**:
+**Failure branches and alternatives** (≥2):
 1. **Auth denied (`Access is denied` / 401)** → confirm membership in `Remote Management Users`/`Administrators`; for domain accounts check `DOMAIN` spelling/case and `-d`; for hashes confirm NTLM (32 hex), not LM or Kerberos keys. Still failing → retry from a Windows pivot with `New-PSSession` to separate tool issues from permission issues.
 2. **5985 open but only 5986 works, or vice versa** → toggle `-S` (HTTPS) and handle self-signed certs (evil-winrm accepts them by default; before adding peer-verification flags, confirm version); HTTP is simpler — prefer 5985 when available.
 3. **Auth OK but commands fail / empty output** → account may be Remote Management Users (non-admin) with restricted PowerShell: try `cmd /c whoami`; try `-NoProfile`-style flags; treat as a constrained low-priv session (collect info; priv-esc via module M06).
@@ -421,7 +421,7 @@ Then run: `C:\Windows\Temp\PAYLOAD.exe` (admin session can run directly; non-adm
 5. **Kerberos keeps failing** → drop Kerberos, use NTLM hash (`-H`) if you have plaintext/hash; if ticket-only, check `KRB5CCNAME`, `/etc/krb5.conf` realm, clock (`date` vs DC <5 minutes).
 6. **Need a file but target egress is also blocked** → evil-winrm `upload` (WinRM 5985 channel itself — no 445/80 egress); drop under `C:\Windows\Temp` or `%TEMP%`; watch write rights and Defender scan paths.
 
-**Exam / OPSEC**:
+**Exam / OPSEC notes**:
 - **Confirm SMB is really closed** before abandoning PsExec-family tools — many lost points come from fighting the wrong channel without a port check. `nmap -Pn -p445,5985 TARGET` settles it once.
 - WinRM on 5985 leaves PowerShell sessions plus 4624/4625 and `Microsoft-Windows-WinRM` operational logs; NTLM hash auth leaves 4776 on the DC. Password spraying (step 2) amplifies lockout risk — **only when explicitly allowed and attempt-capped**.
 - evil-winrm `upload`/`download`, `scripts`/`loot` are session-only: files travel over WinRM — **do not** document “copy via SMB share” steps that contradict this scenario.

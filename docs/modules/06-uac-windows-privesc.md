@@ -84,7 +84,7 @@ Integrated script: `m06-fodhelper-uac.ps1` (writes keys, triggers, optional dela
 
 > Tip: AlwaysInstallElevated (`HKLM\...\Windows Installer` and `HKCU\...\Windows Installer` both 1) lets you `msiexec /quiet /qn /i payload.msi` for direct elevation — a separate cheat-sheet entry; probe both registry paths first (the script includes probe commands).
 
-### Exam notes / OPSEC
+### Exam / OPSEC notes
 - **Always clean the registry key after use** (`reg delete`); otherwise later settings-class actions for that user re-trigger the command and leave persistence.
 - Fodhelper may flash a UAC dialog — visible in an interactive session; if the environment allows, prefer non-interactive payloads + short commands.
 - Callbacks always use `LHOST/LPORT`; do not hardcode attacker LAN IPs in commands (blue team/EDR correlation).
@@ -245,7 +245,7 @@ SigmaPotato.exe -cmd "powershell -nop -w hidden -enc <BASE64>"                  
 
 > SpoolSample (print spooler) in this scenario: it is **auth coercion**, not direct priv-esc — make `potato`/`printbug` trigger SYSTEM auth to a host you control, then relay or RPC-abuse (classic Printerbug → Relay to LDAP/ADCS; see [12-ad-attacks](/modules/12-ad-attacks) ESC8). If every local potato path fails, this is the exam “fallback path”.
 
-### Exam notes / OPSEC
+### Exam / OPSEC notes
 - Delete uploaded EXEs or park them in dirs that get cleaned; reflective scripts with no disk drop are the cleanest shape.
 - PrintSpoofer reverse uses `LHOST:LPORT` — offset port/protocol from stage-one listeners to avoid log confusion.
 - Confirm priv-esc once (`whoami`); do not spam SYSTEM shells and make noise.
@@ -412,7 +412,7 @@ sc start <svc>                                   # restore original service (con
 4. **No writable service found**: widen enum (`icacls` on third-party install dirs), or evaluate creating your own service (if `sc create` is allowed, point it at your payload — needs rights like SeServiceLogonRight; common in weak ops configs); if none work, revisit scenarios 25/26.
 5. Rollback fails and the target service stays broken: **export registry and back up the original exe before touching anything** is a hard requirement; if it still will not start after rollback, `reg import` and restart (see `m06-service-hijack.ps1` restore branch).
 
-### Exam notes / OPSEC
+### Exam / OPSEC notes
 - **Rollback is a scoring point**: exam environments often require restoring original state; do not break a service the later stages still need.
 - Replacing built-in services (e.g. `Spooler`) is loud and easy to spot; prefer third-party / lab-planted weak services.
 - Name the payload close to the original service (e.g. `svc.exe`), land under `%TEMP%` or delete after use to avoid persistence artifacts.

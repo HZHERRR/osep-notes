@@ -140,7 +140,7 @@ hashcat -m 2100 dcc2.txt wordlist.txt
    leftover domain creds in tasks.
 5. **Hash is empty password or already invalid**: verification must “authenticate once for real”; do not keep cracking hashes that cannot authenticate.
 
-### Exam notes / OPSEC
+### Exam / OPSEC notes
 
 - **Do not repeatedly try dumps on hosts with LSA Protection / Credential Guard**: high noise, high fail rate, and EDR alerts.
   Classify first (~30s); if unsuitable, switch to alternate sources.

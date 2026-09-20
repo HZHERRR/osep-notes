@@ -120,7 +120,7 @@ Windows 形态的 DEV 跳板也能用 `m08-port-forward.ps1` 的 portproxy 做�
 3. **网站还连不上** → 在 DEV 上先 `curl` 验证网站真可达；可能是 ACL 细化到端口/协议，换 http→https 或换目标端口试试。
 4. **回连 payload 到不了 DEV:4445** → 先用无害 TCP 测试（网站侧 `nc` 或命令注入 `ping`）确认 web→DEV 通路；不通就在 DEV 同网段再放一个 agent/listener 作中继。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - Ligolo 用 `-selfcert`（明文通道）：考试环境可接受，别浪费时间做证书；但**生产/报告不要提加密**。
 - 每个转发端口只开一个监听；用 `listener_list` / `ss -tlnp` 确认没有重复占用。
 - 先无害验证再上 payload——端口转发链路里少一个验证，错误会叠加（地址错 + 端口错 + 协议错一起排查最费时）。
@@ -517,7 +517,7 @@ ssh -N -R 0.0.0.0:445:127.0.0.1:445 USER@PIVOT_IP
 3. **目标只能连本机回环**（SQL 与跳板同机、跳板在目标上）→ 在**目标本机**放 agent/转发器，触发地址用 `127.0.0.1`（ligolo agent 跑在目标上时 --addr 0.0.0.0:445 即本机）。
 4. **ligolo 不可用** → chisel / netsh portproxy / ssh -R 三条替代里选符合"目标可达"条件的（跳板形态决定）。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - 触发**一次**认证就够，别反复触发制造噪声；每次触发前确认监听已就位。
 - SMB/HTTP 中继要求目标与中继**同网段且不开 SMB 签名**（可先探测）；EPA/签名等条件见 [12-ad-attacks](/zh/modules/12-ad-attacks) ESC8 与 [16-ics-calendar](/zh/modules/16-ics-calendar)。
 - 地址一致性铁律：触发参数里的 IP 永远是"目标可达的那台机"，端口永远是"那条隧道在目标侧开的端口"，两者都要在笔记里写清并复现。

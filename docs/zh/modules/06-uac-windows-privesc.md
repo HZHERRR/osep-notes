@@ -4,7 +4,7 @@
 
 # 06 · UAC Bypass & Windows 本地提权（场景 25–27）
 
-> 技术路线对齐 （关键词：`UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`）。
+> 技术路线对齐（关键词：`UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`）。
 >
 > 相关模块：本模块只讲「拿到第一段立足点之后的本地提权」。横向移动见 [15-winrm-lateral](/zh/modules/15-winrm-lateral)，凭据抓取见 [07-credentials-lsass](/zh/modules/07-credentials-lsass)。
 >
@@ -84,7 +84,7 @@ reg delete "HKCU\Software\Classes\ms-settings" /f
 
 > 提示：AlwaysInstallElevated（`HKLM\...\Windows Installer` 与 `HKCU\...\Windows Installer` 同时为 1）时，可 `msiexec /quiet /qn /i payload.msi` 直接提权——这是 cheat sheet 单独列的条目，写注册表探测两条路径后即可用（脚本中给探测命令）。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - **用后必清注册表键**（`reg delete`），否则该用户后续任何设置类操作都会再触发命令，留下持久化痕迹。
 - Fodhelper 触发时可能出现 UAC 弹窗闪烁——在交互会话中会被用户看到；若环境允许，优先非交互载荷 + 短命令。
 - 反弹连接统一走 `LHOST/LPORT`，别在命令里硬编码攻击机内网 IP（会被蓝队/EDR 关联）。
@@ -245,7 +245,7 @@ SigmaPotato.exe -cmd "powershell -nop -w hidden -enc <BASE64>"                  
 
 > SpoolSample（打印假脱机）在此场景的用法：它是**诱导认证**而非直接提权——让 `potato`/`printbug` 触发 SYSTEM 对被控机的认证，配合中继或 RPC 利用（典型是 Printerbug → Relay 到 LDAP/ADCS，见 [12-ad-attacks](/zh/modules/12-ad-attacks) ESC8）。如果本机土豆路线全失败，这是考题的“备选路径”。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - 上传的 EXE 记得删或放到会被清理的目录；反射脚本不落盘是最干净的形态。
 - PrintSpoofer 反弹走 `LHOST:LPORT`，与阶段一的监听错开端口/协议，避免混淆日志。
 - 只做一次提权确认（whoami），别反复 spawn SYSTEM shell 制造噪音。
@@ -412,7 +412,7 @@ sc start <svc>                                   # 恢复原服务（验证能�
 4. **找不到可写服务**：扩大枚举（`icacls` 手工查第三方安装目录），或评估自装服务（若可 `sc create` 则自建一个指向自己 payload 的服务——需要 SeServiceLogonRight 之类，常见于运维弱配置）；都不行再考虑场景 25/26。
 5. 回滚失败导致目标服务永久损坏：**先导出注册表、备份原 exe 再动手**是硬要求；若回滚后服务仍无法启动，用 `reg import` 恢复并重启服务（见 m06-service-hijack.ps1 的 restore 分支）。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - **回滚是评分点**：考纲环境常要求最后恢复原状，别把考试服务搞挂（许多场景依赖同一服务后续继续用）。
 - 替换系统自带服务（如 `Spooler`）动静太大、易被发现；优先找第三方/教学环境预设的脆弱服务。
 - payload 名称尽量贴近原服务名（如 `svc.exe`），落地在 `%TEMP%` 或用后即删，避免持久化痕迹。

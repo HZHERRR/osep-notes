@@ -69,7 +69,7 @@ The lab has an “upload-and-execute” site (it accepts an ELF and runs it). Up
 4. **Business check kills the process after a fixed time**: have stage2 fork an independent session as soon as it is decoded; loader only needs “business output + exit 0” before the window ends — it does not need to stay resident.
 5. **Callback filtered (only same-subnet as the site)**: skip reverse connect; have stage2 write results to the loader’s stdout (piggyback on the business-output channel) and read them from the site page.
 
-### Exam OPSEC
+### Exam / OPSEC notes
 - Match the banner to the legitimate program’s output so logs do not show a “PASS but weird banner”.
 - Disk should only show `.enc`/loader — never upload a plaintext reverse ELF.
 - After the session lands, do not dump sensitive output into site-visible stdout; confirm quietly first.
@@ -533,7 +533,7 @@ The Linux host has AV (typically ClamAV on-access/on-scan; the exam may also use
 4. **AV also blocks `.enc` (rare; usually content-signed)**: change suffix/header (fake magic); loader skips the offset then decodes.
 5. **No file writes allowed at all**: drop the file carrier; run the in-memory decode logic of `m13-simple-loader` through whatever stdin/arg injection channel the scenario already gives for ELF exec.
 
-### Exam OPSEC
+### Exam / OPSEC notes
 - Do not `wget`/`curl` plaintext payload into `/tmp` on the target — that is when file scanners bite hardest.
 - Compile with `-s` (strip); avoid extra RWX beyond what you need (no gratuitous `-z execstack`); self-test before going live.
 - Do not immediately kill AV processes from the session — that often triggers correlated alerts.
@@ -588,7 +588,7 @@ A higher-privilege program on the target (service / cron / triggered script) res
 4. **Program crashes on start**: `fork()` the callback into a child inside the constructor before heavy work so the parent keeps the original init path; or delay until a business function is called.
 5. **Environment sanitized** (service uses `env -i` / systemd clears env): set the vars in something the program itself reads (wrapper script, writable `/etc/environment`), or replace the real library file in its load directory (backup first).
 
-### Exam OPSEC
+### Exam / OPSEC notes
 - Backup original libraries/files first; restore on exit to avoid business outage exposure.
 - After priv-esc/callback, do not leave shell history (`.bash_history`) or plaintext `.so` sources.
 - Setuid cases: do not treat “PRELOAD ineffective” as a bug and retry forever — check `file`/`ls -l` for AT_SECURE first.
@@ -861,7 +861,7 @@ pid_t getpid(void)
 4. **Program version lacks that escape**: check current GTFOBins entry and switch (e.g. vim also has `:!bash`, same for `view`); keep multiple alternatives in the script.
 5. **sudo needs a password you do not know**: this scenario assumes NOPASSWD or known `PASS`; if neither, this is not the entry — fall back to other modules (credential collection / service weaknesses).
 
-### Exam OPSEC
+### Exam / OPSEC notes
 - Read the full `sudo -l` entry and comments first — do not assume “sudo can run anything”; only hit the allowlisted entry; out-of-policy commands get logged.
 - In the root shell disable/clean history: `unset HISTFILE`.
 - Do not spam failed sudo commands on a shared sudoers host; get it right once.
@@ -1233,7 +1233,7 @@ The lab has an artifact repository / distribution service (aligned with the chea
 4. **Consumer only pulls on a specific trigger (short exam window)**: do whatever active trigger is allowed (kick a build/deploy task, or force one pull from a service the consumer reaches), and ensure the replacement is valid on the first pull.
 5. **Replacement breaks business and ops notices**: prefer wrap mode (run original logic first); keep the restore script ready; restore and clean logs after verify.
 
-### Exam OPSEC
+### Exam / OPSEC notes
 - Always backup before replace; record the original checksum and compare on restore.
 - Do not delete other repo files or disturb the backup store into a broad alert — keep the change surface small.
 - Inside the session, avoid dropping plaintext tools on the consumer; keep using encode + in-memory load.
@@ -1575,7 +1575,7 @@ You already have a shell as some user on a Linux host (e.g. a web service user, 
 4. **You are not the master-connection user (cross-user)**: without root you cannot read others’ sockets/agents (usually mode 0700) → this is not the scenario entry; find a same-user connection or escalate first.
 5. **Target rejects reuse channels** (`ControlMaster` only one-way): fall back to agent forward; if both fail and you have no creds, this lateral path is not viable — record that clearly instead of slamming it.
 
-### Exam OPSEC
+### Exam / OPSEC notes
 - Reusing a connection is cleaner than stealing keys: **do not** `scp` out `id_rsa` or try to crack the agent with `ssh-keygen` (if you have an agent, just use it).
 - Both `ssh -S` and agent borrow leave normal auth logs on the target (`Accepted publickey for ...` from reuse/agent); avoid high-volume scans that spam those logs.
 - Do not kill someone else’s master/agent process (breaks other lab dependencies and exposes you).

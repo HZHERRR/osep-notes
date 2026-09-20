@@ -765,7 +765,7 @@ Deliver a ZIP; the user extracts and runs the (signed) program inside; that prog
 4. **AV/Defender blocks “unsigned DLL sideloading”** (`EnableSideloading` defenses) → check local `Get-MpComputerStatus`/policy first; alt: sign the Proxy with a test cert, change payload timing (delay + decoy traffic), or change payload shape (forward-only, then in-memory methods after the shell lands).
 5. **User rights too low and host is not elevated** → you get a restricted user; follow normal privilege escalation — do not hard-code admin actions into the payload (OSEP scenarios often provide an escalatable environment).
 
-### Exam notes / OPSEC
+### Exam / OPSEC notes
 - Mix decoy files into the directory and **preserve host function** (window normal, business normal) so users/admins are less likely to notice anomalies.
 - Delay reverse connect 2–5 seconds before starting the thread — avoid “double-click then immediate egress” behavior; never do heavy work in DllMain (blocking under the loader lock = guaranteed crash).
 - Repeated tests leave fingerprints: dropping the same DLL many times on one VM helps behavior engines cluster samples — change names/delays between tests.
@@ -824,7 +824,7 @@ The sideload point itself works and the target ran the program, but the program 
 4. **Payload crashes immediately in DllMain; still crashes after moving to a thread** → payload itself is wrong (e.g. shellcode length/bitness): first verify the path with a harmless action (write a file / MessageBox), then swap the real payload; wrap with SEH so the host does not die with it.
 5. **“Instant exit” is actually AV killing the process** → faulting module is `MsMpEng.exe` / a behavior engine: return to scenario 11 failure branch 4; do not waste time on Proxy forwarding.
 
-### Exam notes / OPSEC
+### Exam / OPSEC notes
 - **Isolate variables before changing code**: the no-payload control build is scenario 12’s first diagnostic tool — avoids leaving many samples while iterating on a live DLL.
 - Event Viewer records every crash (including module path) — crash freely on the replica VM; on the target minimize crash count, clear Application logs after, or change payload shape.
 - Blocking/deadlock in DllMain does not just crash — it can freeze the host where the user notices; stick to “DllMain only starts a thread.”

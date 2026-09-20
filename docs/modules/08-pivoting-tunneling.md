@@ -121,7 +121,7 @@ A Windows DEV pivot can also use `m08-port-forward.ps1` portproxy for the equiva
 3. **Site still unreachable** → on DEV first `curl` to prove the site is reachable; ACL may be port/protocol-specific — try http→https or another target port.
 4. **Callback payload never reaches DEV:4445** → harmless TCP test first (web-side `nc` or command injection `ping`) to confirm web→DEV; if not, place another agent/listener in the same DEV subnet as a relay.
 
-### Exam notes / OPSEC
+### Exam / OPSEC notes
 - Ligolo with `-selfcert` (cleartext channel): fine for the exam; do not burn time on certs; **do not claim encryption in production/report writeups**.
 - One listener per forward port; confirm with `listener_list` / `ss -tlnp` that nothing is double-bound.
 - Harmless verify before real payload — missing one check in a forward chain stacks errors (wrong address + wrong port + wrong protocol is the slowest triage).
@@ -518,7 +518,7 @@ ssh -N -R 0.0.0.0:445:127.0.0.1:445 USER@PIVOT_IP
 3. **Target can only reach local loopback** (SQL and pivot are the same host / pivot is on the target) → place the agent/forwarder **on the target itself**; trigger address `127.0.0.1` (when ligolo agent runs on the target, `--addr 0.0.0.0:445` is local).
 4. **Ligolo unavailable** → pick among chisel / netsh portproxy / ssh -R whichever matches “target can reach” (pivot shape decides).
 
-### Exam notes / OPSEC
+### Exam / OPSEC notes
 - Trigger auth **once** — do not spam; confirm the listener is up before each trigger.
 - SMB/HTTP relay needs target and relay **same subnet and SMB signing off** (probe first); EPA/signing conditions: [12-ad-attacks](/modules/12-ad-attacks) ESC8 and [16-ics-calendar](/modules/16-ics-calendar).
 - Address consistency rule: IP in trigger params is always “the host the target can reach”; port is always “the tunnel port opened on that target-side host” — write both down and reproduce them.

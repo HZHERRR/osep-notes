@@ -45,7 +45,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
    ```
 4. Start listener: `bash m00-listener.sh 4444`
 
-**Steps**:
+**Procedure**:
 
 1. Paste `m01-callback-ping.vba` into Word `ThisDocument`, save as `.docm`, upload.
 2. Watch delivery logs: `GET /worked` → macro really ran and can egress.
@@ -689,7 +689,7 @@ Sub Document_Open()
 End Sub
 ````
 
-**Verify**:
+**Validation**:
 - Delivery log shows a request (document was opened)
 - Callback log shows `worked` or a bitness report (macro ran + egress)
 - Listener gets a session (Runner worked)
@@ -700,7 +700,7 @@ End Sub
 3. **Bitness detect fails** (WMI blocked) → multi-path env probes (`ProgramFiles(x86)` presence) or deliver the `archbranch` version directly.
 4. **Macro itself blocked by Defender** → see scenario 18: split strings, strip public-template signatures, or switch to HTA/JScript entry (M02/M03).
 
-**Exam notes / OPSEC**: when a macro is blocked, do not re-upload the same file repeatedly; record each change and its result. Bitness probing must happen **before** payload delivery, or you will burn a lot of time on mismatches.
+**Exam / OPSEC notes**: when a macro is blocked, do not re-upload the same file repeatedly; record each change and its result. Bitness probing must happen **before** payload delivery, or you will burn a lot of time on mismatches.
 
 ---
 
@@ -721,7 +721,7 @@ Build/prepare: m01-shellcode-runner-vba-x64.vba (with PtrSafe declarations and b
 Backup: m01-embedded-dotnet-runner.vba (load .NET assembly from inside VBA)
 ```
 
-**Steps**:
+**Procedure**:
 
 1. Confirm with the callback macro that macros still run (rule out “macro blocked entirely”).
 2. Deliver the pure VBA Runner: no `powershell`, `cmd`, or `wscript` strings in the macro.
@@ -801,14 +801,14 @@ Sub Document_Open()
 End Sub
 ````
 
-**Verify**: `tasklist` shows no Office child processes but the listener has a session; `whoami` returns the expected user.
+**Validation**: `tasklist` shows no Office child processes but the listener has a session; `whoami` returns the expected user.
 
 **Failure branches and alternatives**:
 1. **In-VBA API calls blocked** (Defender ASR “block Office child processes/injection”) → COM objects (e.g. `MMC20.Application`, `Shell.Application`), or pure VBA loading a managed assembly.
 2. **Macro runs but cannot execute any code** (language/permission limits) → change entry: HTA (M02), JScript (M03).
 3. **In-process exec crashes Word** → bitness mismatch (return to scenario 1 probe) or incomplete shellcode decrypt.
 
-**Exam notes / OPSEC**: this path’s main value is “no suspicious process chain.” Validate PtrSafe declarations and bitness branches on a local Office version before delivery.
+**Exam / OPSEC notes**: this path’s main value is “no suspicious process chain.” Validate PtrSafe declarations and bitness branches on a local Office version before delivery.
 
 ---
 
@@ -830,7 +830,7 @@ End Sub
 2. AMSI-handling script **matched to the PowerShell host**: `m05-amsi-bypass-variants.ps1`
 3. A **harmless stage2** (callback / write a file only) for staged validation.
 
-**Steps**:
+**Procedure**:
 
 1. First run the full chain with harmless stage2 (macro → PS → download → exec).
 2. Swap in real stage2; watch for `This script contains malicious content and has been blocked by your antivirus software`.
@@ -1140,14 +1140,14 @@ try {
 }
 ````
 
-**Verify**: delivery log shows stage2 was requested; then whether a session established; finally re-probe AMSI status.
+**Validation**: delivery log shows stage2 was requested; then whether a session established; finally re-probe AMSI status.
 
 **Failure branches and alternatives**:
 1. **AMSI handling script itself blocked** → string-concat/encoded versions, or switch to a reflectively loaded .NET assembly (avoids the AMSI script path).
 2. **All versions fail** (target is well patched) → abandon PowerShell; use scenario 4’s precompiled C# or other hosts in M02/M03.
 3. **stage2 download blocked but script not** → network/proxy issue; see [09-c2-egress-channels](/modules/09-c2-egress-channels).
 
-**Exam notes / OPSEC**: AMSI handling is “version warfare”; the exam environment usually has a working version — but do not bet all time on it — **changing host shape is often faster**.
+**Exam / OPSEC notes**: AMSI handling is “version warfare”; the exam environment usually has a working version — but do not bet all time on it — **changing host shape is often faster**.
 
 ---
 
@@ -1171,7 +1171,7 @@ try {
    mcs -target:library -out:runner.dll m01-shellcode-runner-x64.cs
    ```
 
-**Steps**:
+**Procedure**:
 
 1. Confirm the failure point is `Add-Type`: replace `Add-Type` in the Runner with `[Reflection.Assembly]::Load($bytes)` and retry.
 2. Embed the assembly as Base64 (avoid delivering a DLL file that is statically detected).
@@ -1265,14 +1265,14 @@ class Runner
 }
 ````
 
-**Verify**: no new compiled assemblies under `%TEMP%`; `[AppDomain]::CurrentDomain.GetAssemblies()` shows the loaded assembly; listener has a session.
+**Validation**: no new compiled assemblies under `%TEMP%`; `[AppDomain]::CurrentDomain.GetAssemblies()` shows the loaded assembly; listener has a session.
 
 **Failure branches and alternatives**:
 1. **Assembly load blocked by AMSI** → do AMSI handling first (scenario 3), then load.
 2. **Assembly itself statically detected** → custom Runner (change strings / strip public-template signatures), or XOR-encoded shellcode + pure P/Invoke.
 3. **Unsigned assembly load fully forbidden** → trusted hosts (M05 scenarios 23/24).
 
-**Exam notes / OPSEC**: `Add-Type` failures often leave evidence of temp DLLs deleted under `%TEMP%` — good report material — but the exam goal is a session; do not linger here.
+**Exam / OPSEC notes**: `Add-Type` failures often leave evidence of temp DLLs deleted under `%TEMP%` — good report material — but the exam goal is a session; do not linger here.
 
 ---
 
@@ -1292,7 +1292,7 @@ class Runner
 | Normal user + need persistence | Scheduled task (user-level), HKCU Run key | Relaunch as independent process |
 | Have admin | Service, machine-level scheduled task | Service-style payload |
 
-**Steps**:
+**Procedure**:
 
 1. After getting a session, the **first action** is not privilege escalation — it is stabilization:
    ```text
@@ -1423,14 +1423,14 @@ Write-Log "[*] After the shell, restore: -Action Restore -ServiceName $ServiceNa
 Write-Log "[*] If restore finds exe locked (payload process still alive): taskkill /F /IM <payload name> then re-run Restore"
 ````
 
-**Verify**: after closing Word, payload process still in `tasklist`; listener session still up; reconnect still works.
+**Validation**: after closing Word, payload process still in `tasklist`; listener session still up; reconnect still works.
 
 **Failure branches and alternatives**:
 1. **Migrate fails** (target process different bitness / insufficient rights) → pick a **same-user same-bitness** process; or use the “independent process” path instead of inject.
 2. **Injection blocked** → relaunch via scheduled task, or detach with `cmd /c start` so the child leaves the parent.
 3. **Session dies right after migrate** → new host is EDR-watched; switch to another resident process (e.g. `sihost.exe`, an installed third-party resident app).
 
-**Exam notes / OPSEC**: **the first action after a session is stabilize**, not escalate. Many OSEP candidates lose points here — session appears, then two minutes later it is gone.
+**Exam / OPSEC notes**: **the first action after a session is stabilize**, not escalate. Many OSEP candidates lose points here — session appears, then two minutes later it is gone.
 
 ---
 
