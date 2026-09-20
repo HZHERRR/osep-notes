@@ -415,7 +415,7 @@ summary:focus-visible {
 }
 
 .VPDoc .content-container {
-  max-width: 768px !important;
+  max-width: 720px !important;
 }
 
 .VPDoc .aside {
@@ -452,6 +452,18 @@ summary:focus-visible {
   letter-spacing: -0.022em;
   line-height: 1.2;
   text-wrap: balance;
+}
+
+/* A section separator is often written as `---` immediately before the heading,
+   which doubled the rule: one from the hr, one from the heading. The heading's
+   own rule wins and the gap closes. */
+.vp-doc hr + h2 {
+  margin-top: 0.6rem;
+  padding-top: 0;
+}
+
+.vp-doc hr + h2::before {
+  display: none;
 }
 
 .vp-doc h2::before {
@@ -495,17 +507,15 @@ summary:focus-visible {
 }
 
 .vp-doc p {
-  max-width: 70ch;
   margin: 1.15rem 0;
 }
 
 .vp-doc > ul,
 .vp-doc > ol {
-  max-width: 70ch;
+  max-width: none;
 }
 
 .vp-doc h1 + p {
-  max-width: 62ch;
   color: var(--storm-rain);
   font-size: 1.06em;
   line-height: 1.66;
@@ -581,7 +591,6 @@ summary:focus-visible {
 }
 
 .vp-doc div.custom-block p {
-  max-width: 68ch;
   font-size: 0.98rem;
   line-height: 1.65;
 }
@@ -754,19 +763,27 @@ html.dark .vp-doc div[class*='language-'] {
 /* --- Aside: the weather rail --- */
 
 .VPDocAsideOutline .outline-title {
+  padding-left: 1rem;
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-.VPDocAsideOutline .content {
+/* One rail, one left edge: the sheet readout and the outline share the same
+   hairline and the same text edge, instead of the readout sitting flush while
+   the outline was inset by a border plus padding. */
+.VPDocAsideOutline {
   border-left: 1px solid var(--storm-hair);
+}
+
+.VPDocAsideOutline .content {
+  border-left: 0;
 }
 
 .VPDocAsideOutline .outline-link {
   overflow: visible;
-  padding: 0.28rem 0 0.28rem 0.9rem;
+  padding: 0.28rem 0 0.28rem 1rem;
   color: var(--storm-rain);
   font-size: 0.84rem;
   line-height: 1.45;
@@ -904,7 +921,6 @@ html.dark .vp-doc div[class*='language-'] {
 }
 
 .storm-lede {
-  max-width: 52ch;
   margin: 2rem 0 0;
   color: var(--storm-rain);
   font-size: 1.06rem;

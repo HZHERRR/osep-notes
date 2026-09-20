@@ -2,7 +2,7 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module M03: JScript / DotNetToJScript client-side code execution
+# 03 · JScript / DotNetToJScript client-side code execution
 
 > **Covers scenarios:** 9–10
 >

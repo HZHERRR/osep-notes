@@ -2,7 +2,7 @@
 本笔记仅用于 OSEP 官方实验 / 考试环境，或已获得书面授权的测试。禁止对未授权系统使用。
 :::
 
-# 模块 M03：JScript / DotNetToJScript 客户端代码执行
+# 03 · JScript / DotNetToJScript 客户端代码执行
 
 > **覆盖场景：**9–10
 >

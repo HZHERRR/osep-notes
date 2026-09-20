@@ -2,7 +2,7 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module M01: Word / VBA macro entry and payload shapes
+# 01 · Word / VBA macro entry and payload shapes
 
 > **Covers scenarios:** 1, 2, 3, 4, 5
 >

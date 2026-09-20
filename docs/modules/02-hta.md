@@ -2,7 +2,7 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module M02: HTA entry (first stage when mail has no Office macros)
+# 02 · HTA entry (first stage when mail has no Office macros)
 
 > **Covers scenarios:** 6, 7, 8
 >

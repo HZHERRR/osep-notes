@@ -2,7 +2,7 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module M15: WinRM lateral movement (valid creds · WinRM only)
+# 15 · WinRM lateral movement (valid creds · WinRM only)
 
 > Covers scenario: 56
 >

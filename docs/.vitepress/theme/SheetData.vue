@@ -45,7 +45,10 @@ const scenarios = computed(() => {
 
 <style scoped>
 .sheet-data {
-  padding-bottom: 1.1rem;
+  /* Matches the outline links' text edge (see .VPDocAsideOutline). */
+  /* 1rem text inset + the rail's own 1px hairline, so this block's text edge
+     is identical to the outline links below it. */
+  padding: 0 0 1.1rem calc(1rem + 1px);
   margin-bottom: 1.1rem;
   border-bottom: 1px solid var(--storm-hair);
 }

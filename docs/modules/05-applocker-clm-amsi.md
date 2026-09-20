@@ -2,7 +2,7 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# Module 05 — AppLocker / CLM / AMSI bypass and trusted hosts
+# 05 · AppLocker / CLM / AMSI bypass and trusted hosts
 
 > **Covers scenarios:** 18, 19, 20, 21, 22, 23, 24
 >
