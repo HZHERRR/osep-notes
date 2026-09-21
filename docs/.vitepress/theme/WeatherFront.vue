@@ -71,6 +71,32 @@ function enhanceTables(article: HTMLElement) {
   })
 }
 
+function compactOutlineLabel(label: string) {
+  const text = label.replace(/\s+/g, ' ').trim()
+  const scenario = text.match(/^(?:\d+\.\s*)?Scenario\s+(\d+)/i)
+  if (scenario) return `Scenario ${scenario[1]}`
+
+  const zhScenario = text.match(/^(?:\d+\.\s*)?场景\s*(\d+)/)
+  if (zhScenario) return `场景 ${zhScenario[1]}`
+
+  if (/^Background\b/i.test(text)) return 'Background'
+  if (/^背景(?:速览)?/.test(text)) return '背景'
+
+  return text
+}
+
+function compactOutline() {
+  document.querySelectorAll<HTMLAnchorElement>('.VPDocAsideOutline .outline-link').forEach((link) => {
+    const original = link.dataset.outlineLabel || link.textContent?.trim() || ''
+    if (!original) return
+
+    link.dataset.outlineLabel = original
+    link.textContent = compactOutlineLabel(original)
+    link.title = original
+    link.setAttribute('aria-label', original)
+  })
+}
+
 function sync() {
   const article = articleElement()
   if (article) {
@@ -79,6 +105,7 @@ function sync() {
   }
   update()
   paintSpent()
+  compactOutline()
 }
 
 onMounted(() => {

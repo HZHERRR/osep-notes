@@ -18,7 +18,7 @@ export default defineConfig({
   ignoreDeadLinks: true,
   themeConfig: {
     search: { provider: 'local' },
-    outline: { level: [2, 3] },
+    outline: { level: 2 },
   },
   markdown: {
     theme: {
@@ -54,7 +54,7 @@ export default defineConfig({
             },
           },
         },
-        outline: { label: 'On this page', level: [2, 3] },
+        outline: { label: 'On this page', level: 2 },
         docFooter: { prev: 'Previous', next: 'Next' },
         returnToTopLabel: 'Top',
         sidebarMenuLabel: 'Menu',
@@ -92,7 +92,7 @@ export default defineConfig({
             },
           },
         },
-        outline: { label: '本页目录', level: [2, 3] },
+        outline: { label: '本页目录', level: 2 },
         docFooter: { prev: '上一页', next: '下一页' },
         returnToTopLabel: '回到顶部',
         sidebarMenuLabel: '目录',

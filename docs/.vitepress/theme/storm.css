@@ -429,7 +429,7 @@ html:not(.dark) .VPNavBar {
 }
 
 .VPDoc .content-container {
-  max-width: 860px !important;
+  max-width: 820px !important;
 }
 
 .VPDoc .aside {
@@ -438,8 +438,10 @@ html:not(.dark) .VPNavBar {
 
 .vp-doc {
   color: var(--tac-text-1);
-  font-size: 1rem;
-  line-height: 1.75;
+  font-size: 1.035rem;
+  line-height: 1.82;
+  letter-spacing: 0.003em;
+  text-rendering: optimizeLegibility;
 }
 
 .vp-doc > h1:first-child {
@@ -511,21 +513,31 @@ html:not(.dark) .VPNavBar {
 }
 
 .vp-doc p {
-  margin: 1.15rem 0;
-  max-width: 75ch;
+  margin: 1.35rem 0;
+  max-width: 69ch;
   color: var(--tac-text-1);
 }
 
 .vp-doc > ul,
 .vp-doc > ol {
-  max-width: 75ch;
-  margin: 1rem 0;
-  padding-left: 1.35rem;
+  max-width: 69ch;
+  margin: 1.25rem 0;
+  padding-left: 1.45rem;
 }
 
 .vp-doc li {
-  margin: 0.35rem 0;
-  line-height: 1.7;
+  margin: 0.68rem 0;
+  line-height: 1.82;
+}
+
+.vp-doc li > ul,
+.vp-doc li > ol {
+  margin-top: 0.7rem;
+  margin-bottom: 0.7rem;
+}
+
+.vp-doc li li {
+  margin: 0.48rem 0;
 }
 
 .vp-doc li::marker {
@@ -533,7 +545,7 @@ html:not(.dark) .VPNavBar {
 }
 
 .vp-doc strong {
-  font-weight: 650;
+  font-weight: 600;
   color: var(--tac-text-1);
 }
 
@@ -820,14 +832,14 @@ html.dark .vp-doc div[class*='language-'] span[style*='color:#6A737D'] {
   white-space: nowrap;
   word-break: normal;
   overflow-wrap: normal;
-  padding: 0.2em 0.45em;
+  padding: 0.1em 0.36em;
   border: 1px solid var(--tac-border-firm);
   border-radius: 4px;
   background: var(--vp-code-bg);
   color: var(--tac-text-1);
   font-family: var(--tac-mono);
-  font-size: 0.86em;
-  font-weight: 500;
+  font-size: 0.84em;
+  font-weight: 480;
 }
 
 .vp-doc a > code {
@@ -960,15 +972,24 @@ html:not(.dark) .vp-doc thead {
 }
 
 .VPDocAsideOutline .outline-link {
-  padding: 0.35rem 0 0.35rem 1rem;
+  display: block;
+  padding: 0.38rem 0.75rem 0.38rem 1rem;
   color: var(--tac-text-2);
-  font-size: 0.84rem;
-  line-height: 1.45;
-  white-space: normal !important;
-  text-overflow: clip !important;
-  overflow: visible !important;
-  word-break: break-word !important;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
+  overflow: hidden !important;
   transition: color 120ms ease-out;
+}
+
+html[lang='zh-CN'] .vp-doc {
+  line-height: 1.9;
+  letter-spacing: 0.012em;
+}
+
+html[lang='zh-CN'] .vp-doc li {
+  line-height: 1.9;
 }
 
 .VPDocAsideOutline .outline-link:hover,
