@@ -12,7 +12,9 @@ const visible = ref(false)
 const SPENT_KEY = 'osep:spent'
 
 let frame = 0
+let outlineFrame = 0
 let observer: ResizeObserver | undefined
+let outlineObserver: MutationObserver | undefined
 
 function articleElement() {
   return document.querySelector<HTMLElement>('.VPDoc .vp-doc')
@@ -91,10 +93,16 @@ function compactOutline() {
     if (!original) return
 
     link.dataset.outlineLabel = original
-    link.textContent = compactOutlineLabel(original)
+    const compact = compactOutlineLabel(original)
+    if (link.textContent?.trim() !== compact) link.textContent = compact
     link.title = original
     link.setAttribute('aria-label', original)
   })
+}
+
+function scheduleOutlineCompaction() {
+  cancelAnimationFrame(outlineFrame)
+  outlineFrame = requestAnimationFrame(compactOutline)
 }
 
 function sync() {
@@ -110,6 +118,8 @@ function sync() {
 
 onMounted(() => {
   observer = new ResizeObserver(update)
+  outlineObserver = new MutationObserver(scheduleOutlineCompaction)
+  outlineObserver.observe(document.body, { childList: true, subtree: true })
   window.addEventListener('scroll', update, { passive: true })
   window.addEventListener('resize', update, { passive: true })
   if (route.path !== '/') markSpent(route.path)
@@ -123,7 +133,9 @@ watch(
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame)
+  cancelAnimationFrame(outlineFrame)
   observer?.disconnect()
+  outlineObserver?.disconnect()
   window.removeEventListener('scroll', update)
   window.removeEventListener('resize', update)
 })
