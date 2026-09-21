@@ -13,6 +13,7 @@ const SPENT_KEY = 'osep:spent'
 
 let frame = 0
 let outlineFrame = 0
+let outlineStartFrame = 0
 let observer: ResizeObserver | undefined
 let outlineObserver: MutationObserver | undefined
 
@@ -113,17 +114,24 @@ function sync() {
   }
   update()
   paintSpent()
-  compactOutline()
+  scheduleOutlineCompaction()
 }
 
 onMounted(() => {
   observer = new ResizeObserver(update)
-  outlineObserver = new MutationObserver(scheduleOutlineCompaction)
-  outlineObserver.observe(document.body, { childList: true, subtree: true })
   window.addEventListener('scroll', update, { passive: true })
   window.addEventListener('resize', update, { passive: true })
   if (route.path !== '/') markSpent(route.path)
   sync()
+
+  // Wait until VitePress has hydrated sibling layout components before
+  // shortening their outline labels. Mutating during hydration causes a
+  // client/server mismatch even though the final pixels look correct.
+  outlineStartFrame = requestAnimationFrame(() => {
+    compactOutline()
+    outlineObserver = new MutationObserver(scheduleOutlineCompaction)
+    outlineObserver.observe(document.body, { childList: true, subtree: true })
+  })
 })
 
 watch(
@@ -134,6 +142,7 @@ watch(
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame)
   cancelAnimationFrame(outlineFrame)
+  cancelAnimationFrame(outlineStartFrame)
   observer?.disconnect()
   outlineObserver?.disconnect()
   window.removeEventListener('scroll', update)
