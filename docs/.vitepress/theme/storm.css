@@ -685,6 +685,15 @@ html:not(.dark) .VPNavBar {
   overflow: hidden;
 }
 
+/* VitePress pulls adjacent code blocks upward with a negative margin. Markdown
+   tight lists can place explanatory text between those blocks as a bare text
+   node, which CSS adjacency ignores and causes the next block to overlap it. */
+.vp-doc div[class*='language-'] + div[class*='language-'],
+.vp-doc div[class$='-api'] + div[class*='language-'],
+.vp-doc div[class*='language-'] + div[class$='-api'] > div[class*='language-'] {
+  margin-top: 1.6rem;
+}
+
 html:not(.dark) .vp-doc div[class*='language-'] {
   background: #f6f8fa !important;
   border-color: #d0d7de !important;
