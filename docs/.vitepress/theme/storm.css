@@ -1251,4 +1251,14 @@ html[lang='zh-CN'] .vp-doc li {
     width: 100%;
     text-align: center;
   }
+
+  /* Long Windows paths must not force a page-wide horizontal scrollbar.
+     Desktop keeps code pills intact; narrow screens wrap them cleanly. */
+  .vp-doc :not(pre) > code {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
 }
