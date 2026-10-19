@@ -690,7 +690,7 @@ Compare with `md5sum ~/osep/payloads/PAYLOAD` on the attacker box: a hash mismat
 
 ---
 
-## Module cheat sheet
+## Module quick-reference notes
 
 | Goal | Command / key point |
 |---|---|

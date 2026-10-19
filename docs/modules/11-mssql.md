@@ -6,7 +6,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > **Covers scenarios:** 44, 45
 >
-> **Course mapping:** scenario 44 → C4; scenario 45 → C2, C6
+> **Course mapping:** Chapter 20 (§20.1.3 UNC Path Injection, §20.1.4 Relay My Hash, §20.2 MS SQL Escalation & Custom Assemblies, §20.3 Linked SQL Servers), Chapter 21 (§21.6.2 Linked SQL Servers in the Forest); scenario 44 → C4, scenario 45 → C2, C6
 >
 > **Prerequisites:** a SQL Server instance you can log into (SQL auth or Windows auth, either works); the attacker box (Kali) must be reachable from the target instance in the reverse direction (outbound 445/SMB not blocked); PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat prepared per scenario
 
@@ -402,7 +402,7 @@ Dependencies: SQLRecon.exe (must be delivered to the Windows target first, e.g. 
 Usage: .\m11-sqlrecon-templates.ps1 -ReconExe .\SQLRecon.exe -Host TARGET
       the function names are the module names, see EXAMPLES below; for a single call you can also copy the command line from the comments
 Placeholders: TARGET=SQL host (or host\instance)  DOMAIN USER PASS LHOST LPORT
-Test status: not tested in a real Windows + SQLRecon environment; parameter shapes assembled from the cheat sheet modules only
+Test status: not tested in a real Windows + SQLRecon environment; parameter shapes assembled from the quick-reference notes modules only
 Note: SQLRecon parameter case/abbreviations follow the README of the version you downloaded (e.g. /h: vs /host: differ between old and new builds)
 #>
 [CmdletBinding()]
@@ -441,7 +441,7 @@ function Invoke-M11SqlRecon {
 }
 
 # ---------------------------------------------------------------------------
-# Module list (taken from the cheat sheet MSSQL → SQLRecon; modules with no output run without echo)
+# Module list (taken from the quick-reference notes MSSQL → SQLRecon; modules with no output run without echo)
 #   /enum:sqlspns         domain SPN enumeration (use /d:DOMAIN, not /h:)
 #   /m:info /m:whoami     server information / current identity
 #   /m:links /m:linkinfo  list links / link details
@@ -803,7 +803,7 @@ SELECT * FROM OPENQUERY([LINK1],
 
 ---
 
-## Module cheat sheet
+## Module quick-reference notes
 
 | Goal | Command (example) |
 |---|---|

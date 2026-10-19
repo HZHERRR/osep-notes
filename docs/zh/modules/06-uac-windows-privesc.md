@@ -4,7 +4,11 @@
 
 # 06 · UAC Bypass & Windows 本地提权（场景 25–27）
 
-> 技术路线对齐（关键词：`UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`）。
+> **覆盖场景：** 25、26、27
+>
+> **教材依据：** 第 12 章（§12.5 UAC Bypass vs Microsoft Defender / FodHelper）、第 17 章（§17.2.2 模拟令牌提权 SeImpersonate）、第 24 章（§24.2.1 web01 提权）
+>
+> **关键词：** `UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`
 >
 > 相关模块：本模块只讲「拿到第一段立足点之后的本地提权」。横向移动见 [15-winrm-lateral](/zh/modules/15-winrm-lateral)，凭据抓取见 [07-credentials-lsass](/zh/modules/07-credentials-lsass)。
 >
@@ -82,7 +86,7 @@ reg delete "HKCU\Software\Classes\ms-settings" /f
 4. **Fodhelper 被策略禁用/路径重定向**：尝试 `computerdefaults.exe`、`wsreset.exe`、`slui.exe` 等同族；或切 `AlwaysInstallElevated`（见下方提示条）。
 5. 反弹 shell 不稳定：先不加持久化，直接跑既定命令（谁启动、以什么权限启动，见 m06-fodhelper-uac.ps1 说明）。
 
-> 提示：AlwaysInstallElevated（`HKLM\...\Windows Installer` 与 `HKCU\...\Windows Installer` 同时为 1）时，可 `msiexec /quiet /qn /i payload.msi` 直接提权——这是 cheat sheet 单独列的条目，写注册表探测两条路径后即可用（脚本中给探测命令）。
+> 提示：AlwaysInstallElevated（`HKLM\...\Windows Installer` 与 `HKCU\...\Windows Installer` 同时为 1）时，可 `msiexec /quiet /qn /i payload.msi` 直接提权——这是 速查笔记 单独列的条目，写注册表探测两条路径后即可用（脚本中给探测命令）。
 
 ### 考试注意 / OPSEC
 - **用后必清注册表键**（`reg delete`），否则该用户后续任何设置类操作都会再触发命令，留下持久化痕迹。

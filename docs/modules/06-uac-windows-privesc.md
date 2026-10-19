@@ -4,7 +4,11 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 # 06 · UAC Bypass & Windows local privilege escalation (scenarios 25–27)
 
-> Technique alignment (keywords: `UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`).
+> **Covers scenarios:** 25, 26, 27
+>
+> **Course mapping:** Chapter 12 (§12.5 UAC Bypass vs Microsoft Defender / FodHelper), Chapter 17 (§17.2.2 Elevation with Impersonation), Chapter 24 (§24.2.1 Privilege Escalation on web01)
+>
+> **Keywords:** `UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`
 >
 > Related modules: this module covers **local privilege escalation after the first foothold**. Lateral movement: [15-winrm-lateral](/modules/15-winrm-lateral). Credential collection: [07-credentials-lsass](/modules/07-credentials-lsass).
 >

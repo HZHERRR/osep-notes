@@ -4,7 +4,11 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 # 08 · Pivoting & tunneling (port forwarding)
 
-> Scenarios 34–35. Core of lateral movement: **internal reachability ≠ your reachability** — treat the two directions separately.
+> **Covers scenarios:** 34, 35
+>
+> **Course mapping:** Chapter 18 (§18.1.2–18.1.3 Reverse RDP proxying with Metasploit / Chisel), Chapter 19 (§19.1.3–19.1.4 SSH ControlMaster and agent-forwarding reuse), Chapter 20 (§20.1.3–20.1.4 UNC path injection and relay callback paths). The module's SOCKS/ligolo/ssh `-L/-D/-R` set is standard lab tooling, not a named book section.
+>
+> **Core rule:** **Forward internal reachability ≠ target-initiated callback reachability** — design the two directions separately.
 >
 > Lab files: `m08-ligolo-ng-setup.sh`, `m08-chisel-socks.sh`, `m08-port-forward.ps1`.
 >

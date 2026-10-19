@@ -6,7 +6,7 @@
 
 > **归属模块：** `M04` · 场景 11–12 · 依据：教材第 6 章（§6.1–6.2）
 >
-> 关联 cheat sheet 关键词：`New Admin with C` / `DLL` / `Shellcode Inject`
+> 关联速查关键词：`New Admin with C` / `DLL` / `Shellcode Inject`
 >
 > **前置概念：** Windows DLL 搜索顺序、PE 导入/导出表、调用约定。
 
@@ -116,7 +116,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
  *
  * 用途：DLL 旁加载的"实弹"Proxy —— 转发保持宿主正常的同时执行载荷，
  *       支持两种编译期模式：
- *         MODE_NETUSER（默认）：创建本地管理员账号（cheat sheet "New Admin
+ *         MODE_NETUSER（默认）：创建本地管理员账号（速查笔记 "New Admin
  *                   with C" 路线），适合宿主以提升权限运行时；
  *         MODE_REVERSE：反连 TCP shell，适合普通用户权限拿到交互式会话。
  *       所有转发导出仍由 forward.def 提供（与 m04-proxy-dll-sideload.c 相同）。
@@ -180,7 +180,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 #define ADMIN_PASS L"PASS"
 #endif
 
-/* ---------- 模式一：创建本地管理员（cheat sheet: New Admin with C） ---------- */
+/* ---------- 模式一：创建本地管理员（速查笔记: New Admin with C） ---------- */
 
 static DWORD AddAdminUser(void)
 {

@@ -4,9 +4,11 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 # 07 · Credentials: LSASS / LSA / SAM and alternate sources (scenario 46)
 
-> Aligned with: (`Mimikatz` `LSA Protection Bypass` `MiniDump` `Invoke-Mimikatz` `Cracking Hashes`)
+> **Covers scenarios:** 46
 >
-> Scenario basis: `scenarios.md` scenario 46.
+> **Course mapping:** Chapter 17 (§17.1 Local Windows Credentials & SAM, §17.2 Access Tokens, §17.3 Kerberos and Domain Credentials / Mimikatz, §17.4 Processing Credentials Offline / Memory Dump & MiniDumpWriteDump); Challenge 4
+>
+> **Keywords:** `Mimikatz` `LSA Protection (RunAsPPL)` `MiniDump` `Invoke-Mimikatz` `LSA Secrets` `SAM`
 >
 > Lab files: `m07-invoke-mimikatz-reflect.ps1`, `m07-credential-sources.ps1`
 

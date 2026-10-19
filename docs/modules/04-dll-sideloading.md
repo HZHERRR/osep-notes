@@ -6,7 +6,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > Module: `M04` · Scenarios 11–12 · Based on: course chapter 6 (§6.1–6.2)
 >
-> Related cheat sheet keywords: `New Admin with C` / `DLL` / `Shellcode Inject`
+> Related quick-reference notes keywords: `New Admin with C` / `DLL` / `Shellcode Inject`
 >
 > **Prerequisites:** Windows DLL search order, PE import/export tables, calling conventions.
 
@@ -129,7 +129,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
  *
  * Purpose: "Live" Proxy for DLL sideloading — keep the host healthy via
  *       forwarding while running a payload. Two compile-time modes:
- *         MODE_NETUSER (default): create a local admin account (cheat sheet
+ *         MODE_NETUSER (default): create a local admin account (quick-reference notes
  *                   "New Admin with C"), for hosts that run elevated;
  *         MODE_REVERSE: reverse TCP shell, for interactive sessions as a
  *                   normal user.
@@ -199,7 +199,7 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 #define ADMIN_PASS L"PASS"
 #endif
 
-/* ---------- Mode 1: create local admin (cheat sheet: New Admin with C) ---------- */
+/* ---------- Mode 1: create local admin (quick-reference notes: New Admin with C) ---------- */
 
 static DWORD AddAdminUser(void)
 {

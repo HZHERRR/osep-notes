@@ -20,7 +20,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | Linux target | Domain-joined or standalone | ELF execution, shared libraries, sudo, SSH reuse, Kerberos tickets |
 | Network limits | Segmentation + proxies, maybe only a few egress paths allowed | Decides whether you go direct, through a proxy, over DNS, or with domain fronting |
 
-**Core principle**: the techniques in this cheat sheet are “old, but they get through the exam environment.” The exam environment is not a modern EDR battlefield — do not complicate the chain chasing novelty. **The simpler it is, the more reliable it is, and one failed attempt costs an enormous amount of time.**
+**Core principle**: the techniques in this quick-reference notes are “old, but they get through the exam environment.” The exam environment is not a modern EDR battlefield — do not complicate the chain chasing novelty. **The simpler it is, the more reliable it is, and one failed attempt costs an enormous amount of time.**
 
 ---
 

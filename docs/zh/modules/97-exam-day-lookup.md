@@ -130,6 +130,24 @@
 | 共享库加载 | `ldd <bin>`、`LD_DEBUG=libs <bin>` |
 | SSH 复用 | `ssh -O check USER@TARGET`、`ls -l /tmp/ssh-*`、`ssh-add -l` |
 
+以上检查的复制粘贴版：
+
+```powershell
+whoami
+whoami /priv
+whoami /groups
+[Environment]::Is64BitProcess
+$ExecutionContext.SessionState.LanguageMode
+Get-AppLockerPolicy -Effective -Xml
+netsh winhttp show proxy
+```
+
+```bash
+id; sudo -l
+klist
+nc -nvz TARGET 5985
+```
+
 ---
 
 ## 4. 使用顺序（考场 5 步）

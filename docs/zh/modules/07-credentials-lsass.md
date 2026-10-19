@@ -4,9 +4,11 @@
 
 # 07 · 凭据获取：LSASS / LSA / SAM 与替代来源（场景 46）
 
-> 对齐：（关键词：`Mimikatz` `LSA Protection Bypass` `MiniDump` `Invoke-Mimikatz` `Cracking Hashes`）
+> **覆盖场景：** 46
 >
-> 场景依据：`scenarios.md` 场景 46。
+> **教材依据：** 第 17 章（§17.1 本地凭据与 SAM、§17.2 访问令牌、§17.3 Kerberos 与域凭据 / Mimikatz、§17.4 离线处理凭据 / Memory Dump & MiniDumpWriteDump）；Challenge 4
+>
+> **关键词：** `Mimikatz` `LSA Protection (RunAsPPL)` `MiniDump` `Invoke-Mimikatz` `LSA Secrets` `SAM`
 >
 > 脚本：`m07-invoke-mimikatz-reflect.ps1`、`m07-credential-sources.ps1`
 
@@ -404,7 +406,7 @@ Write-Output "[*] 优先级：SYSTEM 环境先解析 SAM/LSA Secrets（常含可
 Write-Output "[*] 解析出的身份用 M15（WinRM 明文/哈希）或 M12（PTT/委派）实际认证一次来验证，勿停留在哈希值本身"
 ````
 
-## cheat sheet 关键词对照（速记）
+## 课程与速查关键词对照（速记）
 
 | 关键词 | 本模块落点 |
 |---|---|

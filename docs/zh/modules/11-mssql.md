@@ -6,7 +6,7 @@
 
 > **覆盖场景：** 44、45
 >
-> **教材依据：** 场景 44 → C4；场景 45 → C2、C6
+> **教材依据：** 第 20 章（§20.1.3 UNC 路径注入、§20.1.4 SMB 中继 Relay My Hash、§20.2 MS SQL 权限提升与自定义程序集、§20.3 Linked SQL Servers 单跳与双向链路）、第 21 章（§21.6.2 跨林 Linked SQL）；场景 44 → C4，场景 45 → C2、C6
 >
 > **前置依赖：** 一个可登录的 SQL Server 实例（SQL 认证或 Windows 认证均可）；攻击机（Kali）可被目标实例反向访问（445/SMB 出方向不被拦）；PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat 按场景准备
 
@@ -402,7 +402,7 @@ print_loot
 使用：.\m11-sqlrecon-templates.ps1 -ReconExe .\SQLRecon.exe -Host TARGET
       函数名即模块名，见下方 EXAMPLES；单条也可直接照抄注释里的命令行
 占位符：TARGET=SQL 主机(或 主机\实例)  DOMAIN USER PASS LHOST LPORT
-测试状态：未在 Windows + SQLRecon 环境实测；仅按 cheat sheet 收录模块整理参数形状
+测试状态：未在 Windows + SQLRecon 环境实测；仅按 速查笔记 收录模块整理参数形状
 注意：SQLRecon 参数大小写/简写以你下载版本 README 为准（如 /h: 与 /host: 新旧版有别）
 #>
 [CmdletBinding()]
@@ -441,7 +441,7 @@ function Invoke-M11SqlRecon {
 }
 
 # ---------------------------------------------------------------------------
-# 模块清单（按 cheat sheet MSSQL → SQLRecon 收录；无输出模块 = 直接执行无回显）
+# 模块清单（按 速查笔记 MSSQL → SQLRecon 收录；无输出模块 = 直接执行无回显）
 #   /enum:sqlspns         域内 SPN 枚举（用 /d:DOMAIN，不用 /h:）
 #   /m:info /m:whoami     服务器信息 / 当前身份
 #   /m:links /m:linkinfo  列链接 / 链接详情

