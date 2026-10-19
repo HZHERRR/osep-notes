@@ -25,6 +25,14 @@ export default defineConfig({
       light: 'github-light',
       dark: 'github-dark',
     },
+    // Wrap tables at build time so the scroll container exists before
+    // hydration; otherwise the first paint can overflow the page.
+    config: (md) => {
+      md.renderer.rules.table_open = (tokens, idx, options, _env, self) =>
+        `<div class="table-scroll">${self.renderToken(tokens, idx, options)}`
+      md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
+        `${self.renderToken(tokens, idx, options)}</div>`
+    },
   },
   locales: {
     root: {

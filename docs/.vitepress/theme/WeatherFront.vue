@@ -66,6 +66,11 @@ function update() {
 
 function enhanceTables(article: HTMLElement) {
   article.querySelectorAll<HTMLTableElement>('table:not([data-scroll-table])').forEach((table) => {
+    // Tables from Markdown are already wrapped at build time.
+    if (table.closest('.table-scroll')) {
+      table.dataset.scrollTable = 'true'
+      return
+    }
     const wrapper = document.createElement('div')
     wrapper.className = 'table-scroll'
     table.dataset.scrollTable = 'true'

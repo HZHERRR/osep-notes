@@ -8,11 +8,20 @@ The technical notes, command templates, and lab scripts on this site are strictl
 
 Per `pen-300.pdf` Section 2.1 (*About The PEN-300 Course*), keep the following operational boundary clear before using these modules:
 
-| Dimension | Advanced Penetration Testing (PEN-300 Scope) | Red Teaming / Adversary Simulation (Out of Scope) |
-|---|---|---|
-| **Primary Goal** | Test the security of a client organization’s **IT infrastructure** (hardened endpoints, production servers, and Active Directory) and compromise internal systems | Test and train the client organization’s human security personnel (**Blue Team**) on detection, alerting, and incident response |
-| **Technical Focus** | **Bypassing automated security mechanisms** (client-side execution controls, antivirus, application whitelisting / AppLocker / CLM, AMSI, network filters, and web proxies) | Mimicking advanced adversary TTPs while actively evading live human blue-team monitoring and forensic investigation |
-| **Entry Models** | **External Penetration Test**: breach the perimeter via social engineering / client-side vectors (Office macros, HTA, JScript, ICS calendar invites, ZIP sideloading) or internet-facing web apps;<br>**Assumed Breach**: start from standard/low-privileged internal access and focus on lateral movement and domain compromise | Multi-month stealth campaigns often combining physical, supply-chain, or long-haul C2 operations |
+### Primary goal
+
+- **Advanced penetration testing (PEN-300 scope):** Test the security of a client organization’s **IT infrastructure** (hardened endpoints, production servers, and Active Directory) and compromise internal systems.
+- **Red teaming / adversary simulation (out of scope):** Test and train the client organization’s human security personnel (**Blue Team**) on detection, alerting, and incident response.
+
+### Technical focus
+
+- **PEN-300:** **Bypassing automated security mechanisms** (client-side execution controls, antivirus, application whitelisting / AppLocker / CLM, AMSI, network filters, and web proxies).
+- **Red teaming:** Mimicking advanced adversary TTPs while actively evading live human blue-team monitoring and forensic investigation.
+
+### Entry models
+
+- **PEN-300:** **External penetration test** — breach the perimeter via social engineering / client-side vectors (Office macros, HTA, JScript, ICS calendar invites, ZIP sideloading) or internet-facing web apps; **assumed breach** — start from standard/low-privileged internal access and focus on lateral movement and domain compromise.
+- **Red teaming:** Multi-month stealth campaigns often combining physical, supply-chain, or long-haul C2 operations.
 
 > **Bottom line**: PEN-300 (*Evasion Techniques and Breaching Defenses*) builds on PEN-200 (OSCP) to teach **advanced penetration testing against mature organizations — it is not a Red Team course**. In the labs and exam, prioritize simple, reliable chains that defeat automated defenses rather than over-engineering for live EDR/blue-team evasion.
 
@@ -67,13 +76,13 @@ OffSec strictly enforces the following rules inside the internal VPN lab network
 
 ### 4.1 Exam Window & Passing Criteria (§2.5)
 
-| Item | Official Requirement (verify against the latest [OSEP Exam Guide](https://help.offsec.com/hc/en-us/articles/360050293792-OSEP-Exam-Guide) on exam day) |
-|---|---|
-| **Pre-Exam Check-In** | Log in **15 minutes before** your scheduled start time for proctoring identity verification and VPN pack download |
-| **Lab Duration** | **47 hours and 45 minutes** in a dedicated, remotely proctored enterprise network environment |
-| **Report Window** | **24 additional hours** after the exam lab ends to compile and submit your penetration test report |
-| **Passing Criteria** | Compromise the designated target section of the network, **or** earn at least **100 points** by compromising individual hosts (PEN-300 §2.5) |
-| **Grading Turnaround** | Results are delivered within **10 business days** after report acceptance |
+`pen-300.pdf` §2.5 gives the core rules; confirm the current [OSEP Exam Guide](https://help.offsec.com/hc/en-us/articles/360050293792-OSEP-Exam-Guide) before exam day.
+
+- **Pre-exam check-in:** Log in **15 minutes before** your scheduled start time for proctoring identity verification and VPN pack download.
+- **Lab duration:** **47 hours and 45 minutes** in a dedicated, remotely proctored enterprise network environment.
+- **Report window:** **24 additional hours** after the exam lab ends to compile and submit your penetration test report.
+- **Passing criteria:** Compromise the designated target section of the network, **or** earn at least **100 points** by compromising individual hosts.
+- **Grading turnaround:** Results are delivered within **10 business days** after report acceptance.
 
 ### 4.2 Permitted vs. Prohibited Tools (OSEP Exam Guide — not in `pen-300.pdf`)
 
@@ -102,14 +111,12 @@ OffSec strictly enforces the following rules inside the internal VPN lab network
 
 All documentation pages and embedded scripts use the following 9 placeholders — substitute them before running or compiling:
 
-| Placeholder | Meaning | Example |
-|---|---|---|
-| `LHOST` | Attacker IP (or pivot listener IP) reachable from the target | `192.168.45.172` |
-| `LPORT` | Listening port on the attacker box or pivot | `443` / `4444` |
-| `TARGET` | Target IP address or FQDN hostname (Kerberos requires FQDN) | `192.168.152.150` / `dc01.corp.local` |
-| `DOMAIN` | Active Directory domain FQDN | `corp.local` |
-| `USER` | Authentication username (local or domain account) | `offsec` / `sqlsvc` |
-| `PASS` | Cleartext password | `Password123!` |
-| `NTHASH` | NTLM hash (32-char hex for Pass-the-Hash / ticket requests) | `8846f7eaee8fb117ad06bdd830b7586c` |
-| `PAYLOAD` | Payload filename delivered or dropped on target | `runner.exe` / `stage2.ps1` |
-| `URL` | Full HTTP(S) delivery URL on our server | `http://192.168.45.172/stage2.ps1` |
+- `LHOST` — attacker IP (or pivot listener IP) reachable from the target, e.g. `192.168.45.172`.
+- `LPORT` — listening port on the attacker box or pivot, e.g. `443` or `4444`.
+- `TARGET` — target IP address or FQDN hostname (Kerberos requires an FQDN), e.g. `192.168.152.150` or `dc01.corp.local`.
+- `DOMAIN` — Active Directory domain FQDN, e.g. `corp.local`.
+- `USER` — authentication username (local or domain account), e.g. `offsec` or `sqlsvc`.
+- `PASS` — cleartext password, e.g. `Password123!`.
+- `NTHASH` — NTLM hash (32-character hex for pass-the-hash / ticket requests), e.g. `8846f7eaee8fb117ad06bdd830b7586c`.
+- `PAYLOAD` — payload filename delivered to or dropped on the target, e.g. `runner.exe` or `stage2.ps1`.
+- `URL` — full HTTP(S) delivery URL on our server, e.g. `http://192.168.45.172/stage2.ps1`.
