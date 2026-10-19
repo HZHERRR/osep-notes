@@ -224,8 +224,8 @@ try {
 
 // 已知被 AMSI 特征标记的字符串（实验目的，不是载荷本体）：
 // 该内容本身不应被执行出任何效果，只用于观察是否被拦截。
-// (A.2) PEN-300 §12.6 检查/设置 HKCU AmsiEnable 注册表项
-var amsiRegPath = "HKCU\\Software\\Microsoft\\Windows Script Host\\Settings\\AmsiEnable";
+// (A.2) PEN-300 §12.6 检查/设置 HKCU AmsiEnable 注册表项（教材路径是 "Windows Script"，不是 "Windows Script Host"）
+var amsiRegPath = "HKCU\\Software\\Microsoft\\Windows Script\\Settings\\AmsiEnable";
 try {
     var curAmsi = shell.RegRead(amsiRegPath);
     WScript.Echo("  HKCU AmsiEnable: " + curAmsi + " (0=已禁用WSH AMSI)");

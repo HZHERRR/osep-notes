@@ -233,8 +233,8 @@ try {
 
 // String known to be AMSI-flagged (lab purpose, not a real payload):
 // This content should not produce any effect — only observe whether it is blocked.
-// (A.2) PEN-300 §12.6 check/set HKCU AmsiEnable registry value
-var amsiRegPath = "HKCU\\Software\\Microsoft\\Windows Script Host\\Settings\\AmsiEnable";
+// (A.2) PEN-300 §12.6 check/set HKCU AmsiEnable registry value (book uses "Windows Script", not "Windows Script Host")
+var amsiRegPath = "HKCU\\Software\\Microsoft\\Windows Script\\Settings\\AmsiEnable";
 try {
     var curAmsi = shell.RegRead(amsiRegPath);
     WScript.Echo("  HKCU AmsiEnable: " + curAmsi + " (0=WSH AMSI disabled)");
