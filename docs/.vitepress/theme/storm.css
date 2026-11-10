@@ -1412,55 +1412,44 @@ html.dark .vp-doc .storm-action.is-primary {
   border-bottom: none;
 }
 
-/* ---- Task-list checkboxes (replace literal [ ] with styled boxes) ---- */
+/* ---- Task-list checkboxes (plain neutral box) ---- */
 .vp-doc ul.contains-task-list {
   list-style: none;
   padding-left: 0.25rem;
 }
 .vp-doc ul.contains-task-list li.task-list-item {
   position: relative;
-  padding-left: 1.9rem;
+  padding-left: 1.8rem;
   list-style: none;
 }
 .vp-doc ul.contains-task-list li.task-list-item::before {
-  content: none; /* kill any residual bullet marker */
+  content: none;
 }
 .vp-doc .task-list-item-checkbox {
   appearance: none;
   -webkit-appearance: none;
   position: absolute;
   left: 0;
-  top: 0.28em;
-  width: 1.1em;
-  height: 1.1em;
+  top: 0.3em;
+  width: 1em;
+  height: 1em;
   margin: 0;
-  border: 1.5px solid var(--tac-border-strong, var(--tac-accent));
-  border-radius: 5px;
-  background: var(--tac-accent-soft);
+  border: 1px solid var(--vp-c-text-2);
+  border-radius: 3px;
+  background: transparent;
   cursor: default;
-  transition: border-color 0.15s ease, background 0.15s ease;
   flex: none;
-}
-.vp-doc .task-list-item-checkbox:hover {
-  border-color: var(--tac-accent);
-}
-.vp-doc .task-list-item-checkbox:checked {
-  background: var(--tac-accent);
-  border-color: var(--tac-accent);
 }
 .vp-doc .task-list-item-checkbox:checked::after {
   content: "";
   position: absolute;
-  left: 0.33em;
-  top: 0.12em;
-  width: 0.3em;
-  height: 0.6em;
-  border: solid #ffffff;
-  border-width: 0 2px 2px 0;
+  left: 0.3em;
+  top: 0.08em;
+  width: 0.28em;
+  height: 0.55em;
+  border: solid var(--vp-c-text-1);
+  border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
-}
-html.dark .vp-doc .task-list-item-checkbox:checked::after {
-  border-color: #0b1836;
 }
 .vp-doc ul.contains-task-list li.task-list-item label {
   cursor: default;
