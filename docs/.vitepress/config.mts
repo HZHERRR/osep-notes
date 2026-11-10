@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitepress'
 import { sidebarFor } from './taxonomy'
+import taskLists from 'markdown-it-task-lists'
 
 const base =
   process.env.VITEPRESS_BASE ||
@@ -55,6 +56,7 @@ export default defineConfig({
       dark: 'github-dark',
     },
     config: (md) => {
+      md.use(taskLists, { enabled: false, label: true, lineNumber: false })
       md.renderer.rules.table_open = (tokens, idx, options, _env, self) =>
         `<div class="table-scroll">${self.renderToken(tokens, idx, options)}`
       md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
