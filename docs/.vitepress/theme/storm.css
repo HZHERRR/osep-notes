@@ -48,14 +48,14 @@
   --tac-text-3: #94a3b8;
 
   /* Semantic Signal Accents */
-  --tac-accent: #059669; /* Emerald */
-  --tac-accent-soft: rgba(5, 150, 105, 0.08);
+  --tac-accent: #2563eb; /* Azure (primary) */
+  --tac-accent-soft: rgba(37, 99, 235, 0.09);
   --tac-amber: #d97706;  /* Prereq / Warn */
   --tac-amber-soft: rgba(217, 119, 6, 0.08);
   --tac-crimson: #dc2626; /* OPSEC Risk / Danger */
   --tac-crimson-soft: rgba(220, 38, 38, 0.08);
-  --tac-cyan: #0284c7;    /* Telemetry / Info */
-  --tac-cyan-soft: rgba(2, 132, 199, 0.08);
+  --tac-cyan: #0891b2;    /* Telemetry / Info */
+  --tac-cyan-soft: rgba(8, 145, 178, 0.08);
 
   --tac-code-bg: #0f1117;
   --tac-code-ink: #e2e8f0;
@@ -88,8 +88,8 @@
   --vp-c-text-3: var(--tac-text-3);
 
   --vp-c-brand-1: var(--tac-accent);
-  --vp-c-brand-2: #047857;
-  --vp-c-brand-3: #065f46;
+  --vp-c-brand-2: #1d4ed8;
+  --vp-c-brand-3: #1e40af;
   --vp-c-brand-soft: var(--tac-accent-soft);
 
   --vp-c-divider: var(--tac-border);
@@ -128,14 +128,14 @@ html.dark {
   --tac-text-3: #64748b;
 
   /* High-visibility Signals */
-  --tac-accent: #10b981; /* Terminal Emerald */
-  --tac-accent-soft: rgba(16, 185, 129, 0.12);
+  --tac-accent: #60a5fa; /* Azure (primary) */
+  --tac-accent-soft: rgba(96, 165, 250, 0.14);
   --tac-amber: #f59e0b;  /* Tactical Amber */
   --tac-amber-soft: rgba(245, 158, 11, 0.12);
   --tac-crimson: #ef4444; /* High-Risk Alert */
   --tac-crimson-soft: rgba(239, 68, 68, 0.12);
-  --tac-cyan: #38bdf8;    /* Tactical Cyan */
-  --tac-cyan-soft: rgba(56, 189, 248, 0.12);
+  --tac-cyan: #22d3ee;    /* Tactical Cyan (info) */
+  --tac-cyan-soft: rgba(34, 211, 238, 0.12);
 
   --tac-code-bg: #080e11;
   --tac-code-ink: #f1f5f9;
@@ -158,8 +158,8 @@ html.dark {
   --vp-c-text-3: var(--tac-text-3);
 
   --vp-c-brand-1: var(--tac-accent);
-  --vp-c-brand-2: #34d399;
-  --vp-c-brand-3: #6ee7b7;
+  --vp-c-brand-2: #93c5fd;
+  --vp-c-brand-3: #bfdbfe;
   --vp-c-brand-soft: var(--tac-accent-soft);
 
   --vp-c-divider: var(--tac-border);
@@ -174,7 +174,7 @@ html.dark {
   --vp-sidebar-bg-color: var(--tac-bg);
   --vp-local-search-bg: var(--tac-panel);
   --vp-local-search-highlight-bg: var(--tac-accent);
-  --vp-local-search-highlight-text: #051b14;
+  --vp-local-search-highlight-text: #0b1836;
 
   color-scheme: dark;
 }
@@ -195,7 +195,10 @@ body {
 
 ::selection {
   background: var(--tac-accent);
-  color: #051b14;
+  color: #ffffff;
+}
+html.dark ::selection {
+  color: #0b1836;
 }
 
 :focus-visible,
@@ -1185,12 +1188,15 @@ html[lang='zh-CN'] .vp-doc li {
 .vp-doc .storm-action.is-primary {
   border-color: var(--tac-accent);
   background: var(--tac-accent);
-  color: #051b14;
+  color: #ffffff;
+}
+
+html.dark .vp-doc .storm-action.is-primary {
+  color: #0b1836;
 }
 
 .vp-doc .storm-action.is-primary:hover {
   opacity: 0.9;
-  color: #051b14;
 }
 
 /* Authorized Boundary Notice */
@@ -1297,4 +1303,111 @@ html[lang='zh-CN'] .vp-doc li {
     -webkit-box-decoration-break: clone;
     box-decoration-break: clone;
   }
+}
+
+/* =====================================================================
+   Page Brief — standardized "at a glance" header on every module page.
+   Tells the reader what the page does / prerequisites / outputs before
+   any procedure. Sky-tinted card, distinct from admonitions.
+   ===================================================================== */
+.vp-doc .page-brief {
+  margin: 1.1rem 0 1.6rem;
+  padding: 1rem 1.15rem 1.05rem;
+  border: 1px solid var(--tac-border-firm);
+  border-left: 3px solid var(--tac-accent);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, var(--tac-accent-soft), transparent 60%),
+    var(--tac-card);
+}
+.vp-doc .page-brief .pb-kicker {
+  display: inline-block;
+  font-family: var(--tac-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tac-accent);
+  margin-bottom: 0.55rem;
+}
+.vp-doc .page-brief dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 0.9rem;
+  margin: 0;
+}
+.vp-doc .page-brief dt {
+  font-family: var(--tac-mono);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tac-text-3);
+  white-space: nowrap;
+  padding-top: 0.08rem;
+}
+.vp-doc .page-brief dd {
+  margin: 0;
+  color: var(--tac-text-1);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+@media (max-width: 640px) {
+  .vp-doc .page-brief dl { grid-template-columns: 1fr; gap: 0.15rem; }
+  .vp-doc .page-brief dt { padding-top: 0.5rem; }
+}
+
+/* =====================================================================
+   Script Vault — collapsible drawer holding the full source of a long
+   script, kept out of the reading flow. Opens to reveal + copy.
+   Rendered by VitePress ::: details containers.
+   ===================================================================== */
+.vp-doc details.details {
+  margin: 1rem 0 1.4rem;
+  padding: 0;
+  border: 1px solid var(--tac-border);
+  border-left: 3px solid var(--tac-cyan);
+  border-radius: 10px;
+  background: var(--tac-panel);
+  overflow: hidden;
+}
+.vp-doc details.details > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.7rem 1rem;
+  font-family: var(--tac-mono);
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--tac-text-1);
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+.vp-doc details.details > summary:hover {
+  background: var(--tac-accent-soft);
+}
+.vp-doc details.details > summary::-webkit-details-marker { display: none; }
+.vp-doc details.details > summary::before {
+  content: "▸";
+  color: var(--tac-cyan);
+  font-size: 0.8rem;
+  transition: transform 0.15s ease;
+}
+.vp-doc details.details[open] > summary::before { transform: rotate(90deg); }
+.vp-doc details.details[open] > summary {
+  border-bottom: 1px solid var(--tac-border);
+}
+.vp-doc details.details > div[class*="language-"],
+.vp-doc details.details > div.language-,
+.vp-doc details.details > :not(summary) {
+  margin: 0;
+}
+.vp-doc details.details > div[class*="language-"] {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
 }

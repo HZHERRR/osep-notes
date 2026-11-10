@@ -33,6 +33,9 @@
 - `--tac-text-2`: `#475569`
 - `--tac-text-3`: `#94a3b8`
 
+### Brand Accent
+- **Sky Blue (`#38bdf8` / Light `#0ea5e9`):** Primary brand (links, active nav, primary buttons, scanline).
+
 ### Functional Semantic Signals
 - **Tactical Emerald (`#10b981` / Light `#059669`):** Execution success, active state, verified exploit payload, validation tips (`.custom-block.tip`).
 - **Tactical Amber (`#f59e0b` / Light `#d97706`):** Prerequisites, pre-condition warnings, procedure cautions (`.custom-block.warning`, `.storm-boundary`).

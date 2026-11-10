@@ -2,15 +2,11 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 00 · Environment and infrastructure (shared by all modules)
+# Environment and infrastructure
 
-> This document does not belong to any single scenario. It is the attacker-box preparation, payload matrix, listener/callback conventions, and decision flow shared by all 56 scenarios.
->
-> Every module’s “Prepare (attacker side)” section assumes you have already stood up the infrastructure described here.
+Shared attacker-box prep for every module: directories, ports, payload shape, and a triage order when nothing comes back. Each module's prepare step assumes this is already standing.
 
----
-
-## 1. Environment assumptions
+## Environment assumptions
 
 | Role | System | Notes |
 |---|---|---|
@@ -20,11 +16,9 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 | Linux target | Domain-joined or standalone | ELF execution, shared libraries, sudo, SSH reuse, Kerberos tickets |
 | Network limits | Segmentation + proxies, maybe only a few egress paths allowed | Decides whether you go direct, through a proxy, over DNS, or with domain fronting |
 
-**Core principle**: the techniques in this quick-reference notes are “old, but they get through the exam environment.” The exam environment is not a modern EDR battlefield — do not complicate the chain chasing novelty. **The simpler it is, the more reliable it is, and one failed attempt costs an enormous amount of time.**
+The techniques in these notes are old, but they get through the exam environment. The exam is not a modern EDR battlefield — don't complicate the chain chasing novelty. Simpler is more reliable, and one failed attempt costs a lot of time.
 
----
-
-## 2. Attacker-box directories and naming conventions
+## Attacker-box directories
 
 ```bash
 mkdir -p ~/osep/{payloads/{win/{x86,x64},linux,web},listeners,logs,loot,tools}
@@ -41,7 +35,7 @@ cd ~/osep
 | `loot` | Hashes, tickets, credentials, screenshots |
 | `tools` | Build outputs and third-party tools (trusted sources only) |
 
-**Unified placeholders** (consistent across the whole project; do not invent your own):
+Unified placeholders (use these across the whole project; do not invent your own):
 
 | Placeholder | Meaning |
 |---|---|
@@ -53,9 +47,7 @@ cd ~/osep
 | `PAYLOAD` | Payload file name |
 | `URL` | Our HTTP(S) address |
 
----
-
-## 3. Ports and infrastructure planning
+## Ports and listeners
 
 Fix one port set so you do not mix them up during the exam:
 
@@ -70,6 +62,8 @@ Fix one port set so you do not mix them up during the exam:
 | 11601 | Ligolo-ng proxy |
 | 5985 | WinRM (target side) |
 
+Start delivery and a listener:
+
 ```bash
 # HTTP delivery + request log (confirm the target really downloaded it)
 cd ~/osep/payloads && python3 -m http.server 80 2>&1 | tee ~/osep/logs/http-80.log
@@ -83,54 +77,48 @@ openssl x509 -in ~/osep/tools/cert.pem -noout -fingerprint -sha256
 # SMB delivery (temporary share, no authentication required)
 impacket-smbserver share ~/osep/payloads -smb2support
 
-# Listener with readline (strongly recommended — fewer broken keystrokes in the exam)
+# Listener with readline (recommended — fewer broken keystrokes in the exam)
 rlwrap -cAr nc -lvnp 4444 | tee ~/osep/logs/shell-4444.log
 ```
 
-**Callback verification, three checks** (do them for every entry):
+For every entry, prove the callback in this order:
 
-1. Did the target hit the delivery address → check the HTTP/SMB log
-2. Did the payload actually execute → prove it first with a harmless callback (`curl`/`nslookup`/writing a file)
-3. Is the session stable → immediately run `whoami /priv`, `systeminfo`, and confirm architecture and user
+- [ ] The target hit the delivery address — check the HTTP/SMB log
+- [ ] The payload actually executed — prove it first with a harmless callback (`curl` / `nslookup` / writing a file)
+- [ ] The session is stable — immediately run `whoami /priv`, `systeminfo`, and confirm architecture and user
 
----
-
-## 4. Payload matrix (pick the shape by entry type)
+## Payload matrix
 
 | Entry | First choice | Needs egress | Notes |
 |---|---|---|---|
-| Word macro | VBA in-process Runner / PowerShell stager | Depends on scenario | Probe bitness first when unknown |
-| HTA | HTA + PowerShell / embedded C# | Depends on scenario | Prefer a non-EXE form under AppLocker |
-| JScript | DotNetToJScript + C# stage 2 | Depends on scenario | WSH host; AMSI handling must be done separately |
+| Word macro | VBA in-process Runner / PowerShell stager | Depends | Probe bitness first when unknown |
+| HTA | HTA + PowerShell / embedded C# | Depends | Prefer a non-EXE form under AppLocker |
+| JScript | DotNetToJScript + C# stage 2 | Depends | WSH host; AMSI handling must be done separately |
 | Mail ZIP | Proxy DLL + sideload host | No | Keep the host running normally |
 | Mail / web | InstallUtil / Workflow / XSL | No | Trusted host, bypasses AppLocker |
 | Web (ASPX) | Minimal ASPX + managed load | Yes | Service account; watch AV detection |
 | Web (command injection) | Short command + downloader fallback | Yes | Watch the length limit |
-| Linux | Custom ELF / shared library | Depends on scenario | Keep the business output and lifetime |
+| Linux | Custom ELF / shared library | Depends | Keep the business output and lifetime |
 
-**Bitness rule**: pin down the target’s architecture before generating any Windows payload. Probing methods are in [01-word-vba-office](/modules/01-word-vba-office) scenario 1; when you are unsure, **prepare both** and select with branching logic.
+If Office bitness is unknown, probe first — see [01-word-vba-office](/modules/01-word-vba-office). If you are still unsure, prepare both architectures and branch.
 
-**Staged vs stageless**: every stage must travel **the same verified-reachable communication path**. If stage one gets through but stage two does not, 90% of the time it is a mismatched address/port/protocol or a different proxy context (see [09-c2-egress-channels](/modules/09-c2-egress-channels)).
+If stage one gets through but stage two does not, 90% of the time it is a mismatched address, port, or protocol, or a different proxy context — see [09-c2-egress-channels](/modules/09-c2-egress-channels). Every stage must travel the same verified-reachable path.
 
----
-
-## 5. Triage order when you are blocked (general decision tree)
+## When the payload is silent
 
 ```
 No reaction from the payload
 ├─ no request in the delivery log → delivery blocked / user never opened → change delivery method (HTTP→SMB→mail attachment)
-├─ request seen, no execution     → payload killed statically → encode/encrypt/change the host form (module M05)
-├─ executed, then exited at once  → bitness mismatch / missing dependency / export mismatch (M01, M04)
-├─ executed, then terminated      → behavior detection → switch to in-process / cross-process implementation (M05 scenario 19)
-├─ stage one up, stage two not    → communication path / proxy context mismatch (M09)
-└─ session up, then drops quickly → host lifetime problem → migrate / persist (M01 scenario 5)
+├─ request seen, no execution     → payload killed statically → encode/encrypt/change the host form (module 05)
+├─ executed, then exited at once  → bitness mismatch / missing dependency / export mismatch (modules 01, 04)
+├─ executed, then terminated      → behavior detection → switch to in-process / cross-process implementation (module 05)
+├─ stage one up, stage two not    → communication path / proxy context mismatch (module 09)
+└─ session up, then drops quickly → host lifetime problem → migrate / persist (module 01)
 ```
 
-**Troubleshooting discipline**: change one variable at a time; after every change, write down “what I changed and what the result was.” The exam scores the process, not luck.
+Change one variable at a time; after every change, write down what you changed and what the result was.
 
----
-
-## 6. Build environment preparation (Kali side)
+## Build tools (Kali)
 
 ```bash
 # Windows cross-compilation (x64 / x86)
@@ -147,11 +135,9 @@ gcc -o loader loader.c -O2
 gcc -shared -fPIC -o libpayload.so libpayload.c -O2
 ```
 
-Compile .NET assemblies with the `csc.exe` already present on the target (more reliable in the exam environment than installing Mono), or pre-compile on your own box with `mcs`/`dotnet` and deliver only the assembly.
+Compile .NET assemblies with the `csc.exe` already present on the target (more reliable in the exam than installing Mono), or pre-compile on your own box with `mcs`/`dotnet` and deliver only the assembly.
 
----
-
-## 8. Related docs
+## Related docs
 
 | Doc | Contents |
 |---|---|

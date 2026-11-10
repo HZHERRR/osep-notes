@@ -2,27 +2,21 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 98 · Exam log and report template
+# Exam log and report template
 
-> OSEP requires a penetration test report, and grading also looks at whether the process is reproducible. **Log as you go** — do not write it up afterwards.
->
-> How to use it: every time you enter a scenario, copy the “per-scenario record template” and paste it into your notes (Obsidian, Notion, or plain text, all fine).
+OSEP requires a penetration test report, and grading also looks at whether the process is reproducible. Log as you go — do not write it up afterwards. Every time you enter a path, copy the per-target record template into your notes (Obsidian, Notion, or plain text, all fine).
 
----
-
-## 1. Running log (the whole exam)
+## Running log (the whole exam)
 
 | Time | Target | Entry | Scenario # | Action | Result | Artifact |
 |---|---|---|---|---|---|---|
 | 09:12 | web01 | ASPX upload | 14 | Upload trimmed ASPX, verify whoami | Success, iis apppool | `loot/web01-whoami.txt` |
-| 09:35 | web01 | same as above | 26 | SeImpersonate → PrintSpoofer | Failed: spooler service stopped | Logged under scenario 26 failure branch |
+| 09:35 | web01 | same as above | 26 | SeImpersonate → PrintSpoofer | Failed: spooler service stopped | Logged under the failure branch |
 | 09:48 | web01 | same as above | 26 | Switch to SigmaPotato, in-memory load | Success, SYSTEM | `loot/web01-system.txt` |
 
-**Discipline**: log a line for every failure too, and write down “why I think it failed + what I try next”. This stretch is the most convincing part of the report.
+Log a line for every failure too, and write down why you think it failed plus what you try next. That stretch is the most convincing part of the report.
 
----
-
-## 2. Per-scenario record template
+## Per-target record template
 
 ```markdown
 ### Scenario N: <title>
@@ -66,9 +60,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 - Fix recommendation (one sentence is enough):
 ```
 
----
-
-## 3. Suggested report structure (per common OSEP requirements)
+## Suggested report structure
 
 ```text
 1. Executive summary
@@ -84,9 +76,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
    - Full command list, script list, credentials and hashes (redacted), timeline
 ```
 
----
-
-## 4. Things that are easy to miss while logging
+## Easy to miss while logging
 
 - [ ] The **complete output** of every command (do not just write “it worked”)
 - [ ] Timestamps (the report timeline needs them)
@@ -95,9 +85,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 - [ ] Where each credential came from (which machine, which file, which dump)
 - [ ] The session’s initial process and user (you will compare against it after migration)
 
----
-
-## 5. How this relates to the other docs
+## Related docs
 
 | Doc | Purpose |
 |---|---|

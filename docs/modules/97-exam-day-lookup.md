@@ -2,15 +2,11 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 97 · Exam day lookup (symptom → scenario → doc)
+# Exam day lookup
 
-> The fastest way to use this on the exam: **read the symptom first, then locate the scenario, then open the matching section of the module doc**.
->
-> Do not flip through all 56 scenarios from the top. The three tables are: by entry, by constraint, by first-hand verification command.
+The fastest way to use this on the exam: read the symptom first, then locate the matching module section. Do not flip through all 56 scenarios from the top. The three tables are: by entry, by constraint, and by first-hand verification command.
 
----
-
-## 1. Locate by entry
+## Locate by entry
 
 | Entry | Scenarios | Module doc |
 |---|---|---|
@@ -55,9 +51,7 @@ For the official OSEP labs/exam, or systems you are written-authorized to test. 
 
 Full constraint list: [scenario map](/scenarios).
 
----
-
-## 2. Locate by constraint (what you hit most on the exam)
+## Locate by constraint
 
 | Symptom you see | Scenarios | First move |
 |---|---|---|
@@ -69,7 +63,7 @@ Full constraint list: [scenario map](/scenarios).
 | PowerShell is in CLM | 7 | Bypass with a custom Runspace |
 | Simple script runs, but adding a .NET bridge gets blocked | 10 | Split stage 2; move the detected content out |
 | Host crashes after the DLL loads | 12 | Check the export table/calling convention; use a proxy DLL that forwards everything |
-| Invite sent, but no authentication arrives | 13 | Check the client version/config; do not assume “received = will authenticate” |
+| Invite sent, but no authentication arrives | 13 | Check that the lure was clicked and Responder is listening; do not assume “received = will authenticate” |
 | Uploaded ASPX/EXE gets flagged | 14, 18, 37 | Trim signatures + encode/encrypt + change the host form |
 | One download tool is blocked, another works | 15 | Rotate in this order: curl → certutil → bitsadmin → PS |
 | Command length limited, complex quoting truncated | 16 | Short stage 1 + split download-and-execute |
@@ -108,15 +102,13 @@ Full constraint list: [scenario map](/scenarios).
 | The CA has an HTTP enrollment endpoint | 55 | ESC8: relay to Web Enrollment |
 | Credentials are valid, but only WinRM is open | 56 | Authentication templates for password/hash/ticket |
 
----
-
-## 3. First-hand verification command card
+## First-hand verification
 
 | What you want to confirm | Command |
 |---|---|
 | Whether the target hit my delivery address | Check `~/osep/logs/http-80.log` / the SMB server output |
 | Whether the macro/script actually ran | Harmless callback: `curl http://LHOST/worked`, `nslookup LHOST`, write a temp file |
-| Office bitness | WMI: check whether the `winword.exe` command line contains `Program Files (x86)` (M01 scenario 1) |
+| Office bitness | WMI: check whether the `winword.exe` command line contains `Program Files (x86)` (module 01) |
 | Current identity and privileges | `whoami /priv`, `whoami /groups` |
 | System and patches | `systeminfo` |
 | Egress capability | Direct `curl -v http://LHOST/`; proxy `curl -x PROXY`; DNS `nslookup x.LHOST` |
@@ -150,12 +142,10 @@ klist
 nc -nvz TARGET 5985
 ```
 
----
+## Order of use (exam day)
 
-## 4. Order of use (5 steps on the exam)
-
-1. **Confirm the entry** → table 1
-2. **Confirm the constraint** → table 2
-3. **Run the first-hand verification** → table 3 (prove delivery worked before you suspect AV)
-4. **Open the “scenario N” section of the module doc** → follow prepare → execute → verify
-5. **Stuck? Go to that section’s “failure branches and alternatives”** → change one variable at a time and log it
+1. Confirm the entry → table 1
+2. Confirm the constraint → table 2
+3. Run the first-hand verification → table 3 (prove delivery worked before you suspect AV)
+4. Open the matching module section → follow the if/then decision and the checklist
+5. If you are stuck, use that section's inline if/then troubleshooting — change one variable at a time and log it

