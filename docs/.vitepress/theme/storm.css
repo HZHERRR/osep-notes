@@ -1412,15 +1412,17 @@ html.dark .vp-doc .storm-action.is-primary {
   border-bottom: none;
 }
 
-/* ---- Task-list checkboxes (plain neutral box) ---- */
+/* ---- Task-list checkboxes (plain neutral box, baseline-aligned) ---- */
 .vp-doc ul.contains-task-list {
   list-style: none;
   padding-left: 0.25rem;
 }
 .vp-doc ul.contains-task-list li.task-list-item {
-  position: relative;
-  padding-left: 1.8rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6em;
   list-style: none;
+  padding-left: 0;
 }
 .vp-doc ul.contains-task-list li.task-list-item::before {
   content: none;
@@ -1428,12 +1430,11 @@ html.dark .vp-doc .storm-action.is-primary {
 .vp-doc .task-list-item-checkbox {
   appearance: none;
   -webkit-appearance: none;
-  position: absolute;
-  left: 0;
-  top: 0.3em;
+  position: relative;
   width: 1em;
   height: 1em;
-  margin: 0;
+  /* center the box on the first text line (line-height ~1.7) */
+  margin: 0.36em 0 0 0;
   border: 1px solid var(--vp-c-text-2);
   border-radius: 3px;
   background: transparent;
