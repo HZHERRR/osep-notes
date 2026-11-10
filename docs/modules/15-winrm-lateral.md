@@ -64,19 +64,21 @@ evil-winrm -i TARGET -u USER -p 'PASS' -s /opt/evil-winrm/scripts
 
 The prompt becomes `*Evil-WinRM* PS C:\...>`. Run `whoami` and `whoami /priv` first. `upload` / `download` travel over the WinRM channel — no SMB.
 
-For Kerberos (no plaintext, or to avoid NTLM logs):
+For Kerberos, use an existing ccache; if you only have credentials, obtain a TGT first with `impacket-getTGT`. Configure the realm/KDC in `/etc/krb5.conf`, use the target FQDN, and keep clocks synchronized:
 
 ```bash
 echo "TARGET-IP  target.dom" >> /etc/hosts
 sudo ntpdate DC_IP || chronyc makestep     # clock skew vs DC < 5 minutes
 impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
 export KRB5CCNAME=$(pwd)/USER.ccache
+evil-winrm -i target.dom -r DOMAIN.REALM    # realm must match /etc/krb5.conf; reads KRB5CCNAME
+# alternative client using the same cache:
 netexec winrm target.dom -d DOMAIN -u USER -k --use-kcache
 ```
 
-<!-- VERIFY: evil-winrm Kerberos support is environment-dependent; prefer a Windows pivot Enter-PSSession -Authentication Kerberos, or netexec -k with KRB5CCNAME, if evil-winrm -r fails. -->
+For evil-winrm, `-r` selects Kerberos; `-k` is an SSL private-key path. The default SPN is `HTTP/target.dom` (override with `--spn` only when needed). DNS, KDC reachability, the cache identity, and target permissions still have to match.
 
-If you have a Windows pivot, skip evil-winrm and use built-in remoting:
+If you have a Windows pivot, use built-in remoting (`Enter-PSSession -ComputerName target.dom -Authentication Kerberos` with the current domain identity), or explicit credentials:
 
 ```powershell
 # single command
@@ -354,6 +356,8 @@ impacket-getTGT 'DOMAIN/USER:PASS' -dc-ip DC_IP
 export KRB5CCNAME=$(pwd)/USER.ccache
 
 # ticket auth (Target must be FQDN)
+evil-winrm -i target.dom -r DOMAIN.REALM    # realm must match /etc/krb5.conf; reads KRB5CCNAME
+# alternative client using the same cache:
 netexec winrm target.dom -d DOMAIN -u USER -k --use-kcache
 ```
 

